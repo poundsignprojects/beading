@@ -34,6 +34,42 @@ body {
   color: #444;
 }
 
+#tool-toggle {
+  display: flex;
+  gap: 0.25rem;
+}
+
+#tool-toggle button[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
+#color-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  padding: 0.5rem 0.75rem;
+  padding-left: calc(0.75rem + env(safe-area-inset-left));
+  padding-right: calc(0.75rem + env(safe-area-inset-right));
+  background: #f8f8f8;
+  border-bottom: 1px solid #ccc;
+}
+
+.color-swatch {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  padding: 0;
+  cursor: pointer;
+}
+
+.color-swatch[aria-pressed="true"] {
+  outline: 2px solid #2c3e50;
+  outline-offset: 2px;
+}
+
 #pattern-canvas {
   flex: 1;
   display: block;

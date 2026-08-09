@@ -17,3 +17,16 @@ export function generatePeyoteGrid({ rows, cols, beadWidthMm, beadHeightMm }) {
   const heightMm = rows * beadHeightMm;
   return { rows, cols, beadWidthMm, beadHeightMm, boundingBoxMm: { widthMm, heightMm } };
 }
+
+// Inverse of peyoteCellOriginMm — hit-tests a world-mm point against the offset-row
+// grid. Row determines the offset (odd rows shift half a bead-width right), so row
+// must be resolved before col can be. Returns null outside the grid's row/col bounds
+// so callers (draw/erase) can no-op instead of writing an out-of-range cell.
+export function peyoteCellAtPoint(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols) {
+  const row = Math.floor(yMm / beadHeightMm);
+  if (row < 0 || row >= rows) return null;
+  const rowOffsetMm = (row % 2 === 1) ? beadWidthMm / 2 : 0;
+  const col = Math.floor((xMm - rowOffsetMm) / beadWidthMm);
+  if (col < 0 || col >= cols) return null;
+  return { row, col };
+}

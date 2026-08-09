@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { peyoteCellOriginMm, generatePeyoteGrid } from '../../grid/peyote.js';
+import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint } from '../../grid/peyote.js';
 
 const BEAD_W = 1.6;
 const BEAD_H = 1.3;
@@ -39,4 +39,35 @@ test('generatePeyoteGrid: passes through rows/cols/bead dimensions unchanged', (
   assert.equal(grid.cols, 4);
   assert.equal(grid.beadWidthMm, BEAD_W);
   assert.equal(grid.beadHeightMm, BEAD_H);
+});
+
+test('peyoteCellAtPoint: round-trips against peyoteCellOriginMm for every cell in a sample grid', () => {
+  const rows = 10;
+  const cols = 10;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const origin = peyoteCellOriginMm(row, col, BEAD_W, BEAD_H);
+      // Nudge toward the cell's center so we're not testing exact-boundary rounding.
+      const point = { xMm: origin.xMm + BEAD_W / 2, yMm: origin.yMm + BEAD_H / 2 };
+      const hit = peyoteCellAtPoint(point.xMm, point.yMm, BEAD_W, BEAD_H, rows, cols);
+      assert.deepEqual(hit, { row, col }, `mismatch at row ${row}, col ${col}`);
+    }
+  }
+});
+
+test('peyoteCellAtPoint: point above/left of the grid returns null', () => {
+  assert.equal(peyoteCellAtPoint(-1, -1, BEAD_W, BEAD_H, 10, 10), null);
+});
+
+test('peyoteCellAtPoint: point past the last row returns null', () => {
+  assert.equal(peyoteCellAtPoint(0, 10 * BEAD_H + 1, BEAD_W, BEAD_H, 10, 10), null);
+});
+
+test('peyoteCellAtPoint: point past the last col on an odd (offset) row returns null', () => {
+  // Odd row's usable x-range is shifted right by BEAD_W / 2, so a point just past
+  // cols * beadWidthMm should fall outside — this is the case the offset math could
+  // silently get wrong if row resolution didn't happen before col resolution.
+  const yMm = 1 * BEAD_H + BEAD_H / 2; // inside row 1 (odd)
+  const xMm = 10 * BEAD_W + BEAD_W / 2 + 0.01;
+  assert.equal(peyoteCellAtPoint(xMm, yMm, BEAD_W, BEAD_H, 10, 10), null);
 });

@@ -1,12 +1,15 @@
 import { BEAD_TYPES } from './src/palette/beadSpecs.js';
+import { COLOR_LIBRARIES } from './src/palette/colorLibrary.js';
 import { generatePeyoteGrid } from './src/grid/peyote.js';
 import { resizeCanvasForDisplay, drawPeyoteGrid } from './src/render/canvasRenderer.js';
-import { attachPanZoom } from './src/interaction/panZoom.js';
+import { attachPointerRouter } from './src/interaction/pointerRouter.js';
 import { formatLength } from './src/units/convert.js';
+
+const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
 
 // Central app state (CLAUDE.md: "one central app-state object; modules read/write
 // through defined functions, not by reaching into each other's internals"). Small
-// enough to stay inline for Phase 1 — extract to /src/state if it grows in Phase 2.
+// enough to stay inline for Phase 2 — extract to /src/state if it grows further.
 const appState = {
   beadTypeKey: 'delica11',
   rows: 20,
@@ -14,6 +17,9 @@ const appState = {
   units: 'mm',
   gridParams: null,
   viewport: { originXmm: 0, originYmm: 0, scalePxPerMm: 10 },
+  tool: 'draw',
+  selectedColorId: COLOR_LIBRARIES.delica11[0].id,
+  cells: new Map(), // row,col -> { colorId } — see src/state/cellStore.js
 };
 
 const canvas = document.getElementById('pattern-canvas');
@@ -26,6 +32,10 @@ const generateButton = document.getElementById('generate');
 const unitToggleButton = document.getElementById('unit-toggle');
 const sizeReadout = document.getElementById('size-readout');
 const resetViewButton = document.getElementById('reset-view');
+const toolDrawButton = document.getElementById('tool-draw');
+const toolEraseButton = document.getElementById('tool-erase');
+const clearButton = document.getElementById('clear-pattern');
+const colorPalette = document.getElementById('color-palette');
 
 let redrawScheduled = false;
 let lastCssSize = { cssWidth: 0, cssHeight: 0 };
@@ -39,9 +49,22 @@ function scheduleRedraw() {
   });
 }
 
+function resolveColor(colorId) {
+  const library = COLOR_LIBRARIES[appState.beadTypeKey];
+  return library.find((swatch) => swatch.id === colorId)?.hex ?? '#ff00ff';
+}
+
 function render() {
   lastCssSize = resizeCanvasForDisplay(canvas, ctx);
-  drawPeyoteGrid(ctx, lastCssSize.cssWidth, lastCssSize.cssHeight, appState.gridParams, appState.viewport);
+  drawPeyoteGrid(
+    ctx,
+    lastCssSize.cssWidth,
+    lastCssSize.cssHeight,
+    appState.gridParams,
+    appState.viewport,
+    appState.cells,
+    resolveColor
+  );
 }
 
 // Centers the grid's bounding box in the canvas at a scale that fits it with margin —
@@ -52,7 +75,7 @@ function fitViewportToGrid() {
   const scale = Math.min(lastCssSize.cssWidth / widthMm, lastCssSize.cssHeight / heightMm) * FIT_MARGIN;
   const paddingXmm = (lastCssSize.cssWidth / scale - widthMm) / 2;
   const paddingYmm = (lastCssSize.cssHeight / scale - heightMm) / 2;
-  // Mutate in place, don't reassign — attachPanZoom closes over this object by
+  // Mutate in place, don't reassign — attachPointerRouter closes over this object by
   // reference, so replacing it would desync interaction from what's rendered.
   Object.assign(appState.viewport, {
     scalePxPerMm: scale,
@@ -68,7 +91,42 @@ function updateSizeReadout() {
   sizeReadout.textContent = `${width} x ${height}`;
 }
 
+function renderColorPalette() {
+  const library = COLOR_LIBRARIES[appState.beadTypeKey];
+  if (!library.some((swatch) => swatch.id === appState.selectedColorId)) {
+    appState.selectedColorId = library[0].id;
+  }
+  colorPalette.replaceChildren(
+    ...library.map((swatch) => {
+      const button = document.createElement('button');
+      button.className = 'color-swatch';
+      button.type = 'button';
+      button.title = swatch.name;
+      button.style.background = swatch.hex;
+      button.setAttribute('aria-pressed', String(swatch.id === appState.selectedColorId));
+      button.addEventListener('click', () => {
+        appState.selectedColorId = swatch.id;
+        appState.tool = 'draw';
+        updateToolButtons();
+        renderColorPalette();
+      });
+      return button;
+    })
+  );
+}
+
+function updateToolButtons() {
+  toolDrawButton.setAttribute('aria-pressed', String(appState.tool === 'draw'));
+  toolEraseButton.setAttribute('aria-pressed', String(appState.tool === 'erase'));
+}
+
+// Regenerating changes the grid geometry underneath any existing cell coordinates
+// (Phase 2 plan: partial pattern migration across a geometry change is out of scope),
+// so this always clears cells — guarded by confirm() when there's something to lose,
+// consistent with prior-app pain point #4 (never lose state silently).
 function regenerateGrid() {
+  if (appState.cells.size > 0 && !window.confirm(CLEAR_CONFIRM_MESSAGE)) return;
+
   const bead = BEAD_TYPES[appState.beadTypeKey];
   appState.rows = Math.max(1, parseInt(rowsInput.value, 10) || 1);
   appState.cols = Math.max(1, parseInt(colsInput.value, 10) || 1);
@@ -78,8 +136,10 @@ function regenerateGrid() {
     beadWidthMm: bead.widthMm,
     beadHeightMm: bead.heightMm,
   });
+  appState.cells.clear();
   fitViewportToGrid();
   updateSizeReadout();
+  renderColorPalette();
   scheduleRedraw();
 }
 
@@ -97,11 +157,34 @@ unitToggleButton.addEventListener('click', () => {
   updateSizeReadout();
 });
 
+toolDrawButton.addEventListener('click', () => {
+  appState.tool = 'draw';
+  updateToolButtons();
+});
+toolEraseButton.addEventListener('click', () => {
+  appState.tool = 'erase';
+  updateToolButtons();
+});
+clearButton.addEventListener('click', () => {
+  if (appState.cells.size === 0) return;
+  if (!window.confirm(CLEAR_CONFIRM_MESSAGE)) return;
+  appState.cells.clear();
+  scheduleRedraw();
+});
+
 window.addEventListener('resize', scheduleRedraw);
 
-attachPanZoom(canvas, appState.viewport, scheduleRedraw);
+attachPointerRouter(canvas, appState.viewport, {
+  getGridParams: () => appState.gridParams,
+  cells: appState.cells,
+  getTool: () => appState.tool,
+  getColorId: () => appState.selectedColorId,
+  onViewportChange: scheduleRedraw,
+  onCellsChanged: scheduleRedraw,
+});
 
 // Populate lastCssSize before the first fitViewportToGrid() call inside
 // regenerateGrid() — it divides by lastCssSize's dimensions.
 lastCssSize = resizeCanvasForDisplay(canvas, ctx);
+updateToolButtons();
 regenerateGrid();

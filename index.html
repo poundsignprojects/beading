@@ -18,7 +18,13 @@
     <button id="unit-toggle">mm / in</button>
     <span id="size-readout"></span>
     <button id="reset-view">Reset View</button>
+    <div id="tool-toggle" role="group" aria-label="Tool">
+      <button id="tool-draw" aria-pressed="true">Draw</button>
+      <button id="tool-erase" aria-pressed="false">Erase</button>
+    </div>
+    <button id="clear-pattern">Clear</button>
   </div>
+  <div id="color-palette" role="group" aria-label="Color"></div>
   <canvas id="pattern-canvas"></canvas>
   <script type="module" src="main.js"></script>
 </body>

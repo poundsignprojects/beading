@@ -32,8 +32,11 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 
 // Draws only the cells whose bounding box intersects the current viewport, so cost
 // scales with what's on screen rather than total pattern size (CLAUDE.md's rationale
-// for canvas over per-bead DOM elements).
-export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport) {
+// for canvas over per-bead DOM elements). `cells` is a Map<"row,col", { colorId }>
+// (see cellStore.js) and `resolveColor` maps a colorId to a paintable hex string —
+// this module stays ignorant of what a "color library" is, it just resolves and
+// paints. Both are optional so Phase 1 callers/tests keep working unchanged.
+export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor) {
   const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
 
   ctx.fillStyle = BACKGROUND_STYLE;
@@ -57,12 +60,15 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport) {
         originMm.yMm + beadHeightMm,
         viewport
       );
-      ctx.strokeRect(
-        topLeft.xPx,
-        topLeft.yPx,
-        bottomRight.xPx - topLeft.xPx,
-        bottomRight.yPx - topLeft.yPx
-      );
+      const widthPx = bottomRight.xPx - topLeft.xPx;
+      const heightPx = bottomRight.yPx - topLeft.yPx;
+
+      const cell = cells?.get(`${row},${col}`);
+      if (cell) {
+        ctx.fillStyle = resolveColor(cell.colorId);
+        ctx.fillRect(topLeft.xPx, topLeft.yPx, widthPx, heightPx);
+      }
+      ctx.strokeRect(topLeft.xPx, topLeft.yPx, widthPx, heightPx);
     }
   }
 }
