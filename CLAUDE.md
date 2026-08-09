@@ -96,4 +96,4 @@ CLAUDE.md        — this file
 
 *(Update this section at the end of each session — what's done, what's in progress, what the next session should pick up.)*
 
-- Status as of last planning session: **Nothing built yet.** This file and the accompanying project brief were just created. Next step is Phase 1.
+- Status as of last planning session: **Still no code written.** Docs reviewed and confirmed consistent. Detailed Phase 1 implementation plan (file breakdown, peyote grid math, canvas rendering approach, pan/zoom interaction, units toggle, build order) written to `.work/phase-1-implementation-plan.md`. Decided to proceed with provisional bead height estimates (not blocking on caliper measurement) and to add Node's built-in `node:test` for pure functions. Next step: execute the build order in that plan, starting with scaffolding `index.html`/`style.css`/`main.js`.
