@@ -45,6 +45,16 @@ body {
   border-color: #333;
 }
 
+#history-controls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+#history-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 #color-palette {
   display: flex;
   flex-wrap: wrap;

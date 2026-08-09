@@ -4,6 +4,7 @@ import { generatePeyoteGrid } from './src/grid/peyote.js';
 import { resizeCanvasForDisplay, drawPeyoteGrid } from './src/render/canvasRenderer.js';
 import { attachPointerRouter } from './src/interaction/pointerRouter.js';
 import { formatLength } from './src/units/convert.js';
+import { createHistory, pushPatch, undo, redo, canUndo, canRedo, clearHistory } from './src/state/historyStore.js';
 
 const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
 
@@ -20,6 +21,7 @@ const appState = {
   tool: 'draw',
   selectedColorId: COLOR_LIBRARIES.delica11[0].id,
   cells: new Map(), // row,col -> { colorId } — see src/state/cellStore.js
+  history: createHistory(),
 };
 
 const canvas = document.getElementById('pattern-canvas');
@@ -36,6 +38,8 @@ const toolDrawButton = document.getElementById('tool-draw');
 const toolEraseButton = document.getElementById('tool-erase');
 const clearButton = document.getElementById('clear-pattern');
 const colorPalette = document.getElementById('color-palette');
+const undoButton = document.getElementById('undo-button');
+const redoButton = document.getElementById('redo-button');
 
 let redrawScheduled = false;
 let lastCssSize = { cssWidth: 0, cssHeight: 0 };
@@ -120,6 +124,11 @@ function updateToolButtons() {
   toolEraseButton.setAttribute('aria-pressed', String(appState.tool === 'erase'));
 }
 
+function updateHistoryButtons() {
+  undoButton.disabled = !canUndo(appState.history);
+  redoButton.disabled = !canRedo(appState.history);
+}
+
 // Regenerating changes the grid geometry underneath any existing cell coordinates
 // (Phase 2 plan: partial pattern migration across a geometry change is out of scope),
 // so this always clears cells — guarded by confirm() when there's something to lose,
@@ -137,6 +146,8 @@ function regenerateGrid() {
     beadHeightMm: bead.heightMm,
   });
   appState.cells.clear();
+  clearHistory(appState.history);
+  updateHistoryButtons();
   fitViewportToGrid();
   updateSizeReadout();
   renderColorPalette();
@@ -169,7 +180,35 @@ clearButton.addEventListener('click', () => {
   if (appState.cells.size === 0) return;
   if (!window.confirm(CLEAR_CONFIRM_MESSAGE)) return;
   appState.cells.clear();
+  clearHistory(appState.history);
+  updateHistoryButtons();
   scheduleRedraw();
+});
+
+undoButton.addEventListener('click', () => {
+  if (undo(appState.history, appState.cells)) {
+    scheduleRedraw();
+    updateHistoryButtons();
+  }
+});
+redoButton.addEventListener('click', () => {
+  if (redo(appState.history, appState.cells)) {
+    scheduleRedraw();
+    updateHistoryButtons();
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  const isTextInput = document.activeElement?.tagName === 'INPUT';
+  if (isTextInput || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+  e.preventDefault();
+  const applied = e.shiftKey
+    ? redo(appState.history, appState.cells)
+    : undo(appState.history, appState.cells);
+  if (applied) {
+    scheduleRedraw();
+    updateHistoryButtons();
+  }
 });
 
 window.addEventListener('resize', scheduleRedraw);
@@ -181,10 +220,14 @@ attachPointerRouter(canvas, appState.viewport, {
   getColorId: () => appState.selectedColorId,
   onViewportChange: scheduleRedraw,
   onCellsChanged: scheduleRedraw,
+  onStrokeCommitted: (patch) => {
+    if (pushPatch(appState.history, patch)) updateHistoryButtons();
+  },
 });
 
 // Populate lastCssSize before the first fitViewportToGrid() call inside
 // regenerateGrid() — it divides by lastCssSize's dimensions.
 lastCssSize = resizeCanvasForDisplay(canvas, ctx);
 updateToolButtons();
+updateHistoryButtons();
 regenerateGrid();

@@ -3,6 +3,7 @@ import { peyoteCellAtPoint } from '../grid/peyote.js';
 import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
 import { interpolatedWorldPoints } from './dragTrace.js';
+import { createStrokePatch, recordCellChange, strokePatchToArray } from '../state/strokePatch.js';
 
 // Don't let a bead render under ~4px (illegible) or the scale balloon past filling
 // most of the viewport on a single bead. Tune once visible on a real device.
@@ -48,11 +49,12 @@ export function attachPointerRouter(canvas, viewport, {
   getColorId,
   onViewportChange,
   onCellsChanged,
+  onStrokeCommitted,
 }) {
   const pointers = new Map(); // pointerId -> { x, y, pointerType }
   let pinchBaseline = null; // { midpoint, distance } in canvas-local px
   let mouseDrag = null; // { x, y } in canvas-local px
-  let drawStroke = null; // { pointerId, lastWorld: { xMm, yMm } } or null
+  let drawStroke = null; // { pointerId, lastWorld: { xMm, yMm }, patch } or null
   let spacePressed = false;
 
   function canvasPoint(e) {
@@ -66,9 +68,10 @@ export function attachPointerRouter(canvas, viewport, {
     );
   }
 
-  // Hit-tests a world-mm point and applies the active tool. Returns whether a cell
-  // actually changed, so the caller only schedules a redraw when needed.
-  function applyToolAtWorld(worldPoint) {
+  // Hit-tests a world-mm point, applies the active tool, and records any change
+  // into the in-progress stroke's patch. Returns whether a cell actually changed,
+  // so the caller only schedules a redraw when needed.
+  function applyToolAtWorld(worldPoint, strokePatch) {
     const gridParams = getGridParams();
     if (!gridParams) return false;
     const hit = peyoteCellAtPoint(
@@ -80,15 +83,29 @@ export function attachPointerRouter(canvas, viewport, {
       gridParams.cols
     );
     if (!hit) return false; // stroke exited the grid bounds — no-op, not an error
-    return getTool() === 'erase'
+    const result = getTool() === 'erase'
       ? applyEraseAtCell(cells, hit.row, hit.col)
       : applyDrawAtCell(cells, hit.row, hit.col, getColorId());
+    if (!result) return false;
+    recordCellChange(strokePatch, result.row, result.col, result.before, result.after);
+    return true;
+  }
+
+  // Both places a stroke can end — a normal pointerup/cancel, and a second finger
+  // landing mid-stroke (which aborts to pan/zoom) — commit whatever was drawn so
+  // far as one undo-able patch, then null out drawStroke.
+  function commitStroke() {
+    if (!drawStroke) return;
+    const patch = strokePatchToArray(drawStroke.patch);
+    if (patch.length > 0) onStrokeCommitted(patch);
+    drawStroke = null;
   }
 
   function startDrawStroke(pointerId, point) {
     const worldPoint = screenToWorld(point.x, point.y, viewport);
-    const changed = applyToolAtWorld(worldPoint);
-    drawStroke = { pointerId, lastWorld: worldPoint };
+    const patch = createStrokePatch();
+    const changed = applyToolAtWorld(worldPoint, patch);
+    drawStroke = { pointerId, lastWorld: worldPoint, patch };
     if (changed) onCellsChanged();
   }
 
@@ -102,7 +119,7 @@ export function attachPointerRouter(canvas, viewport, {
       const points = interpolatedWorldPoints(drawStroke.lastWorld, currentWorld, stepMm);
       let anyChanged = false;
       for (const p of points) {
-        if (applyToolAtWorld(p)) anyChanged = true;
+        if (applyToolAtWorld(p, drawStroke.patch)) anyChanged = true;
       }
       if (anyChanged) onCellsChanged();
     }
@@ -123,7 +140,7 @@ export function attachPointerRouter(canvas, viewport, {
       pinchBaseline = null; // recomputed on next move once both points are known
       const touchCount = touchLikePointers().length;
       if (touchCount >= 2) {
-        drawStroke = null; // second finger landed — hand off to pan/zoom, not a stray bead
+        commitStroke(); // second finger landed — hand off to pan/zoom, not a stray bead
       } else if (touchCount === 1 && !drawStroke) {
         startDrawStroke(e.pointerId, point);
       }
@@ -173,7 +190,7 @@ export function attachPointerRouter(canvas, viewport, {
       canvas.releasePointerCapture(e.pointerId);
     }
     if (drawStroke && drawStroke.pointerId === e.pointerId) {
-      drawStroke = null;
+      commitStroke();
     }
     if (touchLikePointers().length < 2) {
       pinchBaseline = null; // next gesture starts a fresh baseline, no jump

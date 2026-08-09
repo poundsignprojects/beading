@@ -1,9 +1,12 @@
 import { cellKey, clearCell } from '../state/cellStore.js';
 
-// Same shape as drawTool's applyDrawAtCell: mutates in place, returns whether
-// anything changed so a drag re-entering already-empty cells skips a redraw.
+// Same shape as drawTool's applyDrawAtCell: mutates in place, returns the
+// { row, col, before, after: undefined } diff, or null if the cell was already
+// empty (null is falsy, the diff object is truthy — existing truthy/falsy
+// callers keep working unchanged).
 export function applyEraseAtCell(cells, row, col) {
-  if (!cells.has(cellKey(row, col))) return false;
+  const before = cells.get(cellKey(row, col));
+  if (!before) return null;
   clearCell(cells, row, col);
-  return true;
+  return { row, col, before, after: undefined };
 }

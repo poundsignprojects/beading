@@ -39,6 +39,7 @@ One gap: I don't yet have a verified separate height dimension for each bead (Mi
 ### Drawing tools (in priority order — build draw and erase first, the rest can come later)
 - **Draw** — needs two modes: tapping to place a single bead, AND dragging (with finger or Apple Pencil) to draw a continuous line of beads. Both matter, not just one.
 - **Erase**
+- **Undo/redo** — standard history stack for draw/erase actions.
 - **Print/export instructions** — generate a printable pattern (PDF) and a row-by-row word chart, so I can print at home and follow it while beading.
 - *(Lower priority, can come after the above work well:)* Fill (bucket fill of a contiguous region), color replace (swap one color for another across the whole design), cut, copy/paste, mirror (horizontal/vertical).
 - **Photo trace overlay**: I want to be able to show a reference photo behind the grid, with adjustable transparency, so I can trace over it manually. I do **not** need automatic photo-to-pattern conversion (i.e. a wizard that generates a pattern from a photo) — that's out of scope, it's a much bigger feature than I need.
