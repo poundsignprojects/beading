@@ -18,3 +18,15 @@ export function clearCell(cells, row, col) {
 export function getCell(cells, row, col) {
   return cells.get(cellKey(row, col));
 }
+
+// Map <-> plain array, the only place this shape conversion happens. IndexedDB's
+// structured-clone can store a Map directly, but a Map doesn't round-trip through
+// JSON.stringify — storing entries means a future JSON export/import (CLAUDE.md
+// Decision #5) is a data-only change, not a storage-format migration.
+export function cellsToEntries(cells) {
+  return Array.from(cells.entries());
+}
+
+export function entriesToCells(entries) {
+  return new Map(entries);
+}

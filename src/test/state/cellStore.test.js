@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { cellKey, setCell, clearCell, getCell } from '../../state/cellStore.js';
+import { cellKey, setCell, clearCell, getCell, cellsToEntries, entriesToCells } from '../../state/cellStore.js';
 
 test('cellKey: distinct row/col pairs produce distinct keys', () => {
   const seen = new Set();
@@ -42,4 +42,18 @@ test('clearCell: no-op on an already-empty cell', () => {
   const cells = new Map();
   clearCell(cells, 0, 0);
   assert.equal(cells.size, 0);
+});
+
+test('cellsToEntries/entriesToCells: round-trips a populated Map', () => {
+  const cells = new Map();
+  setCell(cells, 0, 0, 'red');
+  setCell(cells, 3, 7, 'blue');
+  setCell(cells, 12, 1, 'green');
+  const roundTripped = entriesToCells(cellsToEntries(cells));
+  assert.deepEqual(roundTripped, cells);
+});
+
+test('cellsToEntries/entriesToCells: round-trips an empty Map', () => {
+  const roundTripped = entriesToCells(cellsToEntries(new Map()));
+  assert.equal(roundTripped.size, 0);
 });

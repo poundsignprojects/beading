@@ -44,7 +44,7 @@ function zoomToAnchor(viewport, anchorWorld, screenPoint, scaleFactor) {
 // can take over cleanly instead of a bead landing under the second finger.
 export function attachPointerRouter(canvas, viewport, {
   getGridParams,
-  cells,
+  getCells,
   getTool,
   getColorId,
   onViewportChange,
@@ -83,6 +83,7 @@ export function attachPointerRouter(canvas, viewport, {
       gridParams.cols
     );
     if (!hit) return false; // stroke exited the grid bounds — no-op, not an error
+    const cells = getCells();
     const result = getTool() === 'erase'
       ? applyEraseAtCell(cells, hit.row, hit.col)
       : applyDrawAtCell(cells, hit.row, hit.col, getColorId());

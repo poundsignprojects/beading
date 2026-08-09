@@ -7,29 +7,42 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div id="controls">
-    <select id="bead-type">
-      <option value="delica11">Delica 11/0</option>
-      <option value="rocaille11">Rocaille 11/0</option>
-    </select>
-    <label>Rows <input id="rows" type="number" value="20" min="1"></label>
-    <label>Cols <input id="cols" type="number" value="20" min="1"></label>
-    <button id="generate">Generate</button>
-    <button id="unit-toggle">mm / in</button>
-    <span id="size-readout"></span>
-    <button id="reset-view">Reset View</button>
-    <div id="tool-toggle" role="group" aria-label="Tool">
-      <button id="tool-draw" aria-pressed="true">Draw</button>
-      <button id="tool-erase" aria-pressed="false">Erase</button>
+  <div id="library-view" hidden>
+    <div id="library-header">
+      <h1>Patterns</h1>
+      <button id="library-new">+ New</button>
     </div>
-    <button id="clear-pattern">Clear</button>
-    <div id="history-controls" role="group" aria-label="History">
-      <button id="undo-button" disabled>Undo</button>
-      <button id="redo-button" disabled>Redo</button>
-    </div>
+    <ul id="library-list"></ul>
+    <p id="library-empty-message" hidden>No patterns yet. Tap "+ New" to start one.</p>
   </div>
-  <div id="color-palette" role="group" aria-label="Color"></div>
-  <canvas id="pattern-canvas"></canvas>
+
+  <div id="editor-view" hidden>
+    <div id="controls">
+      <button id="back-to-library">&larr; Library</button>
+      <select id="bead-type">
+        <option value="delica11">Delica 11/0</option>
+        <option value="rocaille11">Rocaille 11/0</option>
+      </select>
+      <label>Rows <input id="rows" type="number" value="20" min="1"></label>
+      <label>Cols <input id="cols" type="number" value="20" min="1"></label>
+      <button id="generate">Generate</button>
+      <button id="unit-toggle">mm / in</button>
+      <span id="size-readout"></span>
+      <button id="reset-view">Reset View</button>
+      <div id="tool-toggle" role="group" aria-label="Tool">
+        <button id="tool-draw" aria-pressed="true">Draw</button>
+        <button id="tool-erase" aria-pressed="false">Erase</button>
+      </div>
+      <button id="clear-pattern">Clear</button>
+      <div id="history-controls" role="group" aria-label="History">
+        <button id="undo-button" disabled>Undo</button>
+        <button id="redo-button" disabled>Redo</button>
+      </div>
+    </div>
+    <div id="color-palette" role="group" aria-label="Color"></div>
+    <canvas id="pattern-canvas"></canvas>
+  </div>
+
   <script type="module" src="main.js"></script>
 </body>
 </html>

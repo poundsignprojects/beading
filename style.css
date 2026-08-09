@@ -12,6 +12,113 @@ body {
   flex-direction: column;
 }
 
+#library-view,
+#editor-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+#library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.75rem;
+  padding-top: calc(0.75rem + env(safe-area-inset-top));
+  padding-left: calc(0.75rem + env(safe-area-inset-left));
+  padding-right: calc(0.75rem + env(safe-area-inset-right));
+  background: #f2f2f2;
+  border-bottom: 1px solid #ccc;
+}
+
+#library-header h1 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+#library-new {
+  font-size: 1rem;
+  padding: 0.4rem 0.9rem;
+}
+
+#library-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+}
+
+#library-empty-message {
+  color: #777;
+  text-align: center;
+  margin-top: 2rem;
+  padding: 0 1rem;
+}
+
+.library-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.6rem 0.75rem;
+  border-bottom: 1px solid #e2e2e2;
+  background: #fff;
+}
+
+.library-row.dragging {
+  opacity: 0.6;
+  background: #eef4ff;
+}
+
+.library-drag-handle {
+  touch-action: none;
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  color: #999;
+  cursor: grab;
+  padding: 0.25rem 0.4rem;
+}
+
+.library-row-info {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.1rem;
+  background: none;
+  border: none;
+  text-align: left;
+  padding: 0.15rem 0;
+  cursor: pointer;
+  min-width: 0;
+}
+
+.library-row-name {
+  font-size: 1rem;
+  color: #222;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+.library-row-updated {
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.library-row-action {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: #555;
+  padding: 0.35rem;
+  cursor: pointer;
+}
+
 #controls {
   display: flex;
   align-items: center;
