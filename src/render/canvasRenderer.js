@@ -2,9 +2,22 @@ import { peyoteCellOriginMm } from '../grid/peyote.js';
 import { worldToScreen, screenToWorld } from './viewport.js';
 
 const CELL_STROKE_STYLE = '#999';
-const CELL_LINE_WIDTH_PX = 1;
 const BACKGROUND_STYLE = '#fff';
 const VISIBLE_RANGE_PADDING_CELLS = 1;
+const EMPTY_CELL_DOT_STYLE = '#999';
+const EMPTY_CELL_DOT_RADIUS_FRACTION = 0.12; // fraction of the smaller cell dimension
+const EMPTY_CELL_DOT_MIN_RADIUS_PX = 0.5;
+// Each bead's outline is stroked around a rect inset by half the line width, so the
+// stroke's outer edge lands exactly on the cell boundary — neighboring beads' outlines
+// meet there rather than overlapping on a shared centerline. Both the line width and
+// the resulting gap scale with cell size (fraction of the smaller bead dimension), so
+// beads read as thin-outlined at any zoom instead of a fixed-width hairline that looks
+// too thick zoomed out or too thin zoomed in.
+const BEAD_LINE_WIDTH_FRACTION = 0.06; // fraction of the smaller bead dimension
+const BEAD_LINE_WIDTH_MIN_PX = 0.75;
+// Rocailles are round-bodied beads and render with rounded cell corners; Delicas are
+// cylindrical (square-cut sides) and stay sharp-cornered — see beadSpecs.js `shape`.
+const BEAD_CORNER_RADIUS_FRACTION = 0.25; // fraction of the smaller bead dimension
 
 // Syncs the canvas's backing-store resolution to its CSS size * devicePixelRatio
 // (crisp on Retina iPad) and scales the context so all drawing below can use CSS
@@ -36,7 +49,7 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 // (see cellStore.js) and `resolveColor` maps a colorId to a paintable hex string —
 // this module stays ignorant of what a "color library" is, it just resolves and
 // paints. Both are optional so Phase 1 callers/tests keep working unchanged.
-export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor) {
+export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, beadShape = 'cylinder') {
   const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
 
   ctx.fillStyle = BACKGROUND_STYLE;
@@ -49,7 +62,6 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
   const rowRange = visibleIndexRange(topLeftMm.yMm, bottomRightMm.yMm, beadHeightMm, rows);
 
   ctx.strokeStyle = CELL_STROKE_STYLE;
-  ctx.lineWidth = CELL_LINE_WIDTH_PX;
 
   for (let row = rowRange.start; row <= rowRange.end; row++) {
     for (let col = colRange.start; col <= colRange.end; col++) {
@@ -65,10 +77,38 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
 
       const cell = cells?.get(`${row},${col}`);
       if (cell) {
+        const lineWidthPx = Math.max(
+          BEAD_LINE_WIDTH_MIN_PX,
+          Math.min(widthPx, heightPx) * BEAD_LINE_WIDTH_FRACTION
+        );
+        const insetPx = lineWidthPx / 2;
+        const beadX = topLeft.xPx + insetPx;
+        const beadY = topLeft.yPx + insetPx;
+        const beadWidthPx = widthPx - insetPx * 2;
+        const beadHeightPx = heightPx - insetPx * 2;
         ctx.fillStyle = resolveColor(cell.colorId);
-        ctx.fillRect(topLeft.xPx, topLeft.yPx, widthPx, heightPx);
+        ctx.lineWidth = lineWidthPx;
+        ctx.beginPath();
+        if (beadShape === 'round') {
+          const radiusPx = Math.min(beadWidthPx, beadHeightPx) * BEAD_CORNER_RADIUS_FRACTION;
+          ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);
+        } else {
+          ctx.rect(beadX, beadY, beadWidthPx, beadHeightPx);
+        }
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        const centerXPx = topLeft.xPx + widthPx / 2;
+        const centerYPx = topLeft.yPx + heightPx / 2;
+        const radiusPx = Math.max(
+          EMPTY_CELL_DOT_MIN_RADIUS_PX,
+          Math.min(widthPx, heightPx) * EMPTY_CELL_DOT_RADIUS_FRACTION
+        );
+        ctx.fillStyle = EMPTY_CELL_DOT_STYLE;
+        ctx.beginPath();
+        ctx.arc(centerXPx, centerYPx, radiusPx, 0, Math.PI * 2);
+        ctx.fill();
       }
-      ctx.strokeRect(topLeft.xPx, topLeft.yPx, widthPx, heightPx);
     }
   }
 }

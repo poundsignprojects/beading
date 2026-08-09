@@ -10,6 +10,7 @@ export const DELICA_11_0 = {
   widthMm: 1.6, // verified — Miyuki official chart
   heightMm: 1.3, // provisional estimate, unverified
   holeMm: 0.8, // verified — Miyuki official chart
+  shape: 'cylinder', // Delicas are cylindrical — square-cut sides, sharp cell corners
 };
 
 export const ROCAILLE_11_0 = {
@@ -18,6 +19,7 @@ export const ROCAILLE_11_0 = {
   widthMm: 2.0, // verified — Miyuki official chart
   heightMm: 1.4, // provisional estimate, unverified
   holeMm: 0.8, // verified — Miyuki official chart
+  shape: 'round', // Rocailles are round-bodied — render with rounded cell corners
 };
 
 export const BEAD_TYPES = {

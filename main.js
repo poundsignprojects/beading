@@ -67,7 +67,8 @@ function render() {
     appState.gridParams,
     appState.viewport,
     appState.cells,
-    resolveColor
+    resolveColor,
+    BEAD_TYPES[appState.beadTypeKey].shape
   );
 }
 
