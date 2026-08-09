@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Bead Pattern Designer</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="controls">
+    <select id="bead-type">
+      <option value="delica11">Delica 11/0</option>
+      <option value="rocaille11">Rocaille 11/0</option>
+    </select>
+    <label>Rows <input id="rows" type="number" value="20" min="1"></label>
+    <label>Cols <input id="cols" type="number" value="20" min="1"></label>
+    <button id="generate">Generate</button>
+    <button id="unit-toggle">mm / in</button>
+    <span id="size-readout"></span>
+    <button id="reset-view">Reset View</button>
+  </div>
+  <canvas id="pattern-canvas"></canvas>
+  <script type="module" src="main.js"></script>
+</body>
+</html>

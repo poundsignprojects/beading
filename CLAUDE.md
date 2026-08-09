@@ -8,7 +8,7 @@ A custom web app replacing a commercial app called "the prior app" for designing
 
 ## User Context
 
-- Non-professional developer background, but experienced working with AI coding tools (has used Cursor, Cline).
+- Professional web developer background, and experienced working with AI coding tools (has used Cursor, Cline).
 - Primary device for actual use: iPad (with Apple Pencil). Development happens on a Mac laptop.
 - Uses zsh for shell commands.
 - Wants to be asked before large code/content output — explain intent first, then proceed on confirmation. (This applies to chat collaboration generally; use judgment on how it maps to normal Claude Code workflow.)
@@ -96,4 +96,9 @@ CLAUDE.md        — this file
 
 *(Update this section at the end of each session — what's done, what's in progress, what the next session should pick up.)*
 
-- Status as of last planning session: **Still no code written.** Docs reviewed and confirmed consistent. Detailed Phase 1 implementation plan (file breakdown, peyote grid math, canvas rendering approach, pan/zoom interaction, units toggle, build order) written to `.work/phase-1-implementation-plan.md`. Decided to proceed with provisional bead height estimates (not blocking on caliper measurement) and to add Node's built-in `node:test` for pure functions. Next step: execute the build order in that plan, starting with scaffolding `index.html`/`style.css`/`main.js`.
+- Status as of last session: **Phase 1 complete.** Built per `.work/phase-1-implementation-plan.md`'s file breakdown and build order: `beadSpecs.js`, `convert.js`, `peyote.js`, `viewport.js` (all with `node:test` coverage — 17 tests passing), `canvasRenderer.js` (devicePixelRatio-aware, viewport-culled), `panZoom.js` (two-finger touch pinch/pan, mouse-drag pan, trackpad/wheel zoom-to-cursor, single-finger/Pencil left inert for Phase 2), and `main.js` wiring a central `appState` to a minimal test-harness UI (bead type select, rows/cols, generate, unit toggle, reset view).
+  - Verified in headless Chromium (Playwright, driven via synthetic script since no `chromium-cli`/project run-skill existed yet): peyote offset-row stagger renders correctly, Delica/Rocaille proportions differ as expected, mm/in toggle is display-only and doesn't affect stored state, wheel-zoom and synthetic two-finger pinch both zoom-to-anchor correctly, mouse-drag pans, Reset View re-fits, single-finger touch stays inert, 200×300-cell grid (60k cells) generates+redraws in ~140ms via culling, 1×1 grid edge case renders without error.
+  - One bug found and fixed during verification: `panZoom.js`'s `canvas.setPointerCapture()` call was unguarded and threw in an edge case (rapid/synthetic pointer sequences); wrapped in try/catch since capture failing is safe to ignore.
+  - **Not yet verified on physical iPad** — real touch/Pencil gesture feel (anchor stability, no Safari scroll/bounce conflicts, home-screen standalone sizing) still needs hands-on testing per the plan's step 9; Mac-only testing cannot simulate genuine multi-touch.
+  - No project-level run skill existed for this app; recommend `/run-skill-generator` next session to capture the dev-server + Playwright verification loop used here, so future sessions don't re-derive it.
+  - Next step: physical iPad verification of Phase 1, then start Phase 2 (draw + erase, Delica/Rocaille color palettes) per the phase plan.
