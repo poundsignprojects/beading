@@ -281,6 +281,61 @@ body {
   font-weight: 600;
 }
 
+#resize-dialog {
+  border: none;
+  border-radius: 8px;
+  padding: 1rem 1.25rem;
+  max-width: 22rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
+}
+
+#resize-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.35);
+}
+
+#resize-dialog h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.1rem;
+}
+
+#resize-warning {
+  color: #b3261e;
+  font-size: 0.9rem;
+  margin: 0 0 0.75rem;
+}
+
+#resize-dialog fieldset {
+  border: none;
+  padding: 0;
+  margin: 0 0 0.75rem;
+}
+
+#resize-dialog legend {
+  font-size: 0.85rem;
+  color: #444;
+  padding: 0;
+  margin-bottom: 0.3rem;
+}
+
+#resize-dialog fieldset label {
+  display: block;
+  font-size: 0.95rem;
+  padding: 0.15rem 0;
+}
+
+#resize-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+#resize-confirm.destructive {
+  background: #b3261e;
+  color: #fff;
+  border-color: #b3261e;
+}
+
 @media print {
   #library-view,
   #editor-view,

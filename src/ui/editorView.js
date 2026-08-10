@@ -20,7 +20,9 @@ import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
 import { pushPatch, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
+import { resizeCells } from '../state/resizeGrid.js';
 import { mountPrintView } from './printView.js';
+import { promptResizeOptions } from './resizeDialog.js';
 
 const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
 
@@ -179,6 +181,59 @@ export function mountEditorView(appState, hooks) {
     hooks.onImmediateSave();
   }
 
+  // Applies a resolved rows/cols change: remaps existing cells per the chosen
+  // anchors (see resizeGrid.js) instead of discarding them, since — unlike a bead
+  // type change — the stitch structure the cells were drawn against still applies,
+  // just with a different row/col count.
+  function applyResize(newRows, newCols, rowAnchor, colAnchor) {
+    appState.cells = resizeCells(appState.cells, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor);
+    appState.rows = newRows;
+    appState.cols = newCols;
+    rebuildGridParams();
+    clearHistory(appState.history); // old patches reference now-invalid coordinates
+    updateHistoryButtons();
+    fitViewportToGrid();
+    updateSizeReadout();
+    renderColorPalette();
+    scheduleRedraw();
+    hooks.onPreferencesChanged({
+      defaultBeadTypeKey: appState.beadTypeKey,
+      defaultRows: appState.rows,
+      defaultCols: appState.cols,
+    });
+    hooks.onImmediateSave();
+  }
+
+  // Rows/Cols field changes go through here (not regenerateGrid) so existing
+  // beads are preserved by default. Only prompts for which side(s) absorb the
+  // change — and only requires confirmation — when there's a pattern to lose;
+  // an empty design just resizes straight away.
+  async function handleResizeClick() {
+    const newRows = Math.max(1, parseInt(rowsInput.value, 10) || 1);
+    const newCols = Math.max(1, parseInt(colsInput.value, 10) || 1);
+    if (newRows === appState.rows && newCols === appState.cols) return;
+
+    if (appState.cells.size === 0) {
+      applyResize(newRows, newCols, 'start', 'start');
+      return;
+    }
+
+    const result = await promptResizeOptions({
+      cells: appState.cells,
+      oldRows: appState.rows,
+      oldCols: appState.cols,
+      newRows,
+      newCols,
+    });
+    if (!result) {
+      // Cancelled — revert the inputs to the design's actual current size.
+      rowsInput.value = String(appState.rows);
+      colsInput.value = String(appState.cols);
+      return;
+    }
+    applyResize(newRows, newCols, result.rowAnchor, result.colAnchor);
+  }
+
   function handleBeadTypeChange() {
     appState.beadTypeKey = beadTypeSelect.value;
     regenerateGrid();
@@ -238,7 +293,7 @@ export function mountEditorView(appState, hooks) {
   }
 
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
-  generateButton.addEventListener('click', regenerateGrid);
+  generateButton.addEventListener('click', handleResizeClick);
   resetViewButton.addEventListener('click', handleResetView);
   unitToggleButton.addEventListener('click', handleUnitToggle);
   toolDrawButton.addEventListener('click', handleToolDraw);
@@ -281,7 +336,7 @@ export function mountEditorView(appState, hooks) {
 
   function unmount() {
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
-    generateButton.removeEventListener('click', regenerateGrid);
+    generateButton.removeEventListener('click', handleResizeClick);
     resetViewButton.removeEventListener('click', handleResetView);
     unitToggleButton.removeEventListener('click', handleUnitToggle);
     toolDrawButton.removeEventListener('click', handleToolDraw);

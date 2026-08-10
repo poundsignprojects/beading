@@ -25,7 +25,7 @@
       </select>
       <label>Rows <input id="rows" type="number" value="20" min="1"></label>
       <label>Cols <input id="cols" type="number" value="20" min="1"></label>
-      <button id="generate">Generate</button>
+      <button id="generate">Resize</button>
       <button id="unit-toggle">mm / in</button>
       <span id="size-readout"></span>
       <button id="reset-view">Reset View</button>
@@ -43,6 +43,29 @@
     <div id="color-palette" role="group" aria-label="Color"></div>
     <canvas id="pattern-canvas"></canvas>
   </div>
+
+  <dialog id="resize-dialog">
+    <form method="dialog" id="resize-form">
+      <h2>Resize Pattern</h2>
+      <p id="resize-warning" hidden></p>
+      <fieldset id="resize-row-anchor" hidden>
+        <legend>Add/remove rows on</legend>
+        <label><input type="radio" name="row-side" value="right" checked> Right</label>
+        <label><input type="radio" name="row-side" value="left"> Left</label>
+        <label><input type="radio" name="row-side" value="both"> Both sides</label>
+      </fieldset>
+      <fieldset id="resize-col-anchor" hidden>
+        <legend>Add/remove columns on</legend>
+        <label><input type="radio" name="col-side" value="bottom" checked> Bottom</label>
+        <label><input type="radio" name="col-side" value="top"> Top</label>
+        <label><input type="radio" name="col-side" value="both"> Both sides</label>
+      </fieldset>
+      <div id="resize-actions">
+        <button type="button" id="resize-cancel">Cancel</button>
+        <button type="submit" id="resize-confirm">Resize</button>
+      </div>
+    </form>
+  </dialog>
 
   <div id="print-view" hidden>
     <div id="print-toolbar">
