@@ -6,6 +6,8 @@
 import { openDatabase } from './src/storage/db.js';
 import { listDesignsSorted, createDesign, saveDesign, deleteDesign, duplicateDesign } from './src/storage/designStore.js';
 import { getPreferences, savePreferences } from './src/storage/preferencesStore.js';
+import { getPhotoTrace, savePhotoTrace, deletePhotoTrace } from './src/storage/photoTraceStore.js';
+import { listCustomColorsSorted, createCustomColor, saveCustomColor, deleteCustomColor } from './src/storage/customColorStore.js';
 import { debounce } from './src/storage/debounce.js';
 import { createAppState } from './src/state/appState.js';
 import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from './src/state/colorwaySync.js';
@@ -23,6 +25,10 @@ const editorViewEl = document.getElementById('editor-view');
 let libraryController = null;
 let editorController = null;
 let debouncedSave = null; // created per open design, discarded on unmount
+// Separate from debouncedSave: targets photoTraceStore, not designStore, and
+// changes (move/scale/opacity) happen far less often than cell edits — see
+// db.js's comment on the photoTraces store for why it isn't embedded in a design.
+let debouncedPhotoSave = null;
 
 function showLibraryView() {
   appState.view = 'library';
@@ -71,7 +77,77 @@ async function handlePreferencesChanged(patch) {
   await savePreferences(appState.db, appState.preferences);
 }
 
-function openDesign(design) {
+// Custom colors (Phase 8) are scoped per bead type — each of these mutates
+// appState.customColors in place (same pattern handlePreferencesChanged already
+// uses for appState.preferences), and editorView.js re-renders after the
+// returned promise resolves.
+async function handleBeadTypeChanged(beadTypeKey) {
+  appState.customColors = await listCustomColorsSorted(appState.db, beadTypeKey);
+}
+
+async function handleCustomColorAdded({ name, hex }) {
+  const created = await createCustomColor(appState.db, { beadTypeKey: appState.beadTypeKey, name, hex });
+  appState.customColors.push(created);
+}
+
+async function handleCustomColorRenamed(id, name) {
+  const color = appState.customColors.find((c) => c.id === id);
+  if (!color) return;
+  const saved = await saveCustomColor(appState.db, { ...color, name });
+  const idx = appState.customColors.findIndex((c) => c.id === id);
+  appState.customColors[idx] = saved;
+}
+
+async function handleCustomColorDeleted(id) {
+  await deleteCustomColor(appState.db, id);
+  appState.customColors = appState.customColors.filter((c) => c.id !== id);
+}
+
+async function handleCustomColorReordered(id, newOrder) {
+  const color = appState.customColors.find((c) => c.id === id);
+  if (!color) return;
+  const saved = await saveCustomColor(appState.db, { ...color, order: newOrder });
+  const idx = appState.customColors.findIndex((c) => c.id === id);
+  appState.customColors[idx] = saved;
+  appState.customColors.sort((a, b) => a.order - b.order);
+}
+
+// Reads whatever's live in appState.photoTrace right now and writes it to
+// photoTraceStore, keyed by the open design. No-ops if the design has no photo —
+// Remove Photo goes through handlePhotoTraceRemoved (an immediate delete) instead
+// of leaving a stale record here for this to silently skip.
+async function persistPhotoTrace() {
+  if (!appState.currentDesignId || !appState.photoTrace) return;
+  const { blob, opacityPercent, xMm, yMm, widthMm, heightMm } = appState.photoTrace;
+  await savePhotoTrace(appState.db, appState.currentDesignId, { blob, opacityPercent, xMm, yMm, widthMm, heightMm });
+}
+
+async function handlePhotoTraceRemoved() {
+  if (!appState.currentDesignId) return;
+  debouncedPhotoSave?.flush(); // drop any pending save racing with this delete
+  await deletePhotoTrace(appState.db, appState.currentDesignId);
+}
+
+// Kicked off (not awaited) from openDesign so a multi-MB reference photo's decode
+// never blocks the editor's first paint. Guards against the user having already
+// left this design (or the app) by the time a slow decode resolves.
+async function loadPhotoTraceForDesign(designId) {
+  const record = await getPhotoTrace(appState.db, designId);
+  if (!record) return;
+  const image = await createImageBitmap(record.blob);
+  if (!editorController || appState.currentDesignId !== designId) return;
+  editorController.setPhotoTrace({
+    image,
+    blob: record.blob,
+    opacityPercent: record.opacityPercent,
+    xMm: record.xMm,
+    yMm: record.yMm,
+    widthMm: record.widthMm,
+    heightMm: record.heightMm,
+  });
+}
+
+async function openDesign(design) {
   appState.currentDesignId = design.id;
   appState.beadTypeKey = design.beadTypeKey;
   appState.rows = design.rows;
@@ -84,25 +160,43 @@ function openDesign(design) {
   appState.tool = 'draw';
   appState.gridParams = null;
   appState.history = createHistory();
+  appState.selection = null; // coordinates from a previous design's grid don't apply here
+  appState.photoTrace = null; // loaded async below, once the editor is already mounted
+  // Small/fast rows, unlike a multi-MB photo blob — awaited before mount rather
+  // than loaded async afterward like the photo trace below.
+  appState.customColors = await listCustomColorsSorted(appState.db, design.beadTypeKey);
 
   showEditorView();
 
   debouncedSave = debounce(() => { persistCurrentDesign(); }, AUTOSAVE_DEBOUNCE_MS);
+  debouncedPhotoSave = debounce(() => { persistPhotoTrace(); }, AUTOSAVE_DEBOUNCE_MS);
 
   editorController = mountEditorView(appState, {
     onCellsChanged: () => debouncedSave(),
     onImmediateSave: () => { persistCurrentDesign(); },
     onPreferencesChanged: handlePreferencesChanged,
+    onPhotoTraceChanged: () => debouncedPhotoSave(),
+    onPhotoTraceRemoved: () => { handlePhotoTraceRemoved(); },
+    onBeadTypeChanged: handleBeadTypeChanged,
+    onCustomColorAdded: handleCustomColorAdded,
+    onCustomColorRenamed: handleCustomColorRenamed,
+    onCustomColorDeleted: handleCustomColorDeleted,
+    onCustomColorReordered: handleCustomColorReordered,
     onBack: backToLibrary,
   });
+
+  loadPhotoTraceForDesign(design.id);
 }
 
 async function backToLibrary() {
   await persistCurrentDesign();
+  await persistPhotoTrace();
   debouncedSave?.flush(); // cancel/settle any still-pending debounce before unmounting
+  debouncedPhotoSave?.flush();
   editorController.unmount();
   editorController = null;
   debouncedSave = null;
+  debouncedPhotoSave = null;
   appState.currentDesignId = null;
 
   showLibraryView();
@@ -111,7 +205,7 @@ async function backToLibrary() {
 
 async function handleOpen(id) {
   const design = appState.designs.find((d) => d.id === id);
-  if (design) openDesign(design);
+  if (design) await openDesign(design);
 }
 
 async function handleCreate() {
@@ -124,7 +218,7 @@ async function handleCreate() {
   });
   appState.designs.push(design);
   appState.designs.sort((a, b) => a.order - b.order);
-  openDesign(design);
+  await openDesign(design);
 }
 
 async function handleRename(id) {
@@ -166,6 +260,7 @@ async function handleReorder(id, newOrder) {
 // after drawing.
 function flushAutosave() {
   debouncedSave?.flush();
+  debouncedPhotoSave?.flush();
 }
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) flushAutosave();

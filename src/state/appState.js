@@ -5,7 +5,6 @@
 // list, and the current design id, alongside the existing per-design/editor fields
 // carried over from Phase 1–3.
 
-import { COLOR_LIBRARIES } from '../palette/colorLibrary.js';
 import { createHistory } from './historyStore.js';
 
 export function createAppState() {
@@ -25,7 +24,11 @@ export function createAppState() {
     gridParams: null,
     viewport: { originXmm: 0, originYmm: 0, scalePxPerMm: 10 },
     tool: 'draw',
-    selectedColorId: COLOR_LIBRARIES.delica11[0].id,
+    // Phase 8: no static catalog to point to anymore (see src/palette/colorLibrary.js)
+    // — resolved once appState.customColors loads for whichever bead type is open.
+    // null is a real "nothing picked yet" state, not just Phase 6's "unassigned cell".
+    selectedColorId: null,
+    customColors: [], // current beadTypeKey's user-built palette only — see customColorStore.js
     cells: new Map(), // row,col -> { colorId } — materialized *active* colorway, see src/state/cellStore.js
     history: createHistory(),
 
@@ -35,5 +38,14 @@ export function createAppState() {
     // needed, so there's nowhere for a separate copy to drift out of sync.
     colorways: [],
     activeColorwayId: null,
+
+    // Phase 7: editor-session state layered on top of appState.cells — none of
+    // these follow the shared-shape colorway model, and none are part of a
+    // design's saved shape/color data (clipboard and selection aren't persisted
+    // at all; photoTrace persists separately, to its own store — see
+    // src/storage/photoTraceStore.js).
+    selection: null, // { rowStart, rowEnd, colStart, colEnd } (inclusive) or null
+    clipboard: null, // { rows, cols, cells: [[relRow, relCol, colorId], ...] } or null
+    photoTrace: null, // { image, opacityPercent, xMm, yMm, widthMm, heightMm } or null
   };
 }

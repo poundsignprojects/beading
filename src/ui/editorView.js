@@ -10,23 +10,46 @@
 //                            (regenerate, Clear) that should save right away.
 //   onPreferencesChanged(patch) — fired when regenerate or the units toggle
 //                            should update the global preference defaults.
+//   onPhotoTraceChanged() — fired after a photo trace load/move/scale/opacity
+//                            change; main.js debounces the resulting save to
+//                            photoTraceStore (a separate debounce from cells,
+//                            since it targets a different store).
+//   onPhotoTraceRemoved() — fired after Remove Photo; main.js deletes the
+//                            persisted record immediately (not debounced).
+//   onBeadTypeChanged(beadTypeKey) — fired before a bead-type change's own
+//                            regenerateGrid() runs; main.js refreshes
+//                            appState.customColors for the new bead type and
+//                            this module awaits it so the palette that
+//                            regenerateGrid() renders is already correct.
+//   onCustomColorAdded({name, hex}) — fired from the palette's "+" tile;
+//                            main.js persists and pushes onto appState.customColors.
+//   onCustomColorRenamed(id, name) — Manage Colors list rename.
+//   onCustomColorDeleted(id)       — Manage Colors list delete.
+//   onCustomColorReordered(id, newOrder) — Manage Colors list drag-reorder.
 //   onBack()              — fired when "Back to Library" is tapped, after this
 //                            module has finished its own cleanup.
 
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
-import { COLOR_LIBRARIES, UNASSIGNED_SWATCH } from '../palette/colorLibrary.js';
+import { UNASSIGNED_SWATCH } from '../palette/colorLibrary.js';
 import { generatePeyoteGrid } from '../grid/peyote.js';
 import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer.js';
+import { drawSelectionOverlay } from '../render/selectionOverlay.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
 import { pushPatch, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
 import { resizeCells, resizeColorEntries } from '../state/resizeGrid.js';
 import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from '../state/colorwaySync.js';
+import { defaultPhotoPlacement } from '../state/photoTrace.js';
+import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
+import { buildClipboard, applyEraseRegion } from '../tools/cutCopyTool.js';
+import { applyMirror } from '../tools/mirrorTool.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
 
 const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
+const REMOVE_PHOTO_CONFIRM_MESSAGE = 'Remove the reference photo?';
+const DEFAULT_PHOTO_OPACITY_PERCENT = 60;
 
 export function mountEditorView(appState, hooks) {
   const canvas = document.getElementById('pattern-canvas');
@@ -42,8 +65,17 @@ export function mountEditorView(appState, hooks) {
   const resetViewButton = document.getElementById('reset-view');
   const toolDrawButton = document.getElementById('tool-draw');
   const toolEraseButton = document.getElementById('tool-erase');
+  const toolFillButton = document.getElementById('tool-fill');
+  const toolReplaceButton = document.getElementById('tool-replace');
+  const toolSelectButton = document.getElementById('tool-select');
   const clearButton = document.getElementById('clear-pattern');
+  const panelToggleButton = document.getElementById('panel-toggle');
+  const sidePanel = document.getElementById('side-panel');
   const colorPalette = document.getElementById('color-palette');
+  const colorPaletteEmptyMessage = document.getElementById('color-palette-empty');
+  const colorManageToggleButton = document.getElementById('color-manage-toggle');
+  const colorManageList = document.getElementById('color-manage-list');
+  const colorPickerInput = document.getElementById('color-picker-input');
   const undoButton = document.getElementById('undo-button');
   const redoButton = document.getElementById('redo-button');
   const printExportButton = document.getElementById('print-export');
@@ -51,9 +83,23 @@ export function mountEditorView(appState, hooks) {
   const colorwayNewButton = document.getElementById('colorway-new');
   const colorwayRenameButton = document.getElementById('colorway-rename');
   const colorwayDeleteButton = document.getElementById('colorway-delete');
+  const selectionCopyButton = document.getElementById('selection-copy');
+  const selectionCutButton = document.getElementById('selection-cut');
+  const selectionPasteButton = document.getElementById('selection-paste');
+  const selectionMirrorHButton = document.getElementById('selection-mirror-h');
+  const selectionMirrorVButton = document.getElementById('selection-mirror-v');
+  const selectionDeselectButton = document.getElementById('selection-deselect');
+  const photoTraceFileInput = document.getElementById('photo-trace-file');
+  const photoTraceLoadButton = document.getElementById('photo-trace-load');
+  const photoTraceOpacityLabel = document.getElementById('photo-trace-opacity-label');
+  const photoTraceOpacityInput = document.getElementById('photo-trace-opacity');
+  const photoTraceMoveButton = document.getElementById('photo-trace-move');
+  const photoTraceRemoveButton = document.getElementById('photo-trace-remove');
 
   let redrawScheduled = false;
   let lastCssSize = { cssWidth: 0, cssHeight: 0 };
+  let manageMode = false; // Manage Colors list vs. swatch grid — ephemeral UI state, not persisted
+  let colorDrag = null; // { pointerId, rowEl, colorId } or null, mirrors libraryView.js's drag shape
 
   function scheduleRedraw() {
     if (redrawScheduled) return;
@@ -66,8 +112,7 @@ export function mountEditorView(appState, hooks) {
 
   function resolveColor(colorId) {
     if (colorId === null) return UNASSIGNED_SWATCH.hex;
-    const library = COLOR_LIBRARIES[appState.beadTypeKey];
-    return library.find((swatch) => swatch.id === colorId)?.hex ?? '#ff00ff';
+    return appState.customColors.find((swatch) => swatch.id === colorId)?.hex ?? '#ff00ff';
   }
 
   function render() {
@@ -80,8 +125,10 @@ export function mountEditorView(appState, hooks) {
       appState.viewport,
       appState.cells,
       resolveColor,
-      BEAD_TYPES[appState.beadTypeKey].shape
+      BEAD_TYPES[appState.beadTypeKey].shape,
+      appState.photoTrace
     );
+    drawSelectionOverlay(ctx, appState.viewport, appState.gridParams, appState.selection);
   }
 
   // Centers the grid's bounding box in the canvas at a scale that fits it with
@@ -108,13 +155,33 @@ export function mountEditorView(appState, hooks) {
     sizeReadout.textContent = `${width} x ${height}`;
   }
 
+  // Manage mode and the swatch grid share the same panel real estate — only one
+  // is visible at a time (Phase 8 plan's "not two views open at once").
+  function updatePaletteSectionVisibility() {
+    const hasColors = appState.customColors.length > 0;
+    colorPalette.hidden = manageMode;
+    colorPaletteEmptyMessage.hidden = manageMode || hasColors;
+    colorManageList.hidden = !manageMode;
+  }
+
   function renderColorPalette() {
-    const library = COLOR_LIBRARIES[appState.beadTypeKey];
-    if (!library.some((swatch) => swatch.id === appState.selectedColorId)) {
-      appState.selectedColorId = library[0].id;
+    const colors = appState.customColors;
+    if (colors.length === 0) {
+      appState.selectedColorId = null;
+    } else if (!colors.some((swatch) => swatch.id === appState.selectedColorId)) {
+      appState.selectedColorId = colors[0].id;
     }
+
+    const addTile = document.createElement('button');
+    addTile.type = 'button';
+    addTile.className = 'color-swatch-add';
+    addTile.title = 'Add color';
+    addTile.setAttribute('aria-label', 'Add color');
+    addTile.textContent = '+';
+    addTile.addEventListener('click', handleAddColorClick);
+
     colorPalette.replaceChildren(
-      ...library.map((swatch) => {
+      ...colors.map((swatch) => {
         const button = document.createElement('button');
         button.className = 'color-swatch';
         button.type = 'button';
@@ -123,18 +190,77 @@ export function mountEditorView(appState, hooks) {
         button.setAttribute('aria-pressed', String(swatch.id === appState.selectedColorId));
         button.addEventListener('click', () => {
           appState.selectedColorId = swatch.id;
-          appState.tool = 'draw';
+          // Draw/erase treat the palette as an implicit "switch to draw and use
+          // this color" shortcut (unchanged from Phase 2). Fill/Replace/Select/
+          // Paste/Move Photo each have their own reason to keep the palette open
+          // without being kicked back to Draw — Replace in particular needs the
+          // palette purely as a target-color picker while staying on Replace.
+          if (appState.tool === 'draw' || appState.tool === 'erase') {
+            appState.tool = 'draw';
+          }
           updateToolButtons();
           renderColorPalette();
         });
         return button;
-      })
+      }),
+      addTile
     );
+    updatePaletteSectionVisibility();
+  }
+
+  function buildColorManageRow(color) {
+    const row = document.createElement('li');
+    row.className = 'color-manage-row';
+    row.dataset.colorId = color.id;
+
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'color-manage-drag-handle';
+    handle.setAttribute('aria-label', 'Reorder');
+    handle.textContent = '☰';
+
+    const swatch = document.createElement('span');
+    swatch.className = 'color-manage-swatch';
+    swatch.style.background = color.hex;
+
+    const name = document.createElement('span');
+    name.className = 'color-manage-name';
+    name.textContent = color.name;
+
+    const renameButton = document.createElement('button');
+    renameButton.type = 'button';
+    renameButton.className = 'color-manage-action';
+    renameButton.setAttribute('aria-label', 'Rename');
+    renameButton.textContent = '✎';
+    renameButton.addEventListener('click', () => handleColorRename(color.id));
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'color-manage-action';
+    deleteButton.setAttribute('aria-label', 'Delete');
+    deleteButton.textContent = '✖';
+    deleteButton.addEventListener('click', () => handleColorDelete(color.id));
+
+    row.append(handle, swatch, name, renameButton, deleteButton);
+    return row;
+  }
+
+  function renderColorManageList() {
+    colorManageList.replaceChildren(...appState.customColors.map(buildColorManageRow));
+  }
+
+  function setTool(tool) {
+    appState.tool = tool;
+    updateToolButtons();
   }
 
   function updateToolButtons() {
     toolDrawButton.setAttribute('aria-pressed', String(appState.tool === 'draw'));
     toolEraseButton.setAttribute('aria-pressed', String(appState.tool === 'erase'));
+    toolFillButton.setAttribute('aria-pressed', String(appState.tool === 'fill'));
+    toolReplaceButton.setAttribute('aria-pressed', String(appState.tool === 'replace'));
+    toolSelectButton.setAttribute('aria-pressed', String(appState.tool === 'select'));
+    photoTraceMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move-photo'));
   }
 
   function updateHistoryButtons() {
@@ -153,6 +279,35 @@ export function mountEditorView(appState, hooks) {
       })
     );
     colorwayDeleteButton.disabled = appState.colorways.length <= 1;
+  }
+
+  // Copy/Cut/Mirror-H need only a selection; Mirror-V additionally needs an odd
+  // selection height (see the Phase 7 plan's mirror-vertical parity constraint —
+  // reversing row order on an even-height selection would land content on the
+  // wrong physical stagger, not fixable at integer column resolution); Paste
+  // needs a clipboard, independent of any current selection.
+  function updateSelectionButtons() {
+    const selection = appState.selection;
+    const hasSelection = !!selection;
+    const heightEven = hasSelection && (selection.rowEnd - selection.rowStart + 1) % 2 === 0;
+    selectionCopyButton.disabled = !hasSelection;
+    selectionCutButton.disabled = !hasSelection;
+    selectionMirrorHButton.disabled = !hasSelection;
+    selectionMirrorVButton.disabled = !hasSelection || heightEven;
+    selectionMirrorVButton.title = heightEven
+      ? 'Mirror Vertical needs an odd-height selection (even heights would land content on the wrong bead stagger)'
+      : '';
+    selectionPasteButton.disabled = !appState.clipboard;
+    selectionDeselectButton.disabled = !hasSelection;
+  }
+
+  function updatePhotoTraceControls() {
+    const hasPhoto = !!appState.photoTrace;
+    photoTraceOpacityLabel.hidden = !hasPhoto;
+    photoTraceMoveButton.hidden = !hasPhoto;
+    photoTraceRemoveButton.hidden = !hasPhoto;
+    if (hasPhoto) photoTraceOpacityInput.value = String(appState.photoTrace.opacityPercent);
+    if (!hasPhoto && appState.tool === 'move-photo') setTool('draw');
   }
 
   // Clearing/regenerating wipes every colorway's colors, not just the one visible —
@@ -200,8 +355,10 @@ export function mountEditorView(appState, hooks) {
     // A geometry change invalidates every colorway's colors, not just the active
     // one — the colorway list itself (names/count) survives, only contents clear.
     appState.colorways = appState.colorways.map((cw) => ({ ...cw, colorEntries: [] }));
+    appState.selection = null; // coordinates are meaningless against the new geometry
     clearHistory(appState.history);
     updateHistoryButtons();
+    updateSelectionButtons();
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
@@ -231,9 +388,11 @@ export function mountEditorView(appState, hooks) {
     }));
     appState.rows = newRows;
     appState.cols = newCols;
+    appState.selection = null; // coordinates are meaningless against the new geometry
     rebuildGridParams();
     clearHistory(appState.history); // old patches reference now-invalid coordinates
     updateHistoryButtons();
+    updateSelectionButtons();
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
@@ -355,9 +514,89 @@ export function mountEditorView(appState, hooks) {
     hooks.onImmediateSave();
   }
 
-  function handleBeadTypeChange() {
+  async function handleBeadTypeChange() {
     appState.beadTypeKey = beadTypeSelect.value;
+    // Custom colors are scoped per bead type — must be refreshed before
+    // regenerateGrid() renders the palette, or it'd briefly show the old
+    // bead type's colors against the new one.
+    await hooks.onBeadTypeChanged(appState.beadTypeKey);
     regenerateGrid();
+  }
+  function handlePanelToggle() {
+    const collapsed = !sidePanel.hidden;
+    sidePanel.hidden = collapsed;
+    panelToggleButton.setAttribute('aria-pressed', String(!collapsed));
+    scheduleRedraw(); // canvas width just changed; resizeCanvasForDisplay must re-run
+    hooks.onPreferencesChanged({ panelCollapsed: collapsed });
+  }
+  function handleColorManageToggle() {
+    manageMode = !manageMode;
+    colorManageToggleButton.setAttribute('aria-pressed', String(manageMode));
+    if (manageMode) renderColorManageList();
+    updatePaletteSectionVisibility();
+  }
+  function handleAddColorClick() {
+    colorPickerInput.click();
+  }
+  function handleColorPickerChange() {
+    const hex = colorPickerInput.value;
+    const name = window.prompt('Name this color');
+    if (!name || !name.trim()) return;
+    hooks.onCustomColorAdded({ name: name.trim(), hex }).then(() => {
+      renderColorPalette();
+      if (manageMode) renderColorManageList();
+    });
+  }
+  function handleColorRename(id) {
+    const color = appState.customColors.find((c) => c.id === id);
+    if (!color) return;
+    const newName = window.prompt('Rename color', color.name);
+    if (!newName || !newName.trim()) return;
+    hooks.onCustomColorRenamed(id, newName.trim()).then(() => {
+      renderColorPalette();
+      renderColorManageList();
+    });
+  }
+  function handleColorDelete(id) {
+    if (!window.confirm('Delete this color? Beads already using it will show as an unmatched placeholder color.')) return;
+    hooks.onCustomColorDeleted(id).then(() => {
+      renderColorPalette();
+      renderColorManageList();
+      scheduleRedraw();
+    });
+  }
+  function handleColorListPointerDown(e) {
+    const handle = e.target.closest('.color-manage-drag-handle');
+    if (!handle) return;
+    const rowEl = handle.closest('.color-manage-row');
+    if (!rowEl) return;
+    colorDrag = { pointerId: e.pointerId, rowEl, colorId: rowEl.dataset.colorId };
+    colorManageList.setPointerCapture(e.pointerId);
+    rowEl.classList.add('dragging');
+  }
+  function handleColorListPointerMove(e) {
+    if (!colorDrag || e.pointerId !== colorDrag.pointerId) return;
+    const siblings = [...colorManageList.querySelectorAll('.color-manage-row')].filter((r) => r !== colorDrag.rowEl);
+    const target = siblings.find((sibling) => {
+      const rect = sibling.getBoundingClientRect();
+      return e.clientY < rect.top + rect.height / 2;
+    });
+    if (target) colorManageList.insertBefore(colorDrag.rowEl, target);
+    else colorManageList.appendChild(colorDrag.rowEl);
+  }
+  function handleColorListPointerUp(e) {
+    if (!colorDrag || e.pointerId !== colorDrag.pointerId) return;
+    const { rowEl, colorId } = colorDrag;
+    rowEl.classList.remove('dragging');
+    if (colorManageList.hasPointerCapture?.(e.pointerId)) colorManageList.releasePointerCapture(e.pointerId);
+    colorDrag = null;
+
+    const targetIndex = [...colorManageList.querySelectorAll('.color-manage-row')].indexOf(rowEl);
+    const sortedExcludingDragged = appState.customColors.filter((c) => c.id !== colorId);
+    const newOrder = orderForInsertAt(sortedExcludingDragged, targetIndex);
+    hooks.onCustomColorReordered(colorId, newOrder).then(() => {
+      renderColorPalette();
+    });
   }
   function handleResetView() {
     fitViewportToGrid();
@@ -369,12 +608,19 @@ export function mountEditorView(appState, hooks) {
     hooks.onPreferencesChanged({ units: appState.units });
   }
   function handleToolDraw() {
-    appState.tool = 'draw';
-    updateToolButtons();
+    setTool('draw');
   }
   function handleToolErase() {
-    appState.tool = 'erase';
-    updateToolButtons();
+    setTool('erase');
+  }
+  function handleToolFill() {
+    setTool('fill');
+  }
+  function handleToolReplace() {
+    setTool('replace');
+  }
+  function handleToolSelect() {
+    setTool('select');
   }
   function handleClear() {
     if (appState.cells.size === 0) return;
@@ -400,9 +646,54 @@ export function mountEditorView(appState, hooks) {
       hooks.onCellsChanged();
     }
   }
+  function handleCopy() {
+    if (!appState.selection) return;
+    appState.clipboard = buildClipboard(appState.cells, appState.selection);
+    updateSelectionButtons();
+  }
+  function handleCut() {
+    if (!appState.selection) return;
+    appState.clipboard = buildClipboard(appState.cells, appState.selection);
+    const patch = applyEraseRegion(appState.cells, appState.selection);
+    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    updateSelectionButtons();
+    scheduleRedraw();
+    hooks.onCellsChanged();
+  }
+  function handleMirror(axis) {
+    if (!appState.selection) return;
+    const patch = applyMirror(appState.cells, appState.selection, axis);
+    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    scheduleRedraw();
+    hooks.onCellsChanged();
+  }
+  function handleMirrorHorizontal() {
+    handleMirror('horizontal');
+  }
+  function handleMirrorVertical() {
+    handleMirror('vertical');
+  }
+  function handleDeselect() {
+    if (!appState.selection) return;
+    appState.selection = null;
+    updateSelectionButtons();
+    scheduleRedraw();
+  }
+  // Not a persistent toggle in #tool-toggle — clicking Paste directly switches into
+  // stamp mode so a repeated motif can be stamped several times in a row; the user
+  // switches tools normally (Draw, Erase, ...) when done, no auto-revert on tap.
+  function handlePasteButtonClick() {
+    if (!appState.clipboard) return;
+    setTool('paste');
+  }
   function handleKeyDown(e) {
     const isTextInput = document.activeElement?.tagName === 'INPUT';
-    if (isTextInput || !(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
+    if (isTextInput) return;
+    if (e.key === 'Escape') {
+      handleDeselect();
+      return;
+    }
+    if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
     e.preventDefault();
     if (e.shiftKey) handleRedo();
     else handleUndo();
@@ -413,6 +704,52 @@ export function mountEditorView(appState, hooks) {
   function handlePrintExport() {
     mountPrintView(appState);
   }
+  function handlePhotoTraceLoadClick() {
+    photoTraceFileInput.click();
+  }
+  async function handlePhotoTraceFileChange() {
+    const file = photoTraceFileInput.files[0];
+    photoTraceFileInput.value = ''; // allow re-selecting the same file later
+    if (!file) return;
+    const image = await createImageBitmap(file);
+    const placement = defaultPhotoPlacement(image.width, image.height, appState.gridParams.boundingBoxMm);
+    appState.photoTrace = {
+      image,
+      blob: file,
+      opacityPercent: DEFAULT_PHOTO_OPACITY_PERCENT,
+      ...placement,
+    };
+    updatePhotoTraceControls();
+    scheduleRedraw();
+    hooks.onPhotoTraceChanged();
+  }
+  function handlePhotoTraceOpacityInput() {
+    if (!appState.photoTrace) return;
+    appState.photoTrace.opacityPercent = Number(photoTraceOpacityInput.value);
+    scheduleRedraw();
+    hooks.onPhotoTraceChanged();
+  }
+  function handlePhotoTraceMoveToggle() {
+    setTool(appState.tool === 'move-photo' ? 'draw' : 'move-photo');
+  }
+  function handlePhotoTraceRemove() {
+    if (!appState.photoTrace) return;
+    if (!window.confirm(REMOVE_PHOTO_CONFIRM_MESSAGE)) return;
+    appState.photoTrace = null;
+    updatePhotoTraceControls();
+    scheduleRedraw();
+    hooks.onPhotoTraceRemoved();
+  }
+
+  // Called by main.js once an async photo-trace load (kicked off on design open)
+  // resolves — see main.js's loadPhotoTraceForDesign. Kept out of the initial
+  // synchronous mount so opening a design with a multi-MB reference photo doesn't
+  // block the editor's first paint on a decode.
+  function setPhotoTrace(photoTrace) {
+    appState.photoTrace = photoTrace;
+    updatePhotoTraceControls();
+    scheduleRedraw();
+  }
 
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   generateButton.addEventListener('click', handleResizeClick);
@@ -420,7 +757,17 @@ export function mountEditorView(appState, hooks) {
   unitToggleButton.addEventListener('click', handleUnitToggle);
   toolDrawButton.addEventListener('click', handleToolDraw);
   toolEraseButton.addEventListener('click', handleToolErase);
+  toolFillButton.addEventListener('click', handleToolFill);
+  toolReplaceButton.addEventListener('click', handleToolReplace);
+  toolSelectButton.addEventListener('click', handleToolSelect);
   clearButton.addEventListener('click', handleClear);
+  panelToggleButton.addEventListener('click', handlePanelToggle);
+  colorManageToggleButton.addEventListener('click', handleColorManageToggle);
+  colorPickerInput.addEventListener('change', handleColorPickerChange);
+  colorManageList.addEventListener('pointerdown', handleColorListPointerDown);
+  colorManageList.addEventListener('pointermove', handleColorListPointerMove);
+  colorManageList.addEventListener('pointerup', handleColorListPointerUp);
+  colorManageList.addEventListener('pointercancel', handleColorListPointerUp);
   undoButton.addEventListener('click', handleUndo);
   redoButton.addEventListener('click', handleRedo);
   backButton.addEventListener('click', handleBack);
@@ -429,6 +776,17 @@ export function mountEditorView(appState, hooks) {
   colorwayNewButton.addEventListener('click', handleColorwayNew);
   colorwayRenameButton.addEventListener('click', handleColorwayRename);
   colorwayDeleteButton.addEventListener('click', handleColorwayDelete);
+  selectionCopyButton.addEventListener('click', handleCopy);
+  selectionCutButton.addEventListener('click', handleCut);
+  selectionPasteButton.addEventListener('click', handlePasteButtonClick);
+  selectionMirrorHButton.addEventListener('click', handleMirrorHorizontal);
+  selectionMirrorVButton.addEventListener('click', handleMirrorVertical);
+  selectionDeselectButton.addEventListener('click', handleDeselect);
+  photoTraceLoadButton.addEventListener('click', handlePhotoTraceLoadClick);
+  photoTraceFileInput.addEventListener('change', handlePhotoTraceFileChange);
+  photoTraceOpacityInput.addEventListener('input', handlePhotoTraceOpacityInput);
+  photoTraceMoveButton.addEventListener('click', handlePhotoTraceMoveToggle);
+  photoTraceRemoveButton.addEventListener('click', handlePhotoTraceRemove);
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', scheduleRedraw);
 
@@ -437,6 +795,8 @@ export function mountEditorView(appState, hooks) {
     getCells: () => appState.cells,
     getTool: () => appState.tool,
     getColorId: () => appState.selectedColorId,
+    getClipboard: () => appState.clipboard,
+    getPhotoTrace: () => appState.photoTrace,
     onViewportChange: scheduleRedraw,
     onCellsChanged: () => {
       scheduleRedraw();
@@ -444,6 +804,15 @@ export function mountEditorView(appState, hooks) {
     },
     onStrokeCommitted: (patch) => {
       if (pushPatch(appState.history, patch)) updateHistoryButtons();
+    },
+    onSelectionChange: (selection) => {
+      appState.selection = selection;
+      updateSelectionButtons();
+      scheduleRedraw();
+    },
+    onPhotoTraceChange: () => {
+      scheduleRedraw();
+      hooks.onPhotoTraceChanged();
     },
   });
 
@@ -454,10 +823,17 @@ export function mountEditorView(appState, hooks) {
   rowsInput.value = String(appState.rows);
   colsInput.value = String(appState.cols);
 
+  // Set the panel's collapsed state before measuring the canvas below — it
+  // changes the canvas's available width, so it must apply first.
+  sidePanel.hidden = !!appState.preferences.panelCollapsed;
+  panelToggleButton.setAttribute('aria-pressed', String(!sidePanel.hidden));
+
   // Populate lastCssSize before fitViewportToGrid() divides by its dimensions.
   lastCssSize = resizeCanvasForDisplay(canvas, ctx);
   updateToolButtons();
   updateHistoryButtons();
+  updateSelectionButtons();
+  updatePhotoTraceControls();
   deriveGridAndRender();
 
   function unmount() {
@@ -467,7 +843,17 @@ export function mountEditorView(appState, hooks) {
     unitToggleButton.removeEventListener('click', handleUnitToggle);
     toolDrawButton.removeEventListener('click', handleToolDraw);
     toolEraseButton.removeEventListener('click', handleToolErase);
+    toolFillButton.removeEventListener('click', handleToolFill);
+    toolReplaceButton.removeEventListener('click', handleToolReplace);
+    toolSelectButton.removeEventListener('click', handleToolSelect);
     clearButton.removeEventListener('click', handleClear);
+    panelToggleButton.removeEventListener('click', handlePanelToggle);
+    colorManageToggleButton.removeEventListener('click', handleColorManageToggle);
+    colorPickerInput.removeEventListener('change', handleColorPickerChange);
+    colorManageList.removeEventListener('pointerdown', handleColorListPointerDown);
+    colorManageList.removeEventListener('pointermove', handleColorListPointerMove);
+    colorManageList.removeEventListener('pointerup', handleColorListPointerUp);
+    colorManageList.removeEventListener('pointercancel', handleColorListPointerUp);
     undoButton.removeEventListener('click', handleUndo);
     redoButton.removeEventListener('click', handleRedo);
     backButton.removeEventListener('click', handleBack);
@@ -476,10 +862,21 @@ export function mountEditorView(appState, hooks) {
     colorwayNewButton.removeEventListener('click', handleColorwayNew);
     colorwayRenameButton.removeEventListener('click', handleColorwayRename);
     colorwayDeleteButton.removeEventListener('click', handleColorwayDelete);
+    selectionCopyButton.removeEventListener('click', handleCopy);
+    selectionCutButton.removeEventListener('click', handleCut);
+    selectionPasteButton.removeEventListener('click', handlePasteButtonClick);
+    selectionMirrorHButton.removeEventListener('click', handleMirrorHorizontal);
+    selectionMirrorVButton.removeEventListener('click', handleMirrorVertical);
+    selectionDeselectButton.removeEventListener('click', handleDeselect);
+    photoTraceLoadButton.removeEventListener('click', handlePhotoTraceLoadClick);
+    photoTraceFileInput.removeEventListener('change', handlePhotoTraceFileChange);
+    photoTraceOpacityInput.removeEventListener('input', handlePhotoTraceOpacityInput);
+    photoTraceMoveButton.removeEventListener('click', handlePhotoTraceMoveToggle);
+    photoTraceRemoveButton.removeEventListener('click', handlePhotoTraceRemove);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('resize', scheduleRedraw);
     detachPointerRouter();
   }
 
-  return { unmount };
+  return { unmount, setPhotoTrace };
 }

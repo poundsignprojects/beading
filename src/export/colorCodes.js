@@ -1,8 +1,7 @@
 // Spreadsheet-column-style codes (A, B, ..., Z, AA, AB, ...) for the printed word
 // chart and legend, assigned only to colors actually used in the pattern so a
-// printout stays compact regardless of what the underlying colorId looks like
-// (see .work/phase-5-implementation-plan.md — COLOR_LIBRARIES ids are placeholder
-// data today and may get longer once real Miyuki catalog numbers land).
+// printout stays compact regardless of what the underlying colorId (a generated
+// custom-color id — see src/storage/customColorStore.js) looks like.
 
 const ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
 

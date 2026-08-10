@@ -17,7 +17,7 @@
   </div>
 
   <div id="editor-view" hidden>
-    <div id="controls">
+    <div id="top-bar">
       <button id="back-to-library">&larr; Library</button>
       <select id="bead-type">
         <option value="delica11">Delica 11/0</option>
@@ -29,25 +29,67 @@
       <button id="unit-toggle">mm / in</button>
       <span id="size-readout"></span>
       <button id="reset-view">Reset View</button>
-      <div id="tool-toggle" role="group" aria-label="Tool">
-        <button id="tool-draw" aria-pressed="true">Draw</button>
-        <button id="tool-erase" aria-pressed="false">Erase</button>
-      </div>
-      <button id="clear-pattern">Clear</button>
       <div id="history-controls" role="group" aria-label="History">
         <button id="undo-button" disabled>Undo</button>
         <button id="redo-button" disabled>Redo</button>
       </div>
-      <div id="colorway-controls" role="group" aria-label="Colorway">
-        <select id="colorway-select"></select>
-        <button id="colorway-new" title="New colorway">+</button>
-        <button id="colorway-rename" title="Rename colorway">Rename</button>
-        <button id="colorway-delete" title="Delete colorway">Delete</button>
-      </div>
       <button id="print-export">Print / Export</button>
+      <button id="panel-toggle" aria-pressed="true">Panel</button>
     </div>
-    <div id="color-palette" role="group" aria-label="Color"></div>
-    <canvas id="pattern-canvas"></canvas>
+    <div id="editor-body">
+      <div id="tool-rail" role="group" aria-label="Tools">
+        <div id="tool-toggle" role="group" aria-label="Tool">
+          <button id="tool-draw" aria-pressed="true">Draw</button>
+          <button id="tool-erase" aria-pressed="false">Erase</button>
+          <button id="tool-fill" aria-pressed="false">Fill</button>
+          <button id="tool-replace" aria-pressed="false">Replace</button>
+          <button id="tool-select" aria-pressed="false">Select</button>
+        </div>
+        <div id="selection-controls" role="group" aria-label="Selection">
+          <button id="selection-copy" disabled>Copy</button>
+          <button id="selection-cut" disabled>Cut</button>
+          <button id="selection-paste" disabled>Paste</button>
+          <button id="selection-mirror-h" disabled>Mirror &harr;</button>
+          <button id="selection-mirror-v" disabled>Mirror &updownarrow;</button>
+          <button id="selection-deselect" disabled title="Deselect (Esc)">Deselect</button>
+        </div>
+        <button id="clear-pattern">Clear</button>
+      </div>
+      <canvas id="pattern-canvas"></canvas>
+      <div id="side-panel">
+        <section id="palette-section" aria-label="Color palette">
+          <div id="palette-section-header">
+            <h2>Colors</h2>
+            <button id="color-manage-toggle" type="button" aria-pressed="false">Manage</button>
+          </div>
+          <div id="color-palette" role="group" aria-label="Color"></div>
+          <p id="color-palette-empty" hidden>No colors yet — tap + to add one.</p>
+          <input type="color" id="color-picker-input" hidden>
+          <ul id="color-manage-list" hidden></ul>
+        </section>
+        <section id="colorway-section" aria-label="Colorway">
+          <h2>Colorway</h2>
+          <div id="colorway-controls" role="group" aria-label="Colorway">
+            <select id="colorway-select"></select>
+            <button id="colorway-new" title="New colorway">+</button>
+            <button id="colorway-rename" title="Rename colorway">Rename</button>
+            <button id="colorway-delete" title="Delete colorway">Delete</button>
+          </div>
+        </section>
+        <section id="photo-trace-section" aria-label="Photo trace">
+          <h2>Photo Trace</h2>
+          <div id="photo-trace-controls" role="group" aria-label="Photo trace">
+            <input type="file" id="photo-trace-file" accept="image/*" hidden>
+            <button id="photo-trace-load">Load Photo</button>
+            <label id="photo-trace-opacity-label" hidden>Opacity
+              <input id="photo-trace-opacity" type="range" min="0" max="100" value="60">
+            </label>
+            <button id="photo-trace-move" aria-pressed="false" hidden>Move Photo</button>
+            <button id="photo-trace-remove" hidden>Remove Photo</button>
+          </div>
+        </section>
+      </div>
+    </div>
   </div>
 
   <dialog id="resize-dialog">

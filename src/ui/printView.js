@@ -4,14 +4,12 @@
 // closing it just hides the overlay again, no re-mount of the editor.
 
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
-import { COLOR_LIBRARIES } from '../palette/colorLibrary.js';
 import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
 
-function resolveSwatch(beadTypeKey, colorId) {
-  const library = COLOR_LIBRARIES[beadTypeKey];
-  return library.find((swatch) => swatch.id === colorId);
+function resolveSwatch(customColors, colorId) {
+  return customColors.find((swatch) => swatch.id === colorId);
 }
 
 function buildHeader(appState, designName) {
@@ -34,7 +32,7 @@ function buildHeader(appState, designName) {
   return header;
 }
 
-function buildMaterials(chart, codes, beadTypeKey) {
+function buildMaterials(chart, codes, customColors) {
   const section = document.createElement('section');
   section.id = 'print-materials';
 
@@ -64,7 +62,7 @@ function buildMaterials(chart, codes, beadTypeKey) {
 
   const tbody = document.createElement('tbody');
   for (const { colorId, count } of chart.colorCounts) {
-    const swatch = resolveSwatch(beadTypeKey, colorId);
+    const swatch = resolveSwatch(customColors, colorId);
     const row = document.createElement('tr');
 
     const codeCell = document.createElement('td');
@@ -136,7 +134,7 @@ export function mountPrintView(appState) {
 
   contentEl.replaceChildren(
     buildHeader(appState, designName),
-    buildMaterials(chart, codes, appState.beadTypeKey),
+    buildMaterials(chart, codes, appState.customColors),
     buildChart(chart, codes)
   );
 

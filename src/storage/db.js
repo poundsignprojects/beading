@@ -2,7 +2,7 @@
 // designStore.js/preferencesStore.js are the shape-specific layers on top.
 
 const DB_NAME = 'bead-pattern-designer';
-const DB_VERSION = 1;
+const DB_VERSION = 3;
 
 export function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -11,6 +11,15 @@ export function openDatabase() {
       const db = request.result;
       if (!db.objectStoreNames.contains('designs')) db.createObjectStore('designs', { keyPath: 'id' });
       if (!db.objectStoreNames.contains('preferences')) db.createObjectStore('preferences', { keyPath: 'id' });
+      // Its own store, not embedded in a design record: a design is rewritten on
+      // every debounced autosave while drawing, and a photo trace's image Blob can
+      // be several MB — position/opacity change far less often than cell data does,
+      // so keeping this separate avoids re-serializing the blob on every cell edit.
+      if (!db.objectStoreNames.contains('photoTraces')) db.createObjectStore('photoTraces', { keyPath: 'designId' });
+      // Phase 8: user-built palette, scoped per bead type (see customColorStore.js)
+      // rather than one global list — a Delica and a Rocaille aren't interchangeable
+      // even painted the same color.
+      if (!db.objectStoreNames.contains('customColors')) db.createObjectStore('customColors', { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);

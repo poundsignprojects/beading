@@ -13,6 +13,7 @@ const DEFAULT_PREFERENCES = {
   defaultBeadTypeKey: 'delica11',
   defaultRows: 20,
   defaultCols: 20,
+  panelCollapsed: false,
 };
 
 export async function getPreferences(db) {

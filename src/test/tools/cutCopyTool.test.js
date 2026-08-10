@@ -1,0 +1,56 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { buildClipboard, applyEraseRegion, applyPaste } from '../../tools/cutCopyTool.js';
+import { setCell } from '../../state/cellStore.js';
+
+test('buildClipboard: mixed occupied/absent selection produces relative coords, omits absent', () => {
+  const cells = new Map();
+  setCell(cells, 5, 5, 'red');
+  setCell(cells, 6, 6, 'blue');
+  // (5,6) and (6,5) left absent within the 2x2 selection.
+  const clipboard = buildClipboard(cells, { rowStart: 5, rowEnd: 6, colStart: 5, colEnd: 6 });
+  assert.equal(clipboard.rows, 2);
+  assert.equal(clipboard.cols, 2);
+  const sorted = [...clipboard.cells].sort();
+  assert.deepEqual(sorted, [[0, 0, 'red'], [1, 1, 'blue']].sort());
+});
+
+test('buildClipboard -> applyPaste round-trip at the same anchor reproduces the region', () => {
+  const cells = new Map();
+  setCell(cells, 5, 5, 'red');
+  setCell(cells, 6, 6, 'blue');
+  const selection = { rowStart: 5, rowEnd: 6, colStart: 5, colEnd: 6 };
+  const clipboard = buildClipboard(cells, selection);
+
+  const target = new Map();
+  applyPaste(target, clipboard, 5, 5, 20, 20);
+  assert.equal(target.get('5,5').colorId, 'red');
+  assert.equal(target.get('6,6').colorId, 'blue');
+  assert.equal(target.size, 2);
+});
+
+test('applyPaste: clips entries landing outside grid bounds without shifting the rest', () => {
+  const clipboard = { rows: 2, cols: 2, cells: [[0, 0, 'red'], [1, 1, 'blue']] };
+  const target = new Map();
+  // Anchor so (1,1) relative lands at row 5 (out of a 5-row grid, valid rows 0-4).
+  const patch = applyPaste(target, clipboard, 4, 0, 5, 5);
+  assert.equal(target.get('4,0').colorId, 'red');
+  assert.equal(target.has('5,1'), false);
+  assert.equal(patch.length, 1);
+});
+
+test('applyEraseRegion: only touches occupied cells within bounds, patch matches fixture', () => {
+  const cells = new Map();
+  setCell(cells, 0, 0, 'red');
+  setCell(cells, 1, 1, 'blue');
+  setCell(cells, 9, 9, 'green'); // outside selection, must survive
+  const patch = applyEraseRegion(cells, { rowStart: 0, rowEnd: 1, colStart: 0, colEnd: 1 });
+  const sorted = patch.slice().sort((a, b) => a.row - b.row);
+  assert.deepEqual(sorted, [
+    { row: 0, col: 0, before: { colorId: 'red' }, after: undefined },
+    { row: 1, col: 1, before: { colorId: 'blue' }, after: undefined },
+  ]);
+  assert.equal(cells.has('0,0'), false);
+  assert.equal(cells.has('1,1'), false);
+  assert.equal(cells.get('9,9').colorId, 'green');
+});

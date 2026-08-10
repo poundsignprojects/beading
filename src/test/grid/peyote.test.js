@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint } from '../../grid/peyote.js';
+import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint, peyoteCellAtPointClamped, peyoteNeighbors } from '../../grid/peyote.js';
 
 const BEAD_W = 1.6;
 const BEAD_H = 1.3;
@@ -70,4 +70,62 @@ test('peyoteCellAtPoint: point past the last col on an odd (offset) row returns 
   const xMm = 1 * BEAD_H + BEAD_H / 2; // inside row 1 (odd)
   const yMm = 10 * BEAD_W + BEAD_W / 2 + 0.01;
   assert.equal(peyoteCellAtPoint(xMm, yMm, BEAD_W, BEAD_H, 10, 10), null);
+});
+
+test('peyoteCellAtPointClamped: matches peyoteCellAtPoint for an in-bounds point', () => {
+  const origin = peyoteCellOriginMm(3, 4, BEAD_W, BEAD_H);
+  const point = { xMm: origin.xMm + BEAD_H / 2, yMm: origin.yMm + BEAD_W / 2 };
+  assert.deepEqual(
+    peyoteCellAtPointClamped(point.xMm, point.yMm, BEAD_W, BEAD_H, 10, 10),
+    { row: 3, col: 4 }
+  );
+});
+
+test('peyoteCellAtPointClamped: point above/left of the grid clamps to (0, 0)', () => {
+  assert.deepEqual(peyoteCellAtPointClamped(-5, -5, BEAD_W, BEAD_H, 10, 10), { row: 0, col: 0 });
+});
+
+test('peyoteCellAtPointClamped: point past the last row/col clamps to (rows-1, cols-1)', () => {
+  assert.deepEqual(
+    peyoteCellAtPointClamped(100 * BEAD_H, 100 * BEAD_W, BEAD_W, BEAD_H, 10, 10),
+    { row: 9, col: 9 }
+  );
+});
+
+test('peyoteNeighbors: even row uses col-1/col in adjacent rows', () => {
+  const neighbors = peyoteNeighbors(2, 3);
+  assert.deepEqual(
+    neighbors.map(String).sort(),
+    [[2, 2], [2, 4], [1, 2], [1, 3], [3, 2], [3, 3]].map(String).sort()
+  );
+});
+
+test('peyoteNeighbors: odd row uses col/col+1 in adjacent rows', () => {
+  const neighbors = peyoteNeighbors(1, 3);
+  assert.deepEqual(
+    neighbors.map(String).sort(),
+    [[1, 2], [1, 4], [0, 3], [0, 4], [2, 3], [2, 4]].map(String).sort()
+  );
+});
+
+test('peyoteNeighbors: returns exactly six cells with no duplicates', () => {
+  for (const [row, col] of [[0, 0], [1, 0], [5, 5], [4, 7]]) {
+    const neighbors = peyoteNeighbors(row, col);
+    assert.equal(neighbors.length, 6);
+    assert.equal(new Set(neighbors.map(String)).size, 6);
+  }
+});
+
+test('peyoteNeighbors: adjacency is symmetric across a sample grid', () => {
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 6; col++) {
+      for (const [nRow, nCol] of peyoteNeighbors(row, col)) {
+        const back = peyoteNeighbors(nRow, nCol).map(String);
+        assert.ok(
+          back.includes(String([row, col])),
+          `(${nRow},${nCol})'s neighbors should include (${row},${col})`
+        );
+      }
+    }
+  }
 });

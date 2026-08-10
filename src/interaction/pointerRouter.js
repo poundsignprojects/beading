@@ -1,7 +1,12 @@
 import { screenToWorld } from '../render/viewport.js';
-import { peyoteCellAtPoint } from '../grid/peyote.js';
+import { peyoteCellAtPoint, peyoteCellAtPointClamped } from '../grid/peyote.js';
+import { cellKey } from '../state/cellStore.js';
 import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
+import { applyFill } from '../tools/fillTool.js';
+import { applyColorReplace } from '../tools/colorReplaceTool.js';
+import { applyPaste } from '../tools/cutCopyTool.js';
+import { scalePhotoToAnchor } from '../state/photoTrace.js';
 import { interpolatedWorldPoints } from './dragTrace.js';
 import { createStrokePatch, recordCellChange, strokePatchToArray } from '../state/strokePatch.js';
 
@@ -10,6 +15,21 @@ import { createStrokePatch, recordCellChange, strokePatchToArray } from '../stat
 const MIN_SCALE_PX_PER_MM = 1;
 const MAX_SCALE_PX_PER_MM = 150;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+
+// draw/erase: continuous drag, interpolated between move events (unchanged from
+// Phase 2). fill/replace/paste: one action per pointerdown, no interpolation — a
+// flood fill or a paste stamp only makes sense at the tapped cell.
+const STROKE_TOOLS = new Set(['draw', 'erase']);
+const DISCRETE_TOOLS = new Set(['fill', 'replace', 'paste']);
+
+function normalizeSelection(a, b) {
+  return {
+    rowStart: Math.min(a.row, b.row),
+    rowEnd: Math.max(a.row, b.row),
+    colStart: Math.min(a.col, b.col),
+    colEnd: Math.max(a.col, b.col),
+  };
+}
 
 function clampScale(scale) {
   return Math.min(MAX_SCALE_PX_PER_MM, Math.max(MIN_SCALE_PX_PER_MM, scale));
@@ -47,14 +67,20 @@ export function attachPointerRouter(canvas, viewport, {
   getCells,
   getTool,
   getColorId,
+  getClipboard,
+  getPhotoTrace,
   onViewportChange,
   onCellsChanged,
   onStrokeCommitted,
+  onSelectionChange,
+  onPhotoTraceChange,
 }) {
   const pointers = new Map(); // pointerId -> { x, y, pointerType }
   let pinchBaseline = null; // { midpoint, distance } in canvas-local px
   let mouseDrag = null; // { x, y } in canvas-local px
   let drawStroke = null; // { pointerId, lastWorld: { xMm, yMm }, patch } or null
+  let selectionDrag = null; // { pointerId, startRow, startCol } or null
+  let photoDrag = null; // { pointerId, x, y } in canvas-local px, or null
   let spacePressed = false;
 
   function canvasPoint(e) {
@@ -102,6 +128,109 @@ export function attachPointerRouter(canvas, viewport, {
     drawStroke = null;
   }
 
+  // One-shot action for fill/replace/paste: hit-tests the tapped cell, applies the
+  // active discrete tool, and commits the result as a single undo-able patch via
+  // the same onStrokeCommitted path draw/erase strokes already use.
+  function performDiscreteAction(point) {
+    const worldPoint = screenToWorld(point.x, point.y, viewport);
+    const gridParams = getGridParams();
+    if (!gridParams) return;
+    const hit = peyoteCellAtPoint(
+      worldPoint.xMm,
+      worldPoint.yMm,
+      gridParams.beadWidthMm,
+      gridParams.beadHeightMm,
+      gridParams.rows,
+      gridParams.cols
+    );
+    if (!hit) return;
+    const cells = getCells();
+    const tool = getTool();
+    let patch;
+    if (tool === 'fill') {
+      patch = applyFill(cells, hit.row, hit.col, getColorId(), gridParams.rows, gridParams.cols);
+    } else if (tool === 'replace') {
+      const source = cells.get(cellKey(hit.row, hit.col));
+      if (!source) return; // tapped an empty cell — nothing to replace
+      patch = applyColorReplace(cells, source.colorId, getColorId());
+    } else if (tool === 'paste') {
+      const clipboard = getClipboard();
+      if (!clipboard) return; // shouldn't be reachable (paste tool only selectable with a clipboard)
+      patch = applyPaste(cells, clipboard, hit.row, hit.col, gridParams.rows, gridParams.cols);
+    }
+    if (patch && patch.length > 0) {
+      onCellsChanged();
+      onStrokeCommitted(patch);
+    }
+  }
+
+  function clampedHit(point) {
+    const gridParams = getGridParams();
+    if (!gridParams) return null;
+    const worldPoint = screenToWorld(point.x, point.y, viewport);
+    return peyoteCellAtPointClamped(
+      worldPoint.xMm,
+      worldPoint.yMm,
+      gridParams.beadWidthMm,
+      gridParams.beadHeightMm,
+      gridParams.rows,
+      gridParams.cols
+    );
+  }
+
+  function startSelectionDrag(pointerId, point) {
+    const hit = clampedHit(point);
+    if (!hit) return;
+    selectionDrag = { pointerId, startRow: hit.row, startCol: hit.col };
+    onSelectionChange(normalizeSelection(hit, hit));
+  }
+
+  function continueSelectionDrag(point) {
+    const hit = clampedHit(point);
+    if (!hit) return;
+    onSelectionChange(normalizeSelection({ row: selectionDrag.startRow, col: selectionDrag.startCol }, hit));
+  }
+
+  // Single-pointer drag while the 'move-photo' tool is active translates the photo
+  // trace overlay directly (not the viewport) — never touches appState.cells, so
+  // it's deliberately not undo-tracked (see the Phase 7 plan's photo trace section).
+  function startPhotoDrag(pointerId, point) {
+    if (!getPhotoTrace()) return;
+    photoDrag = { pointerId, x: point.x, y: point.y };
+  }
+
+  function continuePhotoDrag(point) {
+    const photoTrace = getPhotoTrace();
+    if (!photoTrace) {
+      photoDrag = null;
+      return;
+    }
+    const dxPx = point.x - photoDrag.x;
+    const dyPx = point.y - photoDrag.y;
+    photoTrace.xMm += dxPx / viewport.scalePxPerMm;
+    photoTrace.yMm += dyPx / viewport.scalePxPerMm;
+    photoDrag = { pointerId: photoDrag.pointerId, x: point.x, y: point.y };
+    onPhotoTraceChange();
+  }
+
+  // Routes a single-touch/pen tap or a mouse-left-drag start by the currently
+  // active tool. draw/erase keep the existing continuous-stroke path; fill/
+  // replace/paste fire once and don't set drawStroke (so handlePointerMove's
+  // stroke branch never matches for them); select starts a marquee drag;
+  // move-photo starts a photo-translate drag.
+  function handleSingleInteractionStart(pointerId, point) {
+    const tool = getTool();
+    if (STROKE_TOOLS.has(tool)) {
+      if (!drawStroke) startDrawStroke(pointerId, point);
+    } else if (DISCRETE_TOOLS.has(tool)) {
+      performDiscreteAction(point);
+    } else if (tool === 'select') {
+      startSelectionDrag(pointerId, point);
+    } else if (tool === 'move-photo') {
+      startPhotoDrag(pointerId, point);
+    }
+  }
+
   function startDrawStroke(pointerId, point) {
     const worldPoint = screenToWorld(point.x, point.y, viewport);
     const patch = createStrokePatch();
@@ -142,14 +271,16 @@ export function attachPointerRouter(canvas, viewport, {
       const touchCount = touchLikePointers().length;
       if (touchCount >= 2) {
         commitStroke(); // second finger landed — hand off to pan/zoom, not a stray bead
-      } else if (touchCount === 1 && !drawStroke) {
-        startDrawStroke(e.pointerId, point);
+        selectionDrag = null; // last onSelectionChange already left the selection at its value
+        photoDrag = null; // hand off to pinch-scale instead
+      } else if (touchCount === 1) {
+        handleSingleInteractionStart(e.pointerId, point);
       }
     } else if (e.pointerType === 'mouse' && e.button === 0) {
       if (spacePressed) {
         mouseDrag = point;
       } else {
-        startDrawStroke(e.pointerId, point);
+        handleSingleInteractionStart(e.pointerId, point);
       }
     }
   }
@@ -169,12 +300,25 @@ export function attachPointerRouter(canvas, viewport, {
           pinchBaseline.midpoint.y,
           viewport
         );
-        zoomToAnchor(viewport, anchorWorld, mid, dist / pinchBaseline.distance);
-        onViewportChange();
+        const scaleFactor = dist / pinchBaseline.distance;
+        const photoTrace = getTool() === 'move-photo' ? getPhotoTrace() : null;
+        // Structurally identical pinch math either way — only the target and the
+        // change-notification hook differ, based on which tool is active.
+        if (photoTrace) {
+          Object.assign(photoTrace, scalePhotoToAnchor(photoTrace, anchorWorld, scaleFactor));
+          onPhotoTraceChange();
+        } else {
+          zoomToAnchor(viewport, anchorWorld, mid, scaleFactor);
+          onViewportChange();
+        }
       }
       pinchBaseline = { midpoint: mid, distance: dist };
     } else if (drawStroke && drawStroke.pointerId === e.pointerId) {
       continueDrawStroke(point);
+    } else if (selectionDrag && selectionDrag.pointerId === e.pointerId) {
+      continueSelectionDrag(point);
+    } else if (photoDrag && photoDrag.pointerId === e.pointerId) {
+      continuePhotoDrag(point);
     } else if (e.pointerType === 'mouse' && mouseDrag) {
       const dxPx = point.x - mouseDrag.x;
       const dyPx = point.y - mouseDrag.y;
@@ -193,6 +337,12 @@ export function attachPointerRouter(canvas, viewport, {
     if (drawStroke && drawStroke.pointerId === e.pointerId) {
       commitStroke();
     }
+    if (selectionDrag && selectionDrag.pointerId === e.pointerId) {
+      selectionDrag = null; // last onSelectionChange already left the selection at its final value
+    }
+    if (photoDrag && photoDrag.pointerId === e.pointerId) {
+      photoDrag = null;
+    }
     if (touchLikePointers().length < 2) {
       pinchBaseline = null; // next gesture starts a fresh baseline, no jump
     }
@@ -201,18 +351,30 @@ export function attachPointerRouter(canvas, viewport, {
     }
   }
 
+  // Ctrl+wheel is the trackpad/mouse pinch-to-zoom convention (Safari/Chrome both
+  // synthesize it from a trackpad pinch). When the 'move-photo' tool is active this
+  // is the only desktop-friendly way to resize the photo trace — touch pinch (see
+  // the two-pointer branch in handlePointerMove) covers the iPad case, but a Mac
+  // trackpad/mouse session has no multi-touch gesture at all otherwise.
   function handleWheel(e) {
     e.preventDefault();
     if (e.ctrlKey) {
       const point = canvasPoint(e);
       const anchorWorld = screenToWorld(point.x, point.y, viewport);
       const zoomFactor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
-      zoomToAnchor(viewport, anchorWorld, point, zoomFactor);
+      const photoTrace = getTool() === 'move-photo' ? getPhotoTrace() : null;
+      if (photoTrace) {
+        Object.assign(photoTrace, scalePhotoToAnchor(photoTrace, anchorWorld, zoomFactor));
+        onPhotoTraceChange();
+      } else {
+        zoomToAnchor(viewport, anchorWorld, point, zoomFactor);
+        onViewportChange();
+      }
     } else {
       viewport.originXmm += e.deltaX / viewport.scalePxPerMm;
       viewport.originYmm += e.deltaY / viewport.scalePxPerMm;
+      onViewportChange();
     }
-    onViewportChange();
   }
 
   function handleKeyDown(e) {

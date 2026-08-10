@@ -33,3 +33,28 @@ export function peyoteCellAtPoint(xMm, yMm, beadWidthMm, beadHeightMm, rows, col
   if (col < 0 || col >= cols) return null;
   return { row, col };
 }
+
+// Same hit-test as peyoteCellAtPoint, but clamps into [0,rows)/[0,cols) instead of
+// returning null outside those bounds — used by marquee-selection dragging, where
+// the pointer briefly leaving the canvas/grid edge should still track the nearest
+// in-bounds cell rather than freezing the selection.
+export function peyoteCellAtPointClamped(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols) {
+  const row = Math.max(0, Math.min(rows - 1, Math.floor(xMm / beadHeightMm)));
+  const colOffsetMm = (row % 2 === 1) ? beadWidthMm / 2 : 0;
+  const col = Math.max(0, Math.min(cols - 1, Math.floor((yMm - colOffsetMm) / beadWidthMm)));
+  return { row, col };
+}
+
+// The six physically-adjacent cells for peyote's offset-row structure — two in the
+// same row, two in the row above, two in the row below. Which two columns in an
+// adjacent row depends on this row's parity (see peyoteCellOriginMm's offset rule).
+// Does not clamp to grid bounds — callers filter out-of-range results themselves
+// (flood fill already needs a bounds check per neighbor to stop the search).
+export function peyoteNeighbors(row, col) {
+  const [a, b] = row % 2 === 0 ? [col - 1, col] : [col, col + 1];
+  return [
+    [row, col - 1], [row, col + 1],
+    [row - 1, a], [row - 1, b],
+    [row + 1, a], [row + 1, b],
+  ];
+}

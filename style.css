@@ -7,6 +7,17 @@ html, body {
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
 }
 
+/* Author-stylesheet `display` rules below (e.g. #library-view/#editor-view's
+   `display: flex`) otherwise silently defeat the `hidden` attribute — the UA
+   stylesheet's `[hidden] { display: none }` loses to *any* author rule setting
+   `display` on the same element regardless of selector specificity, since
+   cascade origin is compared before specificity. Restoring it here as
+   `!important` keeps every other `display` declaration free to assume `hidden`
+   still works, which is what main.js's view-toggling relies on. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   display: flex;
   flex-direction: column;
@@ -119,7 +130,7 @@ body {
   cursor: pointer;
 }
 
-#controls {
+#top-bar {
   display: flex;
   align-items: center;
   gap: 0.75rem;
@@ -133,12 +144,51 @@ body {
   font-size: 0.9rem;
 }
 
-#controls input[type="number"] {
+#top-bar input[type="number"] {
   width: 4.5rem;
 }
 
 #size-readout {
   color: #444;
+}
+
+#panel-toggle {
+  margin-left: auto;
+}
+
+#panel-toggle[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
+#editor-body {
+  flex: 1;
+  display: flex;
+  min-height: 0; /* let the canvas/panel scroll internally instead of pushing page height */
+}
+
+#tool-rail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  width: 6rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 0.5rem;
+  padding-left: calc(0.5rem + env(safe-area-inset-left));
+  background: #f2f2f2;
+  border-right: 1px solid #ccc;
+  font-size: 0.85rem;
+}
+
+#tool-rail #tool-toggle,
+#tool-rail #selection-controls {
+  flex-direction: column;
+}
+
+#clear-pattern {
+  margin-top: auto; /* pinned to the rail's bottom, visually separated as destructive */
 }
 
 #tool-toggle {
@@ -165,6 +215,7 @@ body {
 #colorway-controls {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.25rem;
 }
 
@@ -173,15 +224,100 @@ body {
   cursor: default;
 }
 
+#selection-controls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+#selection-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#photo-trace-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#photo-trace-opacity-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+#photo-trace-move[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
+#pattern-canvas {
+  flex: 1;
+  min-width: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  background: #fff;
+}
+
+#side-panel {
+  width: 18rem;
+  flex-shrink: 0;
+  overflow-y: auto;
+  padding: 0.5rem 0.75rem;
+  padding-right: calc(0.75rem + env(safe-area-inset-right));
+  background: #f8f8f8;
+  border-left: 1px solid #ccc;
+  font-size: 0.9rem;
+}
+
+#side-panel section {
+  padding: 0.5rem 0;
+  border-bottom: 1px solid #e2e2e2;
+}
+
+#side-panel section:last-child {
+  border-bottom: none;
+}
+
+#side-panel h2 {
+  margin: 0 0 0.4rem;
+  font-size: 0.85rem;
+  color: #555;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+#palette-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 0.4rem;
+}
+
+#palette-section-header h2 {
+  margin: 0;
+}
+
+#color-manage-toggle[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
 #color-palette {
   display: flex;
   flex-wrap: wrap;
   gap: 0.35rem;
-  padding: 0.5rem 0.75rem;
-  padding-left: calc(0.75rem + env(safe-area-inset-left));
-  padding-right: calc(0.75rem + env(safe-area-inset-right));
-  background: #f8f8f8;
-  border-bottom: 1px solid #ccc;
+}
+
+#color-palette-empty {
+  color: #777;
+  font-size: 0.85rem;
+  margin: 0.25rem 0;
 }
 
 .color-swatch {
@@ -198,13 +334,72 @@ body {
   outline-offset: 2px;
 }
 
-#pattern-canvas {
-  flex: 1;
-  display: block;
-  width: 100%;
-  height: 100%;
-  touch-action: none;
+.color-swatch-add {
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 4px;
+  border: 1px dashed #999;
+  background: none;
+  color: #666;
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+}
+
+#color-manage-list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+}
+
+.color-manage-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #e8e8e8;
   background: #fff;
+}
+
+.color-manage-row.dragging {
+  opacity: 0.6;
+  background: #eef4ff;
+}
+
+.color-manage-drag-handle {
+  touch-action: none;
+  background: none;
+  border: none;
+  font-size: 1rem;
+  color: #999;
+  cursor: grab;
+  padding: 0.15rem 0.3rem;
+}
+
+.color-manage-swatch {
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 3px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  flex-shrink: 0;
+}
+
+.color-manage-name {
+  flex: 1;
+  font-size: 0.85rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.color-manage-action {
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  color: #555;
+  padding: 0.25rem;
+  cursor: pointer;
 }
 
 #print-view {

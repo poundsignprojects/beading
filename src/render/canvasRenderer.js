@@ -1,7 +1,7 @@
 import { peyoteCellOriginMm } from '../grid/peyote.js';
 import { worldToScreen, screenToWorld } from './viewport.js';
 
-const CELL_STROKE_STYLE = '#999';
+const CELL_STROKE_STYLE = '#000';
 const BACKGROUND_STYLE = '#fff';
 const VISIBLE_RANGE_PADDING_CELLS = 1;
 const EMPTY_CELL_DOT_STYLE = '#999';
@@ -14,7 +14,12 @@ const EMPTY_CELL_DOT_MIN_RADIUS_PX = 0.5;
 // beads read as thin-outlined at any zoom instead of a fixed-width hairline that looks
 // too thick zoomed out or too thin zoomed in.
 const BEAD_LINE_WIDTH_FRACTION = 0.06; // fraction of the smaller bead dimension
-const BEAD_LINE_WIDTH_MIN_PX = 0.75;
+// Floor exists only so the outline doesn't vanish entirely when zoomed out far
+// enough that the proportional fraction would round to nothing — kept low so it
+// rarely overrides the fraction. A higher floor (0.75px, pre-existing) dominated
+// at small cell sizes instead of the fraction, making the outline look thicker
+// than the bead it was outlining rather than scaling down with it.
+const BEAD_LINE_WIDTH_MIN_PX = 0.4;
 // Rocailles are round-bodied beads and render with rounded cell corners; Delicas are
 // cylindrical (square-cut sides) and stay sharp-cornered — see beadSpecs.js `shape`.
 const BEAD_CORNER_RADIUS_FRACTION = 0.25; // fraction of the smaller bead dimension
@@ -49,7 +54,7 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 // (see cellStore.js) and `resolveColor` maps a colorId to a paintable hex string —
 // this module stays ignorant of what a "color library" is, it just resolves and
 // paints. Both are optional so Phase 1 callers/tests keep working unchanged.
-export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, beadShape = 'cylinder') {
+export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, beadShape = 'cylinder', photoLayer = null) {
   const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
 
   ctx.fillStyle = BACKGROUND_STYLE;
@@ -110,5 +115,31 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
         ctx.fill();
       }
     }
+  }
+
+  // Reference photo renders as a translucent overlay on top of everything —
+  // beads included — at the user's chosen opacity, so the photo and the
+  // beadwork-so-far stay simultaneously visible for direct comparison rather
+  // than the photo being occluded wherever a bead has been placed. photoLayer
+  // is plain drawable data ({ image, opacityPercent, xMm, yMm, widthMm,
+  // heightMm}); this module stays ignorant of "photo trace" as a persisted
+  // concept, matching its existing role for cells/resolveColor.
+  if (photoLayer) {
+    const photoTopLeft = worldToScreen(photoLayer.xMm, photoLayer.yMm, viewport);
+    const photoBottomRight = worldToScreen(
+      photoLayer.xMm + photoLayer.widthMm,
+      photoLayer.yMm + photoLayer.heightMm,
+      viewport
+    );
+    ctx.save();
+    ctx.globalAlpha = photoLayer.opacityPercent / 100;
+    ctx.drawImage(
+      photoLayer.image,
+      photoTopLeft.xPx,
+      photoTopLeft.yPx,
+      photoBottomRight.xPx - photoTopLeft.xPx,
+      photoBottomRight.yPx - photoTopLeft.yPx
+    );
+    ctx.restore();
   }
 }
