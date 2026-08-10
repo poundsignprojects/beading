@@ -42,6 +42,7 @@ import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape 
 import { defaultPhotoPlacement } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
+import { debounce } from '../storage/debounce.js';
 import { buildClipboard, applyEraseRegion } from '../tools/cutCopyTool.js';
 import { applyMirror } from '../tools/mirrorTool.js';
 import { mountPrintView } from './printView.js';
@@ -538,7 +539,13 @@ export function mountEditorView(appState, hooks) {
     if (manageMode) renderColorManageList();
     updatePaletteSectionVisibility();
   }
-  function handleColorPickerChange() {
+  // iOS Safari fires `change` on <input type="color"> repeatedly while the user
+  // is still interacting with the native picker (each drag on the color wheel),
+  // not once on close like desktop browsers — without debouncing, each of those
+  // opened its own "Name this color" prompt, stacking up and reappearing after
+  // each was dismissed. Debounced so the prompt fires once, after the picker
+  // has been quiet for a beat (i.e. the user has settled on a color).
+  const handleColorPickerChange = debounce(() => {
     const hex = colorPickerInput.value;
     const name = window.prompt('Name this color');
     if (!name || !name.trim()) return;
@@ -546,7 +553,7 @@ export function mountEditorView(appState, hooks) {
       renderColorPalette();
       if (manageMode) renderColorManageList();
     });
-  }
+  }, 400);
   function handleColorRename(id) {
     const color = appState.customColors.find((c) => c.id === id);
     if (!color) return;
