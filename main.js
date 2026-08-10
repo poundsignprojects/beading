@@ -8,7 +8,7 @@ import { listDesignsSorted, createDesign, saveDesign, deleteDesign, duplicateDes
 import { getPreferences, savePreferences } from './src/storage/preferencesStore.js';
 import { debounce } from './src/storage/debounce.js';
 import { createAppState } from './src/state/appState.js';
-import { cellsToEntries, entriesToCells } from './src/state/cellStore.js';
+import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from './src/state/colorwaySync.js';
 import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
@@ -39,17 +39,28 @@ function showEditorView() {
 // Reads whatever's live in appState right now and writes it to the currently open
 // design's record. Safe to call more than once for the same state (e.g. once
 // directly, once from a debounce timer that was already pending) — always reflects
-// current appState, so a redundant call just re-writes the same values.
+// current appState, so a redundant call just re-writes the same values. Folds the
+// active colorway's on-screen cells back into appState.colorways before saving
+// (same reconciliation switchColorway does when leaving a colorway) so shapeEntries/
+// colorways persisted here always agree with what's actually drawn.
 async function persistCurrentDesign() {
   if (!appState.currentDesignId) return;
   const existing = appState.designs.find((d) => d.id === appState.currentDesignId);
   if (!existing) return;
+
+  const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
+  appState.colorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
+    cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+  );
+
   const saved = await saveDesign(appState.db, {
     ...existing,
     beadTypeKey: appState.beadTypeKey,
     rows: appState.rows,
     cols: appState.cols,
-    cellEntries: cellsToEntries(appState.cells),
+    shapeEntries,
+    colorways: appState.colorways,
+    activeColorwayId: appState.activeColorwayId,
   });
   const idx = appState.designs.findIndex((d) => d.id === saved.id);
   if (idx !== -1) appState.designs[idx] = saved;
@@ -65,7 +76,10 @@ function openDesign(design) {
   appState.beadTypeKey = design.beadTypeKey;
   appState.rows = design.rows;
   appState.cols = design.cols;
-  appState.cells = entriesToCells(design.cellEntries);
+  appState.colorways = design.colorways;
+  appState.activeColorwayId = design.activeColorwayId;
+  const activeColorway = design.colorways.find((cw) => cw.id === design.activeColorwayId);
+  appState.cells = materializeColorwayCells(design.shapeEntries, activeColorway.colorEntries);
   appState.units = appState.preferences.units;
   appState.tool = 'draw';
   appState.gridParams = null;

@@ -6,7 +6,7 @@
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
 import { COLOR_LIBRARIES } from '../palette/colorLibrary.js';
 import { formatLength } from '../units/convert.js';
-import { buildWordChart, displayRuns } from '../export/wordChart.js';
+import { buildWordChart, displayRuns, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
 
 function resolveSwatch(beadTypeKey, colorId) {
@@ -49,6 +49,13 @@ function buildMaterials(chart, codes, beadTypeKey) {
   const heading = document.createElement('h3');
   heading.textContent = 'Materials';
 
+  if (chart.unassignedCount > 0) {
+    const warning = document.createElement('p');
+    warning.className = 'print-warning';
+    warning.textContent = `⚠ ${chart.unassignedCount} bead${chart.unassignedCount === 1 ? '' : 's'} in this colorway have no color assigned yet.`;
+    section.append(warning);
+  }
+
   const table = document.createElement('table');
   table.className = 'print-materials-table';
 
@@ -90,7 +97,9 @@ function buildMaterials(chart, codes, beadTypeKey) {
 }
 
 function formatRun(run, codes) {
-  return run.colorId === null ? `${run.count} blank` : `${run.count}${codes.get(run.colorId)}`;
+  if (run.colorId === null) return `${run.count} blank`;
+  if (run.colorId === UNASSIGNED) return `${run.count} ??`;
+  return `${run.count}${codes.get(run.colorId)}`;
 }
 
 function buildChart(chart, codes) {

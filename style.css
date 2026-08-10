@@ -162,6 +162,17 @@ body {
   cursor: default;
 }
 
+#colorway-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+#colorway-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 #color-palette {
   display: flex;
   flex-wrap: wrap;
@@ -241,6 +252,15 @@ body {
 
 .print-empty-message {
   color: #777;
+}
+
+.print-warning {
+  color: #8a5a00;
+  background: #fff6e0;
+  border: 1px solid #e8c877;
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+  margin: 0 0 0.75rem;
 }
 
 .print-materials-table {

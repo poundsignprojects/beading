@@ -1,28 +1,43 @@
-// Design-record CRUD on top of db.js. Only the fields listed in the Phase 4 plan's
-// data model are ever persisted — gridParams/viewport are re-derived on open, never
-// stored (see CLAUDE.md Phase 4 status / plan's "Decisions confirmed" section).
+// Design-record CRUD on top of db.js. Only the fields listed in the Phase 4/6
+// plans' data models are ever persisted — gridParams/viewport are re-derived on
+// open, never stored (see CLAUDE.md Phase 4 status / plan's "Decisions confirmed"
+// section).
 
 import { getAll, get, put, del } from './db.js';
 import { generateId } from './id.js';
+import { migrateDesign } from './migrateDesign.js';
 
 const STORE = 'designs';
 
+// Migrates any pre-Phase-6 record (flat cellEntries, no colorways) the first time
+// it's read, and opportunistically re-saves whatever changed so the migration only
+// has to run once per design, system-wide — not on every boot indefinitely.
 export async function listDesignsSorted(db) {
   const designs = await getAll(db, STORE);
-  return designs.sort((a, b) => a.order - b.order);
+  const migrated = await Promise.all(
+    designs.map(async (design) => {
+      const result = migrateDesign(design);
+      if (result !== design) await put(db, STORE, result);
+      return result;
+    })
+  );
+  return migrated.sort((a, b) => a.order - b.order);
 }
 
 export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
+  const activeColorwayId = generateId();
   const design = {
     id: generateId(),
     name,
     beadTypeKey,
     rows,
     cols,
-    cellEntries: [],
+    shapeEntries: [],
+    colorways: [{ id: activeColorwayId, name: 'Colorway 1', colorEntries: [], createdAt: now, updatedAt: now }],
+    activeColorwayId,
     order: existing.length === 0 ? 0 : maxOrder + 1,
     createdAt: now,
     updatedAt: now,
@@ -42,15 +57,27 @@ export async function deleteDesign(db, id) {
 }
 
 export async function duplicateDesign(db, id) {
-  const original = await get(db, STORE, id);
+  const original = migrateDesign(await get(db, STORE, id));
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
+
+  // Every colorway gets a fresh id — a duplicate must not share identity with the
+  // original's colorways, even though its contents start out identical.
+  const idMap = new Map(original.colorways.map((cw) => [cw.id, generateId()]));
   const copy = {
     ...original,
     id: generateId(),
     name: `${original.name} copy`,
-    cellEntries: original.cellEntries.map(([key, value]) => [key, { ...value }]),
+    shapeEntries: [...original.shapeEntries],
+    colorways: original.colorways.map((cw) => ({
+      ...cw,
+      id: idMap.get(cw.id),
+      colorEntries: cw.colorEntries.map(([key, colorId]) => [key, colorId]),
+      createdAt: now,
+      updatedAt: now,
+    })),
+    activeColorwayId: idMap.get(original.activeColorwayId),
     order: maxOrder + 1,
     createdAt: now,
     updatedAt: now,

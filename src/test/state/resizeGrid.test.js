@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resizeCells, countCellsLost } from '../../state/resizeGrid.js';
+import { resizeCells, countCellsLost, resizeKeyList, resizeColorEntries } from '../../state/resizeGrid.js';
 
 function makeCells(entries) {
   return new Map(entries.map(([row, col, colorId]) => [`${row},${col}`, { colorId }]));
@@ -67,4 +67,42 @@ test('countCellsLost: matches the number of cells resizeCells actually drops', (
 test('countCellsLost: zero when only growing', () => {
   const cells = makeCells([[0, 0, 'a'], [4, 4, 'b']]);
   assert.equal(countCellsLost(cells, 5, 5, 10, 10, 'both', 'both'), 0);
+});
+
+test('resizeKeyList: mirrors resizeCells for the equivalent key set, growing with anchor "end"', () => {
+  const cells = makeCells([[0, 0, 'a'], [2, 3, 'b']]);
+  const resized = resizeCells(cells, 5, 5, 8, 5, 'end', 'start');
+  const keys = resizeKeyList(keysOf(cells), 5, 5, 8, 5, 'end', 'start');
+  assert.deepEqual(keys.sort(), keysOf(resized));
+});
+
+test('resizeKeyList: mirrors resizeCells for the equivalent key set, shrinking with anchor "start"', () => {
+  const cells = makeCells([[0, 0, 'a'], [4, 0, 'b']]);
+  const resized = resizeCells(cells, 5, 5, 3, 5, 'start', 'start');
+  const keys = resizeKeyList(keysOf(cells), 5, 5, 3, 5, 'start', 'start');
+  assert.deepEqual(keys.sort(), keysOf(resized));
+});
+
+test('resizeKeyList: cols behave independently of rows, matching resizeCells', () => {
+  const cells = makeCells([[1, 1, 'a']]);
+  const resized = resizeCells(cells, 5, 5, 5, 3, 'start', 'end');
+  const keys = resizeKeyList(keysOf(cells), 5, 5, 5, 3, 'start', 'end');
+  assert.equal(keys.length, resized.size);
+});
+
+test('resizeColorEntries: mirrors resizeCells for the equivalent colorId pairs, growing with anchor "both"', () => {
+  const cells = makeCells([[0, 0, 'a']]);
+  const resized = resizeCells(cells, 5, 5, 8, 5, 'both', 'start');
+  const colorEntries = resizeColorEntries([['0,0', 'a']], 5, 5, 8, 5, 'both', 'start');
+  assert.deepEqual(colorEntries, [...resized.entries()].map(([key, value]) => [key, value.colorId]));
+});
+
+test('resizeColorEntries: drops entries that fall outside the new bounds, same count resizeCells would drop', () => {
+  const cells = makeCells([[0, 0, 'a'], [1, 0, 'b'], [4, 0, 'c'], [4, 4, 'd']]);
+  const resized = resizeCells(cells, 5, 5, 3, 3, 'start', 'start');
+  const colorEntries = resizeColorEntries(
+    [['0,0', 'a'], ['1,0', 'b'], ['4,0', 'c'], ['4,4', 'd']],
+    5, 5, 3, 3, 'start', 'start'
+  );
+  assert.equal(colorEntries.length, resized.size);
 });

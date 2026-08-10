@@ -14,13 +14,15 @@
 //                            module has finished its own cleanup.
 
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
-import { COLOR_LIBRARIES } from '../palette/colorLibrary.js';
+import { COLOR_LIBRARIES, UNASSIGNED_SWATCH } from '../palette/colorLibrary.js';
 import { generatePeyoteGrid } from '../grid/peyote.js';
 import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
 import { pushPatch, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
-import { resizeCells } from '../state/resizeGrid.js';
+import { resizeCells, resizeColorEntries } from '../state/resizeGrid.js';
+import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from '../state/colorwaySync.js';
+import { generateId } from '../storage/id.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
 
@@ -45,6 +47,10 @@ export function mountEditorView(appState, hooks) {
   const undoButton = document.getElementById('undo-button');
   const redoButton = document.getElementById('redo-button');
   const printExportButton = document.getElementById('print-export');
+  const colorwaySelect = document.getElementById('colorway-select');
+  const colorwayNewButton = document.getElementById('colorway-new');
+  const colorwayRenameButton = document.getElementById('colorway-rename');
+  const colorwayDeleteButton = document.getElementById('colorway-delete');
 
   let redrawScheduled = false;
   let lastCssSize = { cssWidth: 0, cssHeight: 0 };
@@ -59,6 +65,7 @@ export function mountEditorView(appState, hooks) {
   }
 
   function resolveColor(colorId) {
+    if (colorId === null) return UNASSIGNED_SWATCH.hex;
     const library = COLOR_LIBRARIES[appState.beadTypeKey];
     return library.find((swatch) => swatch.id === colorId)?.hex ?? '#ff00ff';
   }
@@ -135,6 +142,28 @@ export function mountEditorView(appState, hooks) {
     redoButton.disabled = !canRedo(appState.history);
   }
 
+  function updateColorwaySelect() {
+    colorwaySelect.replaceChildren(
+      ...appState.colorways.map((cw) => {
+        const option = document.createElement('option');
+        option.value = cw.id;
+        option.textContent = cw.name;
+        option.selected = cw.id === appState.activeColorwayId;
+        return option;
+      })
+    );
+    colorwayDeleteButton.disabled = appState.colorways.length <= 1;
+  }
+
+  // Clearing/regenerating wipes every colorway's colors, not just the one visible —
+  // say so explicitly when there's more than one to lose (Phase 6 plan), otherwise
+  // this is a silent scope change from what "Clear" meant in Phases 2-5.
+  function confirmClearMessage() {
+    return appState.colorways.length > 1
+      ? `This will clear beads across all ${appState.colorways.length} colorways. Continue?`
+      : CLEAR_CONFIRM_MESSAGE;
+  }
+
   function rebuildGridParams() {
     const bead = BEAD_TYPES[appState.beadTypeKey];
     appState.gridParams = generatePeyoteGrid({
@@ -153,6 +182,7 @@ export function mountEditorView(appState, hooks) {
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
+    updateColorwaySelect();
     scheduleRedraw();
   }
 
@@ -161,17 +191,21 @@ export function mountEditorView(appState, hooks) {
   // always clears cells — guarded by confirm() when there's something to lose,
   // consistent with prior-app pain point #4 (never lose state silently).
   function regenerateGrid() {
-    if (appState.cells.size > 0 && !window.confirm(CLEAR_CONFIRM_MESSAGE)) return;
+    if (appState.cells.size > 0 && !window.confirm(confirmClearMessage())) return;
 
     appState.rows = Math.max(1, parseInt(rowsInput.value, 10) || 1);
     appState.cols = Math.max(1, parseInt(colsInput.value, 10) || 1);
     rebuildGridParams();
     appState.cells.clear();
+    // A geometry change invalidates every colorway's colors, not just the active
+    // one — the colorway list itself (names/count) survives, only contents clear.
+    appState.colorways = appState.colorways.map((cw) => ({ ...cw, colorEntries: [] }));
     clearHistory(appState.history);
     updateHistoryButtons();
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
+    updateColorwaySelect();
     scheduleRedraw();
     hooks.onPreferencesChanged({
       defaultBeadTypeKey: appState.beadTypeKey,
@@ -187,6 +221,14 @@ export function mountEditorView(appState, hooks) {
   // just with a different row/col count.
   function applyResize(newRows, newCols, rowAnchor, colAnchor) {
     appState.cells = resizeCells(appState.cells, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor);
+    // Every colorway's stored colors get the identical anchor offsets applied, not
+    // just the active cells Map — otherwise switching to an untouched colorway
+    // after a resize would show colors at pre-resize coordinates that no longer
+    // line up with the new shape.
+    appState.colorways = appState.colorways.map((cw) => ({
+      ...cw,
+      colorEntries: resizeColorEntries(cw.colorEntries, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor),
+    }));
     appState.rows = newRows;
     appState.cols = newCols;
     rebuildGridParams();
@@ -234,6 +276,85 @@ export function mountEditorView(appState, hooks) {
     applyResize(newRows, newCols, result.rowAnchor, result.colAnchor);
   }
 
+  // Fold whatever's currently drawn back into the colorway list before leaving it,
+  // then materialize the target colorway against the (now up to date) shared
+  // shape. No design remount — canvas/tools/palette stay mounted, only
+  // cells/history/the select's value change.
+  function switchColorway(newColorwayId) {
+    if (newColorwayId === appState.activeColorwayId) return;
+
+    const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
+    appState.colorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
+      cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+    );
+
+    const target = appState.colorways.find((cw) => cw.id === newColorwayId);
+    appState.cells = materializeColorwayCells(shapeEntries, target.colorEntries);
+    appState.activeColorwayId = newColorwayId;
+
+    // Old undo/redo patches' before/after colors belong to the colorway that was
+    // just left — a patch's meaning is only valid against the context it was
+    // recorded under (same reasoning design switches and resize already apply).
+    clearHistory(appState.history);
+    updateHistoryButtons();
+
+    updateColorwaySelect();
+    scheduleRedraw();
+    hooks.onImmediateSave();
+  }
+
+  function handleColorwaySelectChange() {
+    switchColorway(colorwaySelect.value);
+  }
+
+  // Creating a colorway always seeds it as a copy of the currently active
+  // colorway's colors (never a blank slate) — so there's no separate "duplicate"
+  // action, create is duplicate, scoped to one pattern.
+  function handleColorwayNew() {
+    const { colorEntries } = decomposeCellsForSave(appState.cells);
+    const now = Date.now();
+    const newColorway = {
+      id: generateId(),
+      name: `Colorway ${appState.colorways.length + 1}`,
+      colorEntries,
+      createdAt: now,
+      updatedAt: now,
+    };
+    appState.colorways = [...appState.colorways, newColorway];
+    switchColorway(newColorway.id);
+  }
+
+  function handleColorwayRename() {
+    const current = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
+    const newName = window.prompt('Rename colorway', current.name);
+    if (!newName || !newName.trim()) return;
+    appState.colorways = appState.colorways.map((cw) =>
+      cw.id === current.id ? { ...cw, name: newName.trim(), updatedAt: Date.now() } : cw
+    );
+    updateColorwaySelect();
+    hooks.onImmediateSave();
+  }
+
+  // A design always has at least one colorway; deleting the last one is blocked
+  // (button is disabled in that case — see updateColorwaySelect). Deleting the
+  // active colorway switches to the first remaining one.
+  function handleColorwayDelete() {
+    if (appState.colorways.length <= 1) return;
+    if (!window.confirm('Delete this colorway? This cannot be undone.')) return;
+
+    const shapeEntries = Array.from(appState.cells.keys());
+    appState.colorways = appState.colorways.filter((cw) => cw.id !== appState.activeColorwayId);
+    const next = appState.colorways[0];
+    appState.cells = materializeColorwayCells(shapeEntries, next.colorEntries);
+    appState.activeColorwayId = next.id;
+
+    clearHistory(appState.history);
+    updateHistoryButtons();
+    updateColorwaySelect();
+    scheduleRedraw();
+    hooks.onImmediateSave();
+  }
+
   function handleBeadTypeChange() {
     appState.beadTypeKey = beadTypeSelect.value;
     regenerateGrid();
@@ -257,8 +378,9 @@ export function mountEditorView(appState, hooks) {
   }
   function handleClear() {
     if (appState.cells.size === 0) return;
-    if (!window.confirm(CLEAR_CONFIRM_MESSAGE)) return;
+    if (!window.confirm(confirmClearMessage())) return;
     appState.cells.clear();
+    appState.colorways = appState.colorways.map((cw) => ({ ...cw, colorEntries: [] }));
     clearHistory(appState.history);
     updateHistoryButtons();
     scheduleRedraw();
@@ -303,6 +425,10 @@ export function mountEditorView(appState, hooks) {
   redoButton.addEventListener('click', handleRedo);
   backButton.addEventListener('click', handleBack);
   printExportButton.addEventListener('click', handlePrintExport);
+  colorwaySelect.addEventListener('change', handleColorwaySelectChange);
+  colorwayNewButton.addEventListener('click', handleColorwayNew);
+  colorwayRenameButton.addEventListener('click', handleColorwayRename);
+  colorwayDeleteButton.addEventListener('click', handleColorwayDelete);
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', scheduleRedraw);
 
@@ -346,6 +472,10 @@ export function mountEditorView(appState, hooks) {
     redoButton.removeEventListener('click', handleRedo);
     backButton.removeEventListener('click', handleBack);
     printExportButton.removeEventListener('click', handlePrintExport);
+    colorwaySelect.removeEventListener('change', handleColorwaySelectChange);
+    colorwayNewButton.removeEventListener('click', handleColorwayNew);
+    colorwayRenameButton.removeEventListener('click', handleColorwayRename);
+    colorwayDeleteButton.removeEventListener('click', handleColorwayDelete);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('resize', scheduleRedraw);
     detachPointerRouter();

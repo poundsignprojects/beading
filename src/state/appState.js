@@ -26,7 +26,14 @@ export function createAppState() {
     viewport: { originXmm: 0, originYmm: 0, scalePxPerMm: 10 },
     tool: 'draw',
     selectedColorId: COLOR_LIBRARIES.delica11[0].id,
-    cells: new Map(), // row,col -> { colorId } — see src/state/cellStore.js
+    cells: new Map(), // row,col -> { colorId } — materialized *active* colorway, see src/state/cellStore.js
     history: createHistory(),
+
+    // Phase 6 (colorways): in-memory mirror of the open design's colorway list —
+    // same role appState.designs plays for the library. No live shapeEntries field:
+    // the shape is always Array.from(appState.cells.keys()) at the moment it's
+    // needed, so there's nowhere for a separate copy to drift out of sync.
+    colorways: [],
+    activeColorwayId: null,
   };
 }
