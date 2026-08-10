@@ -38,9 +38,22 @@
         <button id="undo-button" disabled>Undo</button>
         <button id="redo-button" disabled>Redo</button>
       </div>
+      <button id="print-export">Print / Export</button>
     </div>
     <div id="color-palette" role="group" aria-label="Color"></div>
     <canvas id="pattern-canvas"></canvas>
+  </div>
+
+  <div id="print-view" hidden>
+    <div id="print-toolbar">
+      <button id="print-close">&larr; Close</button>
+      <button id="print-now">Print</button>
+    </div>
+    <div id="print-content">
+      <header id="print-header"></header>
+      <section id="print-materials"></section>
+      <section id="print-chart"></section>
+    </div>
   </div>
 
   <script type="module" src="main.js"></script>

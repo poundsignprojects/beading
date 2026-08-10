@@ -20,6 +20,7 @@ import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
 import { pushPatch, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
+import { mountPrintView } from './printView.js';
 
 const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
 
@@ -41,6 +42,7 @@ export function mountEditorView(appState, hooks) {
   const colorPalette = document.getElementById('color-palette');
   const undoButton = document.getElementById('undo-button');
   const redoButton = document.getElementById('redo-button');
+  const printExportButton = document.getElementById('print-export');
 
   let redrawScheduled = false;
   let lastCssSize = { cssWidth: 0, cssHeight: 0 };
@@ -231,6 +233,9 @@ export function mountEditorView(appState, hooks) {
   function handleBack() {
     hooks.onBack();
   }
+  function handlePrintExport() {
+    mountPrintView(appState);
+  }
 
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   generateButton.addEventListener('click', regenerateGrid);
@@ -242,6 +247,7 @@ export function mountEditorView(appState, hooks) {
   undoButton.addEventListener('click', handleUndo);
   redoButton.addEventListener('click', handleRedo);
   backButton.addEventListener('click', handleBack);
+  printExportButton.addEventListener('click', handlePrintExport);
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', scheduleRedraw);
 
@@ -284,6 +290,7 @@ export function mountEditorView(appState, hooks) {
     undoButton.removeEventListener('click', handleUndo);
     redoButton.removeEventListener('click', handleRedo);
     backButton.removeEventListener('click', handleBack);
+    printExportButton.removeEventListener('click', handlePrintExport);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('resize', scheduleRedraw);
     detachPointerRouter();

@@ -195,3 +195,108 @@ body {
   touch-action: none;
   background: #fff;
 }
+
+#print-view {
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  background: #fff;
+  overflow-y: auto;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+#print-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem;
+  padding-top: calc(0.5rem + env(safe-area-inset-top));
+  padding-left: calc(0.75rem + env(safe-area-inset-left));
+  padding-right: calc(0.75rem + env(safe-area-inset-right));
+  background: #f2f2f2;
+  border-bottom: 1px solid #ccc;
+  position: sticky;
+  top: 0;
+}
+
+#print-content {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: 1rem;
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom));
+  color: #111;
+  font-size: 0.95rem;
+}
+
+#print-header h2 {
+  margin: 0 0 0.25rem;
+}
+
+#print-header p {
+  margin: 0.15rem 0;
+  color: #444;
+}
+
+.print-empty-message {
+  color: #777;
+}
+
+.print-materials-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0 1.25rem;
+}
+
+.print-materials-table th,
+.print-materials-table td {
+  text-align: left;
+  padding: 0.3rem 0.5rem;
+  border-bottom: 1px solid #ddd;
+}
+
+.print-color-swatch {
+  display: inline-block;
+  width: 0.9rem;
+  height: 0.9rem;
+  border-radius: 2px;
+  border: 1px solid rgba(0, 0, 0, 0.3);
+  vertical-align: middle;
+}
+
+.print-materials-table tr.print-total-row td {
+  font-weight: 600;
+  border-bottom: none;
+  border-top: 2px solid #999;
+}
+
+.word-chart-row {
+  break-inside: avoid;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  padding: 0.1rem 0;
+}
+
+.word-chart-row:nth-child(10n) {
+  font-weight: 600;
+}
+
+@media print {
+  #library-view,
+  #editor-view,
+  #print-toolbar {
+    display: none !important;
+  }
+
+  #print-view {
+    position: static;
+    inset: auto;
+    overflow: visible;
+    z-index: auto;
+  }
+
+  #print-content {
+    max-width: none;
+    padding: 0;
+  }
+}
