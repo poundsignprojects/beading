@@ -2,7 +2,7 @@
 
 ## What this is
 
-I want a custom web app for designing seed bead patterns — specifically for peyote stitch, brick stitch, square stitch, and bead looming. This replaces a commercial iPad app called the prior app that I currently use but find frustrating in specific ways. This is not a clone or reverse-engineering of the prior app — it's a new tool built around my actual workflow, for my own personal, non-commercial use.
+I want a custom web app for designing seed bead patterns — specifically for peyote stitch, brick stitch, square stitch, and bead looming. This replaces a commercial iPad app that I currently use but find frustrating in specific ways. This is not a clone or reverse-engineering of that app — it's a new tool built around my actual workflow, for my own personal, non-commercial use.
 
 I'll primarily use this on an iPad with an Apple Pencil, in Safari (installed to the home screen so it opens full-screen like an app). Development happens on my Mac.
 
@@ -65,7 +65,7 @@ One gap: I don't yet have a verified separate height dimension for each bead (Mi
 - Cross-device sync (iPad + Mac) would be nice but is not required to start.
 
 ## What I'm explicitly NOT asking for right now
-- Not a the prior app clone or reverse-engineered app — this is being built from scratch based on the requirements above.
+- Not a clone or reverse-engineered version of the prior app — this is being built from scratch based on the requirements above.
 - Not a native iOS app (yet) — starting as a web app. I may revisit native later using Xcode with Cursor/Cline, but that's a separate future decision, not part of this build.
 - Not automatic photo-to-pattern conversion.
 - Not Toho/Preciosa bead support (yet).

@@ -2,11 +2,11 @@
 
 ## Context
 
-Phases 1–2 built a peyote grid engine and draw/erase tools, but the app still holds exactly one pattern in memory — there is no persistence, no library, and no concept of "a design" as a distinct saved thing. Per CLAUDE.md's phase plan, Phase 4 is: "Autosave to IndexedDB, reorderable design list (manual ordering), global persistent preferences (fixes prior-app pain point #1 and #2)."
+Phases 1–2 built a peyote grid engine and draw/erase tools, but the app still holds exactly one pattern in memory — there is no persistence, no library, and no concept of "a design" as a distinct saved thing. Per CLAUDE.md's phase plan, Phase 4 is: "Autosave to IndexedDB, reorderable design list (manual ordering), global persistent preferences (fixes the prior app pain point #1 and #2)."
 
 (This was originally planned and written as Phase 3, before undo/redo was inserted as its own Phase 3 ahead of it — see CLAUDE.md's Phase Plan and Decision #12. This document has been renumbered accordingly; no content changed beyond phase references.)
 
-This phase is a different kind of work than Phases 1–2. Those were pure grid/tool math with a thin UI on top; this one is data modeling, async storage, and a second application view — closer to "small app" territory than "canvas renderer." It directly addresses four of the five prior-app pain points from project-brief.md:
+This phase is a different kind of work than Phases 1–2. Those were pure grid/tool math with a thin UI on top; this one is data modeling, async storage, and a second application view — closer to "small app" territory than "canvas renderer." It directly addresses four of the five the prior app pain points from project-brief.md:
 
 - **#1 (preferences don't persist)** — a global preferences record, not per-design settings.
 - **#2 (no control over design order)** — a reorderable library list.

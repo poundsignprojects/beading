@@ -154,7 +154,7 @@ function handlePanelToggle() {
 }
 ```
 
-**Decision: panel-collapsed state is a persisted global preference** (`preferencesStore`'s existing `units`/`defaultBeadTypeKey`/`defaultRows`/`defaultCols` shape gains `panelCollapsed: false`), not per-session UI state. This directly matches prior-app pain point #1 ("preferences don't persist across designs") — the same reasoning that already governs every other preference in this app. `mountEditorView` reads `appState.preferences.panelCollapsed` on mount and sets `sidePanel.hidden` accordingly, alongside setting `beadTypeSelect.value`/`rowsInput.value`/etc.
+**Decision: panel-collapsed state is a persisted global preference** (`preferencesStore`'s existing `units`/`defaultBeadTypeKey`/`defaultRows`/`defaultCols` shape gains `panelCollapsed: false`), not per-session UI state. This directly matches the prior app pain point #1 ("preferences don't persist across designs") — the same reasoning that already governs every other preference in this app. `mountEditorView` reads `appState.preferences.panelCollapsed` on mount and sets `sidePanel.hidden` accordingly, alongside setting `beadTypeSelect.value`/`rowsInput.value`/etc.
 
 Toggling the panel doesn't fire a `window.resize` event (it's a CSS layout change from an attribute, not a viewport resize), so `scheduleRedraw()` must be called explicitly — `render()` already calls `resizeCanvasForDisplay(canvas, ctx)` on every redraw, so this is a one-line addition, not new mechanism.
 
