@@ -14,6 +14,7 @@ const DEFAULT_PREFERENCES = {
   defaultRows: 20,
   defaultCols: 20,
   panelCollapsed: false,
+  libraryViewMode: 'list',
 };
 
 export async function getPreferences(db) {

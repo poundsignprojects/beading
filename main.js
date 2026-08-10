@@ -14,8 +14,14 @@ import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape 
 import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
+import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
+import { resolveSwatchHex } from './src/palette/colorLibrary.js';
+import { BEAD_TYPES } from './src/palette/beadSpecs.js';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
+// Rendered once at a size that stays crisp scaled down into either the small list
+// thumbnail box or the larger gallery tile via CSS, rather than re-rendering two sizes.
+const THUMBNAIL_MAX_SIZE_PX = 200;
 
 const appState = createAppState();
 
@@ -59,6 +65,20 @@ async function persistCurrentDesign() {
     cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
   );
 
+  // Regenerated from live state on every save (no separate dirty-tracking), so it's
+  // always in sync with what's actually drawn. Falls back to whatever was already
+  // stored if the editor hasn't derived gridParams yet (shouldn't happen while a
+  // design is open, but keeps this function total rather than throwing).
+  const thumbnailDataUrl = appState.gridParams
+    ? renderThumbnailDataUrl(
+        appState.gridParams,
+        appState.cells,
+        (colorId) => resolveSwatchHex(appState.customColors, colorId),
+        BEAD_TYPES[appState.beadTypeKey].shape,
+        THUMBNAIL_MAX_SIZE_PX,
+      )
+    : existing.thumbnailDataUrl;
+
   const saved = await saveDesign(appState.db, {
     ...existing,
     beadTypeKey: appState.beadTypeKey,
@@ -67,6 +87,7 @@ async function persistCurrentDesign() {
     shapeEntries,
     colorways: appState.colorways,
     activeColorwayId: appState.activeColorwayId,
+    thumbnailDataUrl,
   });
   const idx = appState.designs.findIndex((d) => d.id === saved.id);
   if (idx !== -1) appState.designs[idx] = saved;
@@ -74,6 +95,11 @@ async function persistCurrentDesign() {
 
 async function handlePreferencesChanged(patch) {
   appState.preferences = { ...appState.preferences, ...patch };
+  await savePreferences(appState.db, appState.preferences);
+}
+
+async function handleViewModeChanged(mode) {
+  appState.preferences = { ...appState.preferences, libraryViewMode: mode };
   await savePreferences(appState.db, appState.preferences);
 }
 
@@ -279,8 +305,10 @@ async function boot() {
     onDuplicate: handleDuplicate,
     onDelete: handleDelete,
     onReorder: handleReorder,
+    onViewModeChanged: handleViewModeChanged,
   });
 
+  libraryController.setViewMode(appState.preferences.libraryViewMode === 'gallery' ? 'gallery' : 'list');
   showLibraryView();
   libraryController.renderList(appState.designs);
 }

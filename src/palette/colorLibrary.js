@@ -12,3 +12,12 @@
 // matches the actual colorId stored for an unassigned cell, so `resolveColor(null)`
 // finding this via a lookup table works the same way a real swatch lookup does.
 export const UNASSIGNED_SWATCH = { id: null, name: 'Unassigned', hex: '#d9cdf0' };
+
+// Shared by editorView.js/printView.js/thumbnailRenderer's caller — colorId === null
+// means "occupied, no color assigned in this colorway" (see UNASSIGNED_SWATCH above);
+// an id with no matching customColors entry (a deleted color still referenced by an
+// old cell) falls back to a visibly-wrong magenta rather than throwing.
+export function resolveSwatchHex(customColors, colorId) {
+  if (colorId === null) return UNASSIGNED_SWATCH.hex;
+  return customColors.find((swatch) => swatch.id === colorId)?.hex ?? '#ff00ff';
+}

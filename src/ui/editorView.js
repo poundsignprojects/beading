@@ -30,7 +30,7 @@
 //                            module has finished its own cleanup.
 
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
-import { UNASSIGNED_SWATCH } from '../palette/colorLibrary.js';
+import { resolveSwatchHex } from '../palette/colorLibrary.js';
 import { generatePeyoteGrid } from '../grid/peyote.js';
 import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer.js';
 import { drawSelectionOverlay } from '../render/selectionOverlay.js';
@@ -116,8 +116,7 @@ export function mountEditorView(appState, hooks) {
   }
 
   function resolveColor(colorId) {
-    if (colorId === null) return UNASSIGNED_SWATCH.hex;
-    return appState.customColors.find((swatch) => swatch.id === colorId)?.hex ?? '#ff00ff';
+    return resolveSwatchHex(appState.customColors, colorId);
   }
 
   function render() {

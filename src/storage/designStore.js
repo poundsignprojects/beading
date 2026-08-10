@@ -38,6 +38,7 @@ export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
     shapeEntries: [],
     colorways: [{ id: activeColorwayId, name: 'Colorway 1', colorEntries: [], createdAt: now, updatedAt: now }],
     activeColorwayId,
+    thumbnailDataUrl: null,
     order: existing.length === 0 ? 0 : maxOrder + 1,
     createdAt: now,
     updatedAt: now,

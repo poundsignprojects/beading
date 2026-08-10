@@ -28,8 +28,11 @@ export function mountLibraryView(callbacks) {
   const listEl = document.getElementById('library-list');
   const newButton = document.getElementById('library-new');
   const emptyMessageEl = document.getElementById('library-empty-message');
+  const viewListButton = document.getElementById('library-view-list');
+  const viewGalleryButton = document.getElementById('library-view-gallery');
 
   let currentDesigns = [];
+  let currentViewMode = 'list';
   let drag = null; // { pointerId, rowEl, designId } or null
 
   function buildRow(design) {
@@ -42,6 +45,17 @@ export function mountLibraryView(callbacks) {
     handle.className = 'library-drag-handle';
     handle.setAttribute('aria-label', 'Reorder');
     handle.textContent = '☰';
+
+    const thumb = document.createElement('div');
+    thumb.className = 'library-row-thumb';
+    if (design.thumbnailDataUrl) {
+      const img = document.createElement('img');
+      img.src = design.thumbnailDataUrl;
+      img.alt = '';
+      thumb.append(img);
+    }
+    // else: stays empty, styled as a neutral placeholder box via CSS — no
+    // broken-image icon risk for a design never opened+saved under this feature.
 
     const info = document.createElement('button');
     info.type = 'button';
@@ -81,7 +95,7 @@ export function mountLibraryView(callbacks) {
       if (window.confirm(DELETE_CONFIRM_MESSAGE)) callbacks.onDelete(design.id);
     });
 
-    row.append(handle, info, renameButton, duplicateButton, deleteButton);
+    row.append(handle, thumb, info, renameButton, duplicateButton, deleteButton);
     return row;
   }
 
@@ -101,12 +115,25 @@ export function mountLibraryView(callbacks) {
     rowEl.classList.add('dragging');
   }
 
+  // List mode only ever compares Y (a single vertical column). Gallery mode wraps
+  // into a 2D grid, so within a tile's own row band the X position also matters —
+  // otherwise dragging left/right within a row could never reorder within that
+  // row, only jump to the row above/below. Falls back to the Y-only check outside
+  // that band, covering drags across a row-wrap boundary.
+  function isBeforeTarget(pointerX, pointerY, rect, viewMode) {
+    if (viewMode !== 'gallery') return pointerY < rect.top + rect.height / 2;
+    const withinRowBand = pointerY >= rect.top && pointerY <= rect.bottom;
+    return withinRowBand
+      ? pointerX < rect.left + rect.width / 2
+      : pointerY < rect.top + rect.height / 2;
+  }
+
   function handleListPointerMove(e) {
     if (!drag || e.pointerId !== drag.pointerId) return;
     const siblings = [...listEl.querySelectorAll('.library-row')].filter((r) => r !== drag.rowEl);
     const target = siblings.find((sibling) => {
       const rect = sibling.getBoundingClientRect();
-      return e.clientY < rect.top + rect.height / 2;
+      return isBeforeTarget(e.clientX, e.clientY, rect, currentViewMode);
     });
     if (target) listEl.insertBefore(drag.rowEl, target);
     else listEl.appendChild(drag.rowEl);
@@ -125,11 +152,29 @@ export function mountLibraryView(callbacks) {
     callbacks.onReorder(designId, newOrder);
   }
 
+  // Row markup is identical in both modes (only CSS changes — see the Decisions
+  // this feature's plan makes), so this never re-renders rows itself.
+  function setViewMode(mode) {
+    currentViewMode = mode;
+    listEl.classList.toggle('gallery-mode', mode === 'gallery');
+    viewListButton.setAttribute('aria-pressed', String(mode === 'list'));
+    viewGalleryButton.setAttribute('aria-pressed', String(mode === 'gallery'));
+  }
+
+  viewListButton.addEventListener('click', () => {
+    setViewMode('list');
+    callbacks.onViewModeChanged('list');
+  });
+  viewGalleryButton.addEventListener('click', () => {
+    setViewMode('gallery');
+    callbacks.onViewModeChanged('gallery');
+  });
+
   listEl.addEventListener('pointerdown', handleListPointerDown);
   listEl.addEventListener('pointermove', handleListPointerMove);
   listEl.addEventListener('pointerup', handleListPointerUp);
   listEl.addEventListener('pointercancel', handleListPointerUp);
   newButton.addEventListener('click', () => callbacks.onCreate());
 
-  return { renderList };
+  return { renderList, setViewMode };
 }
