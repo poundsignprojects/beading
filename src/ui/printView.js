@@ -23,7 +23,7 @@ function buildHeader(appState, designName) {
   title.textContent = designName;
 
   const specLine = document.createElement('p');
-  specLine.textContent = `${bead.name} — ${appState.rows} rows × ${appState.cols} cols`;
+  specLine.textContent = `${bead.name} — ${appState.rows} cols × ${appState.cols} rows`;
 
   const sizeLine = document.createElement('p');
   sizeLine.textContent = `Finished size: ${formatLength(widthMm, 'mm')} × ${formatLength(heightMm, 'mm')} (${formatLength(widthMm, 'in')} × ${formatLength(heightMm, 'in')})`;
@@ -115,7 +115,7 @@ function buildChart(chart, codes) {
     const runText = displayRuns(chartRow).map((run) => formatRun(run, codes)).join(' ');
     const line = document.createElement('div');
     line.className = 'word-chart-row';
-    line.textContent = `Row ${chartRow.rowIndex + 1} ${direction}: ${runText}`;
+    line.textContent = `Col ${chartRow.rowIndex + 1} ${direction}: ${runText}`;
     section.append(line);
   }
 

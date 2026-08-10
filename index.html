@@ -23,8 +23,8 @@
         <option value="delica11">Delica 11/0</option>
         <option value="rocaille11">Rocaille 11/0</option>
       </select>
-      <label>Rows <input id="rows" type="number" value="20" min="1"></label>
-      <label>Cols <input id="cols" type="number" value="20" min="1"></label>
+      <label>Cols <input id="rows" type="number" value="20" min="1"></label>
+      <label>Rows <input id="cols" type="number" value="20" min="1"></label>
       <button id="generate">Resize</button>
       <button id="unit-toggle">mm / in</button>
       <span id="size-readout"></span>
@@ -103,13 +103,13 @@
       <h2>Resize Pattern</h2>
       <p id="resize-warning" hidden></p>
       <fieldset id="resize-row-anchor" hidden>
-        <legend>Add/remove rows on</legend>
+        <legend>Add/remove columns on</legend>
         <label><input type="radio" name="row-side" value="right" checked> Right</label>
         <label><input type="radio" name="row-side" value="left"> Left</label>
         <label><input type="radio" name="row-side" value="both"> Both sides</label>
       </fieldset>
       <fieldset id="resize-col-anchor" hidden>
-        <legend>Add/remove columns on</legend>
+        <legend>Add/remove rows on</legend>
         <label><input type="radio" name="col-side" value="bottom" checked> Bottom</label>
         <label><input type="radio" name="col-side" value="top"> Top</label>
         <label><input type="radio" name="col-side" value="both"> Both sides</label>

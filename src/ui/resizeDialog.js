@@ -10,6 +10,11 @@ import { countCellsLost } from '../state/resizeGrid.js';
 // are actually laid out on screen — rows run left-right, cols run top-bottom, see
 // peyote.js). resizeCells/countCellsLost only know 'start'|'end'|'both', where
 // 'start' = existing content anchored at index 0 (change happens at the far end).
+// Legend text below reads "columns" for the row-anchor fieldset and "rows" for the
+// col-anchor fieldset — display-layer-only label swap (2026-08-10) so on-screen
+// wording matches conventional rows=vertical/cols=horizontal expectation; the
+// Right/Left vs. Top/Bottom side options, the fieldset ids, and everything below
+// this comment still refer to the original (unswapped) row/col axes.
 const ROW_SIDE_TO_ANCHOR = { right: 'start', left: 'end', both: 'both' };
 const COL_SIDE_TO_ANCHOR = { bottom: 'start', top: 'end', both: 'both' };
 
