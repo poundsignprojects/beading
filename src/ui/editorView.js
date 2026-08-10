@@ -42,7 +42,6 @@ import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape 
 import { defaultPhotoPlacement } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
-import { debounce } from '../storage/debounce.js';
 import { buildClipboard, applyEraseRegion } from '../tools/cutCopyTool.js';
 import { applyMirror } from '../tools/mirrorTool.js';
 import { mountPrintView } from './printView.js';
@@ -77,6 +76,11 @@ export function mountEditorView(appState, hooks) {
   const colorManageToggleButton = document.getElementById('color-manage-toggle');
   const colorManageList = document.getElementById('color-manage-list');
   const colorPickerInput = document.getElementById('color-picker-input');
+  const pendingColorCard = document.getElementById('pending-color-card');
+  const pendingColorSwatch = document.getElementById('pending-color-swatch');
+  const pendingColorNameInput = document.getElementById('pending-color-name-input');
+  const pendingColorCancelButton = document.getElementById('pending-color-cancel');
+  const pendingColorAddButton = document.getElementById('pending-color-add');
   const undoButton = document.getElementById('undo-button');
   const redoButton = document.getElementById('redo-button');
   const printExportButton = document.getElementById('print-export');
@@ -340,6 +344,7 @@ export function mountEditorView(appState, hooks) {
     rebuildGridParams();
     fitViewportToGrid();
     updateSizeReadout();
+    hidePendingColorCard();
     renderColorPalette();
     updateColorwaySelect();
     scheduleRedraw();
@@ -365,6 +370,7 @@ export function mountEditorView(appState, hooks) {
     updateSelectionButtons();
     fitViewportToGrid();
     updateSizeReadout();
+    hidePendingColorCard();
     renderColorPalette();
     updateColorwaySelect();
     scheduleRedraw();
@@ -539,21 +545,46 @@ export function mountEditorView(appState, hooks) {
     if (manageMode) renderColorManageList();
     updatePaletteSectionVisibility();
   }
-  // iOS Safari fires `change` on <input type="color"> repeatedly while the user
-  // is still interacting with the native picker (each drag on the color wheel),
-  // not once on close like desktop browsers — without debouncing, each of those
-  // opened its own "Name this color" prompt, stacking up and reappearing after
-  // each was dismissed. Debounced so the prompt fires once, after the picker
-  // has been quiet for a beat (i.e. the user has settled on a color).
-  const handleColorPickerChange = debounce(() => {
+  // iOS Safari's native color picker is its own sheet, separate from the
+  // page, and fires `change` continuously while it's open (each drag on the
+  // wheel), with no reliable signal for "the user is done": blur only ever
+  // fired on the *next* interaction rather than the sheet's actual
+  // dismissal, and a debounce guesses wrong whenever the user pauses
+  // mid-decision (a real report from on-device testing). So there's no
+  // inferred "done" moment at all — `change` just live-updates a pending
+  // color preview card, and the user explicitly taps Add (or Cancel)
+  // whenever they're actually ready. The confirmation is a real tap, not a
+  // timing guess.
+  function handleColorPickerChange() {
+    pendingColorSwatch.style.background = colorPickerInput.value;
+    pendingColorCard.hidden = false;
+  }
+  function hidePendingColorCard() {
+    pendingColorCard.hidden = true;
+    pendingColorNameInput.value = '';
+  }
+  function handlePendingColorAdd() {
+    const name = pendingColorNameInput.value.trim();
+    if (!name) {
+      pendingColorNameInput.focus();
+      return;
+    }
     const hex = colorPickerInput.value;
-    const name = window.prompt('Name this color');
-    if (!name || !name.trim()) return;
-    hooks.onCustomColorAdded({ name: name.trim(), hex }).then(() => {
+    hooks.onCustomColorAdded({ name, hex }).then(() => {
       renderColorPalette();
       if (manageMode) renderColorManageList();
     });
-  }, 400);
+    hidePendingColorCard();
+  }
+  function handlePendingColorCancel() {
+    hidePendingColorCard();
+  }
+  function handlePendingColorNameKeydown(e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handlePendingColorAdd();
+    }
+  }
   function handleColorRename(id) {
     const color = appState.customColors.find((c) => c.id === id);
     if (!color) return;
@@ -771,6 +802,9 @@ export function mountEditorView(appState, hooks) {
   panelToggleButton.addEventListener('click', handlePanelToggle);
   colorManageToggleButton.addEventListener('click', handleColorManageToggle);
   colorPickerInput.addEventListener('change', handleColorPickerChange);
+  pendingColorAddButton.addEventListener('click', handlePendingColorAdd);
+  pendingColorCancelButton.addEventListener('click', handlePendingColorCancel);
+  pendingColorNameInput.addEventListener('keydown', handlePendingColorNameKeydown);
   colorManageList.addEventListener('pointerdown', handleColorListPointerDown);
   colorManageList.addEventListener('pointermove', handleColorListPointerMove);
   colorManageList.addEventListener('pointerup', handleColorListPointerUp);
@@ -857,6 +891,9 @@ export function mountEditorView(appState, hooks) {
     panelToggleButton.removeEventListener('click', handlePanelToggle);
     colorManageToggleButton.removeEventListener('click', handleColorManageToggle);
     colorPickerInput.removeEventListener('change', handleColorPickerChange);
+    pendingColorAddButton.removeEventListener('click', handlePendingColorAdd);
+    pendingColorCancelButton.removeEventListener('click', handlePendingColorCancel);
+    pendingColorNameInput.removeEventListener('keydown', handlePendingColorNameKeydown);
     colorManageList.removeEventListener('pointerdown', handleColorListPointerDown);
     colorManageList.removeEventListener('pointermove', handleColorListPointerMove);
     colorManageList.removeEventListener('pointerup', handleColorListPointerUp);

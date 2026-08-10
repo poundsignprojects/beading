@@ -566,6 +566,32 @@ body {
   border-color: #b3261e;
 }
 
+#pending-color-card {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-top: 0.5rem;
+  padding: 0.4rem;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.03);
+}
+
+#pending-color-swatch {
+  flex: none;
+  width: 1.75rem;
+  height: 1.75rem;
+  border-radius: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
+#pending-color-name-input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.95rem;
+  padding: 0.3rem 0.4rem;
+}
+
 @media print {
   #library-view,
   #editor-view,

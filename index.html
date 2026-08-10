@@ -65,6 +65,12 @@
           <div id="color-palette" role="group" aria-label="Color"></div>
           <p id="color-palette-empty" hidden>No colors yet — tap + to add one.</p>
           <input type="color" id="color-picker-input" class="visually-hidden-input">
+          <div id="pending-color-card" hidden>
+            <span id="pending-color-swatch"></span>
+            <input type="text" id="pending-color-name-input" placeholder="Color name" autocomplete="off">
+            <button type="button" id="pending-color-cancel">Cancel</button>
+            <button type="button" id="pending-color-add">Add</button>
+          </div>
           <ul id="color-manage-list" hidden></ul>
         </section>
         <section id="colorway-section" aria-label="Colorway">
