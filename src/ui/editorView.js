@@ -172,13 +172,16 @@ export function mountEditorView(appState, hooks) {
       appState.selectedColorId = colors[0].id;
     }
 
-    const addTile = document.createElement('button');
-    addTile.type = 'button';
+    // A <label for="color-picker-input"> rather than a button that calls
+    // colorPickerInput.click() — iOS Safari does not reliably open the native
+    // color picker from a programmatic .click(), only from a real tap on the
+    // input itself or its associated label.
+    const addTile = document.createElement('label');
+    addTile.htmlFor = 'color-picker-input';
     addTile.className = 'color-swatch-add';
     addTile.title = 'Add color';
     addTile.setAttribute('aria-label', 'Add color');
     addTile.textContent = '+';
-    addTile.addEventListener('click', handleAddColorClick);
 
     colorPalette.replaceChildren(
       ...colors.map((swatch) => {
@@ -534,9 +537,6 @@ export function mountEditorView(appState, hooks) {
     colorManageToggleButton.setAttribute('aria-pressed', String(manageMode));
     if (manageMode) renderColorManageList();
     updatePaletteSectionVisibility();
-  }
-  function handleAddColorClick() {
-    colorPickerInput.click();
   }
   function handleColorPickerChange() {
     const hex = colorPickerInput.value;

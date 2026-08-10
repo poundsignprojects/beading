@@ -320,6 +320,18 @@ body {
   margin: 0.25rem 0;
 }
 
+/* Kept out of `display: none` on purpose — iOS Safari won't open the native
+   color picker from a programmatic .click() on an input that isn't rendered. */
+.visually-hidden-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
 .color-swatch {
   width: 1.75rem;
   height: 1.75rem;
@@ -335,6 +347,9 @@ body {
 }
 
 .color-swatch-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   width: 1.75rem;
   height: 1.75rem;
   border-radius: 4px;
