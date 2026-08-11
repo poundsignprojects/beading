@@ -1,5 +1,5 @@
 import { screenToWorld } from '../render/viewport.js';
-import { peyoteCellAtPoint, peyoteCellAtPointClamped } from '../grid/peyote.js';
+import { peyoteCellAtPoint, peyoteCellAtPointClamped, peyoteCellAtPointUnbounded } from '../grid/peyote.js';
 import { cellKey } from '../state/cellStore.js';
 import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
@@ -203,6 +203,23 @@ export function attachPointerRouter(canvas, viewport, {
     );
   }
 
+  // Unlike clampedHit (used for selection, which only ever marks cells that
+  // already exist), a paste's anchor is allowed to land negative or past
+  // rows/cols — its clipboard content can legitimately hang off any edge of the
+  // grid while being positioned, not just the far/right-bottom edge that
+  // clampedHit's upper bound happens to still allow content to overhang past.
+  function unboundedHit(point) {
+    const gridParams = getGridParams();
+    if (!gridParams) return null;
+    const worldPoint = screenToWorld(point.x, point.y, viewport);
+    return peyoteCellAtPointUnbounded(
+      worldPoint.xMm,
+      worldPoint.yMm,
+      gridParams.beadWidthMm,
+      gridParams.beadHeightMm
+    );
+  }
+
   // A plain tap (pointerdown -> pointerup with no movement) that lands outside the
   // selection already active when the gesture began clears it instead of leaving
   // the stray 1-cell box startSelectionDrag shows for live drag feedback — tracked
@@ -232,10 +249,12 @@ export function attachPointerRouter(canvas, viewport, {
   // snaps to whichever cell is currently under the pointer, treating that cell as
   // the clipboard footprint's top-left corner — same approach clampedHit already
   // gives selection-drag, and consistent with how fill/replace hit-test directly
-  // rather than tracking relative motion.
+  // rather than tracking relative motion. Uses unboundedHit, not clampedHit — the
+  // anchor is allowed to land off any edge of the grid (see unboundedHit's own
+  // comment), not just clamped-in-bounds like a selection has to be.
   function startPastePreviewDrag(pointerId, point) {
     if (!getClipboard()) return;
-    const hit = clampedHit(point);
+    const hit = unboundedHit(point);
     if (!hit) return;
     pasteDrag = { pointerId };
     onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
@@ -243,7 +262,7 @@ export function attachPointerRouter(canvas, viewport, {
   }
 
   function continuePastePreviewDrag(point) {
-    const hit = clampedHit(point);
+    const hit = unboundedHit(point);
     if (!hit) return;
     onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
   }
