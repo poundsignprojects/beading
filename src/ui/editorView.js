@@ -769,10 +769,11 @@ export function mountEditorView(appState, hooks) {
     setTool('paste');
     scheduleRedraw();
   }
-  // Confirm stamps the preview into cells as one undo-able patch. Deliberately does
-  // not clear appState.pastePreview or change appState.tool — the ghost stays at the
-  // same anchor so the user can immediately drag it elsewhere and Confirm again for
-  // the next stamp (preserves Phase 7's repeated-stamping workflow).
+  // Confirm stamps the preview into cells as one undo-able patch, then ends the
+  // paste session entirely: clears the preview, clears whatever marquee selection
+  // was left over from the original Copy (so its box doesn't linger on screen
+  // after the content it described has already been placed), and drops back to
+  // Draw. One-and-done — a repeat stamp means clicking Paste again.
   function handlePasteConfirm() {
     if (!appState.pastePreview || !appState.clipboard) return;
     const { anchorRow, anchorCol } = appState.pastePreview;
@@ -781,6 +782,10 @@ export function mountEditorView(appState, hooks) {
       appState.gridParams.rows, appState.gridParams.cols, appState.pasteMode
     );
     if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    appState.pastePreview = null;
+    appState.selection = null;
+    updateSelectionButtons();
+    setTool('draw');
     scheduleRedraw();
     if (patch.length > 0) hooks.onCellsChanged();
   }
