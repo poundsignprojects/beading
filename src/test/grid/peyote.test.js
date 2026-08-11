@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint, peyoteCellAtPointClamped, peyoteCellAtPointUnbounded, peyoteNeighbors } from '../../grid/peyote.js';
+import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint, peyoteCellAtPointClamped, peyoteCellAtPointUnbounded, peyoteNeighbors, peyoteRowCount, peyoteRowCells } from '../../grid/peyote.js';
 
 const BEAD_W = 1.6;
 const BEAD_H = 1.3;
@@ -173,4 +173,26 @@ test('peyoteNeighbors: adjacency is symmetric across a sample grid', () => {
       }
     }
   }
+});
+
+// col identifies which physical stitching row a bead belongs to (see
+// peyoteCellOriginMm's comment) — peyoteRowCount/peyoteRowCells are the
+// stitch-type-agnostic accessors wordChart.js uses instead of assuming that
+// inversion directly.
+test('peyoteRowCount: returns cols unchanged — the physical row count', () => {
+  assert.equal(peyoteRowCount(7), 7);
+  assert.equal(peyoteRowCount(0), 0);
+});
+
+test('peyoteRowCells: returns every row index at a fixed col, in ascending order', () => {
+  assert.deepEqual(peyoteRowCells(4, 2), [
+    { row: 0, col: 2 },
+    { row: 1, col: 2 },
+    { row: 2, col: 2 },
+    { row: 3, col: 2 },
+  ]);
+});
+
+test('peyoteRowCells: an empty row count returns an empty array', () => {
+  assert.deepEqual(peyoteRowCells(0, 3), []);
 });

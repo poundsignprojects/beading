@@ -87,3 +87,24 @@ export function peyoteNeighbors(row, col) {
     [row + 1, a], [row + 1, b],
   ];
 }
+
+// Peyote's internal row/col do NOT follow the row=horizontal/col=vertical
+// convention a spreadsheet or bitmap would use — `row` is a bead's position
+// *along* a physical stitching row (the zigzag/offset axis), `col` identifies
+// *which* physical row it belongs to. That inversion is peyote-specific (a
+// consequence of how the half-bead stagger is expressed — see
+// peyoteCellOriginMm above) and must not leak into code that needs to reason
+// about "a physical row" as a stitch-type-agnostic concept. Any such code
+// (wordChart.js, any future exporter) should go through these two functions
+// instead of assuming row/col's roles directly — when brick/square/loom get
+// built, only their own grid modules need to implement this contract
+// correctly; consumers like wordChart.js won't need to change at all.
+export function peyoteRowCount(cols) {
+  return cols;
+}
+
+export function peyoteRowCells(rows, physicalRowIndex) {
+  const cells = [];
+  for (let row = 0; row < rows; row++) cells.push({ row, col: physicalRowIndex });
+  return cells;
+}

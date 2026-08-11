@@ -824,7 +824,7 @@ export function mountEditorView(appState, hooks) {
     hooks.onBack();
   }
   function handlePrintExport() {
-    mountPrintView(appState);
+    mountPrintView(appState, { onPreferencesChanged: hooks.onPreferencesChanged });
   }
   function handlePhotoTraceLoadClick() {
     photoTraceFileInput.click();

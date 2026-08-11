@@ -5,7 +5,7 @@
 
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
 import { formatLength } from '../units/convert.js';
-import { buildWordChart, displayRuns, UNASSIGNED } from '../export/wordChart.js';
+import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
 
 function resolveSwatch(customColors, colorId) {
@@ -100,7 +100,13 @@ function formatRun(run, codes) {
   return `${run.count}${codes.get(run.colorId)}`;
 }
 
-function buildChart(chart, codes) {
+function formatRowLabel(chartRow) {
+  return chartRow.combined
+    ? `Rows ${chartRow.rowNumbers[0]} & ${chartRow.rowNumbers[1]} (strung together)`
+    : `Row ${chartRow.rowNumbers[0]}`;
+}
+
+function buildChart(chart, codes, startsReversed) {
   const section = document.createElement('section');
   section.id = 'print-chart';
 
@@ -111,32 +117,41 @@ function buildChart(chart, codes) {
   section.append(heading);
 
   for (const chartRow of chart.rows) {
-    const direction = chartRow.rowIndex % 2 === 1 ? '←' : '→';
-    const runText = displayRuns(chartRow).map((run) => formatRun(run, codes)).join(' ');
+    const direction = isRowReversed(chartRow, startsReversed) ? '←' : '→';
+    const runText = displayRuns(chartRow, startsReversed).map((run) => formatRun(run, codes)).join(' ');
     const line = document.createElement('div');
     line.className = 'word-chart-row';
-    line.textContent = `Col ${chartRow.rowIndex + 1} ${direction}: ${runText}`;
+    line.textContent = `${formatRowLabel(chartRow)} ${direction}: ${runText}`;
     section.append(line);
   }
 
   return section;
 }
 
-export function mountPrintView(appState) {
+function directionToggleLabel(startsReversed) {
+  return startsReversed ? 'Start: Left' : 'Start: Right';
+}
+
+export function mountPrintView(appState, hooks) {
   const printViewEl = document.getElementById('print-view');
   const contentEl = document.getElementById('print-content');
   const closeButton = document.getElementById('print-close');
   const printButton = document.getElementById('print-now');
+  const directionToggleButton = document.getElementById('print-start-direction-toggle');
 
   const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? 'Untitled Pattern';
   const chart = buildWordChart(appState.cells, appState.rows, appState.cols);
   const codes = assignColorCodes(chart.colorCounts);
 
-  contentEl.replaceChildren(
-    buildHeader(appState, designName),
-    buildMaterials(chart, codes, appState.customColors),
-    buildChart(chart, codes)
-  );
+  function renderContent() {
+    const startsReversed = appState.preferences.printStartDirection === 'left';
+    directionToggleButton.textContent = directionToggleLabel(startsReversed);
+    contentEl.replaceChildren(
+      buildHeader(appState, designName),
+      buildMaterials(chart, codes, appState.customColors),
+      buildChart(chart, codes, startsReversed)
+    );
+  }
 
   function handlePrint() {
     window.print();
@@ -144,10 +159,17 @@ export function mountPrintView(appState) {
   function handleClose() {
     unmount();
   }
+  async function handleDirectionToggle() {
+    const next = appState.preferences.printStartDirection === 'left' ? 'right' : 'left';
+    await hooks.onPreferencesChanged({ printStartDirection: next });
+    renderContent();
+  }
 
   closeButton.addEventListener('click', handleClose);
   printButton.addEventListener('click', handlePrint);
+  directionToggleButton.addEventListener('click', handleDirectionToggle);
 
+  renderContent();
   printViewEl.hidden = false;
 
   function unmount() {
@@ -155,6 +177,7 @@ export function mountPrintView(appState) {
     contentEl.replaceChildren();
     closeButton.removeEventListener('click', handleClose);
     printButton.removeEventListener('click', handlePrint);
+    directionToggleButton.removeEventListener('click', handleDirectionToggle);
   }
 
   return { unmount };
