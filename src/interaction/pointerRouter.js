@@ -15,6 +15,14 @@ const MIN_SCALE_PX_PER_MM = 1;
 const MAX_SCALE_PX_PER_MM = 150;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 
+// How close to the canvas edge (in canvas-local px, inward or outward) a select/
+// paste drag's pointer needs to be before the viewport starts auto-panning to meet
+// it — without this, extending a marquee or repositioning a paste preview is
+// limited by how far the physical mouse/finger can actually travel, which runs out
+// well before the far edge of a grid bigger than the canvas.
+const EDGE_PAN_MARGIN_PX = 48;
+const EDGE_PAN_MAX_SPEED_PX_PER_FRAME = 14;
+
 // draw/erase: continuous drag, interpolated between move events (unchanged from
 // Phase 2). fill/replace: one action per pointerdown, no interpolation — a flood
 // fill only makes sense at the tapped cell. paste is no longer a discrete tap-to-
@@ -44,6 +52,22 @@ function distance(a, b) {
   return Math.hypot(b.x - a.x, b.y - a.y);
 }
 
+// 0 in the "safe" interior; ramps up to EDGE_PAN_MAX_SPEED_PX_PER_FRAME right at the
+// margin and stays there for anything further past the edge, so a pointer that's
+// left the canvas entirely (pointer capture still delivers move events for it)
+// doesn't accelerate without bound the further off-canvas it goes.
+function edgePanDelta(pos, size) {
+  if (pos < EDGE_PAN_MARGIN_PX) {
+    const depth = Math.min(EDGE_PAN_MARGIN_PX, EDGE_PAN_MARGIN_PX - pos);
+    return -(depth / EDGE_PAN_MARGIN_PX) * EDGE_PAN_MAX_SPEED_PX_PER_FRAME;
+  }
+  if (pos > size - EDGE_PAN_MARGIN_PX) {
+    const depth = Math.min(EDGE_PAN_MARGIN_PX, pos - (size - EDGE_PAN_MARGIN_PX));
+    return (depth / EDGE_PAN_MARGIN_PX) * EDGE_PAN_MAX_SPEED_PX_PER_FRAME;
+  }
+  return 0;
+}
+
 // Zooms viewport.scalePxPerMm by scaleFactor while keeping anchorWorld pinned under
 // screenPoint — the shared math behind both pinch-zoom and ctrl+wheel-zoom-to-cursor.
 function zoomToAnchor(viewport, anchorWorld, screenPoint, scaleFactor) {
@@ -70,6 +94,7 @@ export function attachPointerRouter(canvas, viewport, {
   getColorId,
   getClipboard,
   getPhotoTrace,
+  getSelection,
   onViewportChange,
   onCellsChanged,
   onStrokeCommitted,
@@ -81,9 +106,10 @@ export function attachPointerRouter(canvas, viewport, {
   let pinchBaseline = null; // { midpoint, distance } in canvas-local px
   let mouseDrag = null; // { x, y } in canvas-local px
   let drawStroke = null; // { pointerId, lastWorld: { xMm, yMm }, patch } or null
-  let selectionDrag = null; // { pointerId, startRow, startCol } or null
+  let selectionDrag = null; // { pointerId, startRow, startCol, moved, tapOutsideExisting } or null
   let photoDrag = null; // { pointerId, x, y } in canvas-local px, or null
   let pasteDrag = null; // { pointerId } or null
+  let edgePanRafId = null; // rAF handle for the select/paste edge auto-pan loop, or null
   let spacePressed = false;
 
   function canvasPoint(e) {
@@ -177,16 +203,28 @@ export function attachPointerRouter(canvas, viewport, {
     );
   }
 
+  // A plain tap (pointerdown -> pointerup with no movement) that lands outside the
+  // selection already active when the gesture began clears it instead of leaving
+  // the stray 1-cell box startSelectionDrag shows for live drag feedback — tracked
+  // here and resolved in handlePointerEnd, since "did this end up being a tap" is
+  // only knowable once the gesture is over.
   function startSelectionDrag(pointerId, point) {
     const hit = clampedHit(point);
     if (!hit) return;
-    selectionDrag = { pointerId, startRow: hit.row, startCol: hit.col };
+    const existing = getSelection();
+    const tapOutsideExisting = !!existing && (
+      hit.row < existing.rowStart || hit.row > existing.rowEnd ||
+      hit.col < existing.colStart || hit.col > existing.colEnd
+    );
+    selectionDrag = { pointerId, startRow: hit.row, startCol: hit.col, moved: false, tapOutsideExisting };
     onSelectionChange(normalizeSelection(hit, hit));
+    startEdgePanLoop();
   }
 
   function continueSelectionDrag(point) {
     const hit = clampedHit(point);
     if (!hit) return;
+    if (hit.row !== selectionDrag.startRow || hit.col !== selectionDrag.startCol) selectionDrag.moved = true;
     onSelectionChange(normalizeSelection({ row: selectionDrag.startRow, col: selectionDrag.startCol }, hit));
   }
 
@@ -201,12 +239,50 @@ export function attachPointerRouter(canvas, viewport, {
     if (!hit) return;
     pasteDrag = { pointerId };
     onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
+    startEdgePanLoop();
   }
 
   function continuePastePreviewDrag(point) {
     const hit = clampedHit(point);
     if (!hit) return;
     onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
+  }
+
+  // Auto-pans the viewport while a select/paste drag's pointer sits near or past
+  // the canvas edge, so the drag can keep extending even once the physical mouse/
+  // finger has nowhere further to go. Runs as its own rAF loop tied to the drag's
+  // lifetime (not off pointermove) since it needs to keep panning even while the
+  // pointer holds still right at the edge.
+  function tickEdgePan() {
+    const activeDrag = selectionDrag || pasteDrag;
+    if (!activeDrag) {
+      edgePanRafId = null;
+      return;
+    }
+    edgePanRafId = requestAnimationFrame(tickEdgePan);
+    const last = pointers.get(activeDrag.pointerId);
+    if (!last) return;
+    const rect = canvas.getBoundingClientRect();
+    const dxPx = edgePanDelta(last.x, rect.width);
+    const dyPx = edgePanDelta(last.y, rect.height);
+    if (dxPx === 0 && dyPx === 0) return;
+    viewport.originXmm += dxPx / viewport.scalePxPerMm;
+    viewport.originYmm += dyPx / viewport.scalePxPerMm;
+    onViewportChange();
+    if (selectionDrag) continueSelectionDrag(last);
+    else if (pasteDrag) continuePastePreviewDrag(last);
+  }
+
+  function startEdgePanLoop() {
+    if (edgePanRafId != null) return;
+    edgePanRafId = requestAnimationFrame(tickEdgePan);
+  }
+
+  function stopEdgePanLoop() {
+    if (edgePanRafId != null) {
+      cancelAnimationFrame(edgePanRafId);
+      edgePanRafId = null;
+    }
   }
 
   // Single-pointer drag while the 'move-photo' tool is active translates the photo
@@ -294,6 +370,7 @@ export function attachPointerRouter(canvas, viewport, {
         selectionDrag = null; // last onSelectionChange already left the selection at its value
         photoDrag = null; // hand off to pinch-scale instead
         pasteDrag = null; // last onPastePreviewChange already left the preview at its value
+        stopEdgePanLoop();
       } else if (touchCount === 1) {
         handleSingleInteractionStart(e.pointerId, point);
       }
@@ -361,13 +438,21 @@ export function attachPointerRouter(canvas, viewport, {
       commitStroke();
     }
     if (selectionDrag && selectionDrag.pointerId === e.pointerId) {
-      selectionDrag = null; // last onSelectionChange already left the selection at its final value
+      // A tap (never moved) that landed outside whatever selection was already
+      // active clears it, instead of leaving the stray 1-cell box startSelectionDrag
+      // shows for live drag feedback.
+      if (!selectionDrag.moved && selectionDrag.tapOutsideExisting) {
+        onSelectionChange(null);
+      }
+      selectionDrag = null; // otherwise last onSelectionChange already left the selection at its final value
+      stopEdgePanLoop();
     }
     if (photoDrag && photoDrag.pointerId === e.pointerId) {
       photoDrag = null;
     }
     if (pasteDrag && pasteDrag.pointerId === e.pointerId) {
       pasteDrag = null; // preview itself (appState.pastePreview) persists until Confirm/Cancel
+      stopEdgePanLoop();
     }
     if (touchLikePointers().length < 2) {
       pinchBaseline = null; // next gesture starts a fresh baseline, no jump

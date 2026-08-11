@@ -921,6 +921,7 @@ export function mountEditorView(appState, hooks) {
     getColorId: () => appState.selectedColorId,
     getClipboard: () => appState.clipboard,
     getPhotoTrace: () => appState.photoTrace,
+    getSelection: () => appState.selection,
     onViewportChange: scheduleRedraw,
     onCellsChanged: () => {
       scheduleRedraw();

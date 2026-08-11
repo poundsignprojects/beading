@@ -1,7 +1,7 @@
 import { peyoteCellOriginMm } from '../grid/peyote.js';
 import { worldToScreen } from './viewport.js';
 
-const PASTE_PREVIEW_ALPHA = 0.55;
+const PASTE_PREVIEW_ALPHA = 0.9;
 const PASTE_PREVIEW_BORDER_STYLE = '#2c7be5';
 const PASTE_PREVIEW_BORDER_WIDTH_PX = 2;
 const PASTE_PREVIEW_DASH = [4, 3];
