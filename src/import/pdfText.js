@@ -68,8 +68,8 @@ function itemsFromTextContent(content) {
 let pdfjsLibPromise = null;
 function loadPdfjs() {
   if (!pdfjsLibPromise) {
-    pdfjsLibPromise = import('/vendor/pdfjs/pdf.mjs').then((lib) => {
-      lib.GlobalWorkerOptions.workerSrc = '/vendor/pdfjs/pdf.worker.mjs';
+    pdfjsLibPromise = import('../../vendor/pdfjs/pdf.mjs').then((lib) => {
+      lib.GlobalWorkerOptions.workerSrc = new URL('../../vendor/pdfjs/pdf.worker.mjs', import.meta.url).href;
       return lib;
     });
   }
