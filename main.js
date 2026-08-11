@@ -14,6 +14,7 @@ import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape 
 import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
+import { mountImportDialog } from './src/ui/importDialog.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchHex } from './src/palette/colorLibrary.js';
 import { BEAD_TYPES } from './src/palette/beadSpecs.js';
@@ -30,6 +31,7 @@ const editorViewEl = document.getElementById('editor-view');
 
 let libraryController = null;
 let editorController = null;
+let importController = null;
 let debouncedSave = null; // created per open design, discarded on unmount
 // Separate from debouncedSave: targets photoTraceStore, not designStore, and
 // changes (move/scale/opacity) happen far less often than cell edits — see
@@ -272,6 +274,21 @@ async function handleDelete(id) {
   libraryController.renderList(appState.designs);
 }
 
+function handleImport() {
+  importController.openFilePicker();
+}
+
+// Fired by importDialog.js once a Loomerly PDF has been fully parsed, reconciled, and
+// saved as a new design record — mirrors handleCreate's in-place appState.designs
+// update (no full re-fetch) and opens the result immediately, same as every other
+// library-mutation flow.
+async function handleImported(design) {
+  appState.designs.push(design);
+  appState.designs.sort((a, b) => a.order - b.order);
+  libraryController.renderList(appState.designs);
+  await openDesign(design);
+}
+
 async function handleReorder(id, newOrder) {
   const design = appState.designs.find((d) => d.id === id);
   if (!design) return;
@@ -302,12 +319,14 @@ async function boot() {
   libraryController = mountLibraryView({
     onOpen: handleOpen,
     onCreate: handleCreate,
+    onImport: handleImport,
     onRename: handleRename,
     onDuplicate: handleDuplicate,
     onDelete: handleDelete,
     onReorder: handleReorder,
     onViewModeChanged: handleViewModeChanged,
   });
+  importController = mountImportDialog(appState.db, { onImported: handleImported });
 
   libraryController.setViewMode(appState.preferences.libraryViewMode === 'gallery' ? 'gallery' : 'list');
   showLibraryView();

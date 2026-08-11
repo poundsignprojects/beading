@@ -7,3 +7,4 @@ To do:
 - Multiple palettes
 - Missing bead color with an X
 - Global preferences modal — consolidate the scattered preference toggles (units, panel-collapsed, library view mode, and the new print-start-direction) into one modal instead of buttons spread across the top bar/library header/print toolbar. Not scoped/planned yet.
+- Word chart doesn't split rows into real thread passes beyond the foundation (row 0 gets erroneously interleaved with row 1; every row after that prints as one full-width line instead of two alternating-position passes) — found via a direct Loomerly comparison during the import-feature session. Scoped in `.work/fix-wordchart-half-pass-splitting-plan.md`, deferred, not yet implemented.

@@ -27,6 +27,7 @@ function relativeTime(epochMs) {
 export function mountLibraryView(callbacks) {
   const listEl = document.getElementById('library-list');
   const newButton = document.getElementById('library-new');
+  const importButton = document.getElementById('library-import');
   const emptyMessageEl = document.getElementById('library-empty-message');
   const viewListButton = document.getElementById('library-view-list');
   const viewGalleryButton = document.getElementById('library-view-gallery');
@@ -175,6 +176,7 @@ export function mountLibraryView(callbacks) {
   listEl.addEventListener('pointerup', handleListPointerUp);
   listEl.addEventListener('pointercancel', handleListPointerUp);
   newButton.addEventListener('click', () => callbacks.onCreate());
+  importButton.addEventListener('click', () => callbacks.onImport());
 
   return { renderList, setViewMode };
 }
