@@ -39,6 +39,30 @@ test('applyPaste: clips entries landing outside grid bounds without shifting the
   assert.equal(patch.length, 1);
 });
 
+test('applyPaste: mode "behind" skips already-occupied targets, fills empty ones, and omits skipped cells from the patch', () => {
+  const target = new Map();
+  setCell(target, 4, 0, 'green'); // pre-existing, should survive untouched
+  const clipboard = { rows: 2, cols: 2, cells: [[0, 0, 'red'], [0, 1, 'blue']] };
+  // Anchor so relative (0,0) -> (4,0) [occupied] and (0,1) -> (4,1) [empty].
+  const patch = applyPaste(target, clipboard, 4, 0, 20, 20, 'behind');
+  assert.equal(target.get('4,0').colorId, 'green'); // untouched
+  assert.equal(target.get('4,1').colorId, 'blue'); // filled
+  assert.equal(patch.length, 1);
+  assert.deepEqual(patch[0], { row: 4, col: 1, before: undefined, after: { colorId: 'blue' } });
+});
+
+test('applyPaste: mode "front" (explicit and default) both overwrite an occupied target, reproducing the existing fixture', () => {
+  const clipboard = { rows: 1, cols: 1, cells: [[0, 0, 'red']] };
+  for (const args of [[], ['front']]) {
+    const target = new Map();
+    setCell(target, 4, 0, 'green');
+    const patch = applyPaste(target, clipboard, 4, 0, 20, 20, ...args);
+    assert.equal(target.get('4,0').colorId, 'red');
+    assert.equal(patch.length, 1);
+    assert.deepEqual(patch[0], { row: 4, col: 0, before: { colorId: 'green' }, after: { colorId: 'red' } });
+  }
+});
+
 test('applyEraseRegion: only touches occupied cells within bounds, patch matches fixture', () => {
   const cells = new Map();
   setCell(cells, 0, 0, 'red');

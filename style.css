@@ -252,7 +252,8 @@ body {
 }
 
 #tool-rail #tool-toggle,
-#tool-rail #selection-controls {
+#tool-rail #selection-controls,
+#tool-rail #paste-controls {
   flex-direction: column;
 }
 
@@ -301,6 +302,23 @@ body {
 #selection-controls button:disabled {
   opacity: 0.4;
   cursor: default;
+}
+
+#paste-controls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+#paste-controls button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+#paste-mode-front[aria-pressed="true"],
+#paste-mode-behind[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
 }
 
 #photo-trace-controls {

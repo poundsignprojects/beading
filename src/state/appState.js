@@ -47,5 +47,13 @@ export function createAppState() {
     selection: null, // { rowStart, rowEnd, colStart, colEnd } (inclusive) or null
     clipboard: null, // { rows, cols, cells: [[relRow, relCol, colorId], ...] } or null
     photoTrace: null, // { image, opacityPercent, xMm, yMm, widthMm, heightMm } or null
+
+    // Draggable paste placement: which side wins where a pending paste overlaps
+    // existing beads ('front' = pasted content wins, matching Phase 7's original
+    // one-shot-stamp behavior; 'behind' = existing beads win) — session-only like
+    // appState.tool, not persisted with the design. pastePreview holds the anchor
+    // of a pending, not-yet-confirmed paste while the 'paste' tool is active.
+    pasteMode: 'front', // 'front' | 'behind'
+    pastePreview: null, // { anchorRow, anchorCol } or null
   };
 }

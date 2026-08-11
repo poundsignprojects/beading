@@ -5,7 +5,6 @@ import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
 import { applyFill } from '../tools/fillTool.js';
 import { applyColorReplace } from '../tools/colorReplaceTool.js';
-import { applyPaste } from '../tools/cutCopyTool.js';
 import { scalePhotoToAnchor } from '../state/photoTrace.js';
 import { interpolatedWorldPoints } from './dragTrace.js';
 import { createStrokePatch, recordCellChange, strokePatchToArray } from '../state/strokePatch.js';
@@ -17,10 +16,12 @@ const MAX_SCALE_PX_PER_MM = 150;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 
 // draw/erase: continuous drag, interpolated between move events (unchanged from
-// Phase 2). fill/replace/paste: one action per pointerdown, no interpolation — a
-// flood fill or a paste stamp only makes sense at the tapped cell.
+// Phase 2). fill/replace: one action per pointerdown, no interpolation — a flood
+// fill only makes sense at the tapped cell. paste is no longer a discrete tap-to-
+// stamp action — it's a drag-to-position preview, confirmed explicitly (see
+// startPastePreviewDrag/continuePastePreviewDrag below).
 const STROKE_TOOLS = new Set(['draw', 'erase']);
-const DISCRETE_TOOLS = new Set(['fill', 'replace', 'paste']);
+const DISCRETE_TOOLS = new Set(['fill', 'replace']);
 
 function normalizeSelection(a, b) {
   return {
@@ -74,6 +75,7 @@ export function attachPointerRouter(canvas, viewport, {
   onStrokeCommitted,
   onSelectionChange,
   onPhotoTraceChange,
+  onPastePreviewChange,
 }) {
   const pointers = new Map(); // pointerId -> { x, y, pointerType }
   let pinchBaseline = null; // { midpoint, distance } in canvas-local px
@@ -81,6 +83,7 @@ export function attachPointerRouter(canvas, viewport, {
   let drawStroke = null; // { pointerId, lastWorld: { xMm, yMm }, patch } or null
   let selectionDrag = null; // { pointerId, startRow, startCol } or null
   let photoDrag = null; // { pointerId, x, y } in canvas-local px, or null
+  let pasteDrag = null; // { pointerId } or null
   let spacePressed = false;
 
   function canvasPoint(e) {
@@ -128,7 +131,7 @@ export function attachPointerRouter(canvas, viewport, {
     drawStroke = null;
   }
 
-  // One-shot action for fill/replace/paste: hit-tests the tapped cell, applies the
+  // One-shot action for fill/replace: hit-tests the tapped cell, applies the
   // active discrete tool, and commits the result as a single undo-able patch via
   // the same onStrokeCommitted path draw/erase strokes already use.
   function performDiscreteAction(point) {
@@ -153,10 +156,6 @@ export function attachPointerRouter(canvas, viewport, {
       const source = cells.get(cellKey(hit.row, hit.col));
       if (!source) return; // tapped an empty cell — nothing to replace
       patch = applyColorReplace(cells, source.colorId, getColorId());
-    } else if (tool === 'paste') {
-      const clipboard = getClipboard();
-      if (!clipboard) return; // shouldn't be reachable (paste tool only selectable with a clipboard)
-      patch = applyPaste(cells, clipboard, hit.row, hit.col, gridParams.rows, gridParams.cols);
     }
     if (patch && patch.length > 0) {
       onCellsChanged();
@@ -191,6 +190,25 @@ export function attachPointerRouter(canvas, viewport, {
     onSelectionChange(normalizeSelection({ row: selectionDrag.startRow, col: selectionDrag.startCol }, hit));
   }
 
+  // Direct hit-testing, not a relative pixel-delta drag: on every move, the anchor
+  // snaps to whichever cell is currently under the pointer, treating that cell as
+  // the clipboard footprint's top-left corner — same approach clampedHit already
+  // gives selection-drag, and consistent with how fill/replace hit-test directly
+  // rather than tracking relative motion.
+  function startPastePreviewDrag(pointerId, point) {
+    if (!getClipboard()) return;
+    const hit = clampedHit(point);
+    if (!hit) return;
+    pasteDrag = { pointerId };
+    onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
+  }
+
+  function continuePastePreviewDrag(point) {
+    const hit = clampedHit(point);
+    if (!hit) return;
+    onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
+  }
+
   // Single-pointer drag while the 'move-photo' tool is active translates the photo
   // trace overlay directly (not the viewport) — never touches appState.cells, so
   // it's deliberately not undo-tracked (see the Phase 7 plan's photo trace section).
@@ -215,9 +233,9 @@ export function attachPointerRouter(canvas, viewport, {
 
   // Routes a single-touch/pen tap or a mouse-left-drag start by the currently
   // active tool. draw/erase keep the existing continuous-stroke path; fill/
-  // replace/paste fire once and don't set drawStroke (so handlePointerMove's
-  // stroke branch never matches for them); select starts a marquee drag;
-  // move-photo starts a photo-translate drag.
+  // replace fire once and don't set drawStroke (so handlePointerMove's stroke
+  // branch never matches for them); select starts a marquee drag; move-photo
+  // starts a photo-translate drag; paste starts a preview-positioning drag.
   function handleSingleInteractionStart(pointerId, point) {
     const tool = getTool();
     if (STROKE_TOOLS.has(tool)) {
@@ -228,6 +246,8 @@ export function attachPointerRouter(canvas, viewport, {
       startSelectionDrag(pointerId, point);
     } else if (tool === 'move-photo') {
       startPhotoDrag(pointerId, point);
+    } else if (tool === 'paste') {
+      startPastePreviewDrag(pointerId, point);
     }
   }
 
@@ -273,6 +293,7 @@ export function attachPointerRouter(canvas, viewport, {
         commitStroke(); // second finger landed — hand off to pan/zoom, not a stray bead
         selectionDrag = null; // last onSelectionChange already left the selection at its value
         photoDrag = null; // hand off to pinch-scale instead
+        pasteDrag = null; // last onPastePreviewChange already left the preview at its value
       } else if (touchCount === 1) {
         handleSingleInteractionStart(e.pointerId, point);
       }
@@ -319,6 +340,8 @@ export function attachPointerRouter(canvas, viewport, {
       continueSelectionDrag(point);
     } else if (photoDrag && photoDrag.pointerId === e.pointerId) {
       continuePhotoDrag(point);
+    } else if (pasteDrag && pasteDrag.pointerId === e.pointerId) {
+      continuePastePreviewDrag(point);
     } else if (e.pointerType === 'mouse' && mouseDrag) {
       const dxPx = point.x - mouseDrag.x;
       const dyPx = point.y - mouseDrag.y;
@@ -342,6 +365,9 @@ export function attachPointerRouter(canvas, viewport, {
     }
     if (photoDrag && photoDrag.pointerId === e.pointerId) {
       photoDrag = null;
+    }
+    if (pasteDrag && pasteDrag.pointerId === e.pointerId) {
+      pasteDrag = null; // preview itself (appState.pastePreview) persists until Confirm/Cancel
     }
     if (touchLikePointers().length < 2) {
       pinchBaseline = null; // next gesture starts a fresh baseline, no jump

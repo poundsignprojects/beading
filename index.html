@@ -57,6 +57,12 @@
           <button id="selection-mirror-v" disabled>Mirror &updownarrow;</button>
           <button id="selection-deselect" disabled title="Deselect (Esc)">Deselect</button>
         </div>
+        <div id="paste-controls" role="group" aria-label="Paste placement" hidden>
+          <button id="paste-mode-front" type="button" aria-pressed="true">In Front</button>
+          <button id="paste-mode-behind" type="button" aria-pressed="false">Behind</button>
+          <button id="paste-cancel" type="button">Cancel</button>
+          <button id="paste-confirm" type="button" disabled>Confirm</button>
+        </div>
         <button id="clear-pattern">Clear</button>
       </div>
       <canvas id="pattern-canvas"></canvas>

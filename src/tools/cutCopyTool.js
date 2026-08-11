@@ -33,11 +33,17 @@ export function applyEraseRegion(cells, selection) {
 }
 
 // Stamps clipboard content anchored with its top-left at (anchorRow, anchorCol).
-// Overwrites whatever's already there (paste is destructive over its own footprint,
-// the conventional behavior). Entries landing outside [0,rows)x[0,cols) are clipped,
-// not shifted — same "drop what doesn't fit" rule resizeGrid.js's remapEntries
-// already uses, so a paste stamped near an edge just doesn't fully land there.
-export function applyPaste(cells, clipboard, anchorRow, anchorCol, rows, cols) {
+// Entries landing outside [0,rows)x[0,cols) are clipped, not shifted — same "drop
+// what doesn't fit" rule resizeGrid.js's remapEntries already uses, so a paste
+// stamped near an edge just doesn't fully land there.
+//
+// mode: 'front' (default, current behavior) overwrites whatever's already at each
+// target cell; 'behind' leaves an already-occupied target cell untouched (existing
+// bead wins) and only fills cells that are currently empty within the pasted
+// footprint. Either way, a clipboard cell that was itself absent at copy time was
+// never in clipboard.cells to begin with, so gaps *within* the footprint that the
+// clipboard also had gaps at are never touched — unchanged from Phase 7.
+export function applyPaste(cells, clipboard, anchorRow, anchorCol, rows, cols, mode = 'front') {
   const patch = [];
   for (const [relRow, relCol, colorId] of clipboard.cells) {
     const row = anchorRow + relRow;
@@ -45,6 +51,7 @@ export function applyPaste(cells, clipboard, anchorRow, anchorCol, rows, cols) {
     if (row < 0 || row >= rows || col < 0 || col >= cols) continue;
     const key = cellKey(row, col);
     const before = cells.get(key);
+    if (mode === 'behind' && before) continue; // existing bead wins, pasted cell skipped
     if (before && before.colorId === colorId) continue; // no-op cell, skip
     patch.push({ row, col, before, after: { colorId } });
     setCell(cells, row, col, colorId);

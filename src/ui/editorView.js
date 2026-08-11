@@ -31,9 +31,11 @@
 
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
 import { resolveSwatchHex } from '../palette/colorLibrary.js';
-import { generatePeyoteGrid } from '../grid/peyote.js';
+import { generatePeyoteGrid, peyoteCellAtPointClamped } from '../grid/peyote.js';
 import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer.js';
 import { drawSelectionOverlay } from '../render/selectionOverlay.js';
+import { drawPastePreviewOverlay } from '../render/pastePreviewOverlay.js';
+import { screenToWorld } from '../render/viewport.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
 import { pushPatch, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
@@ -42,7 +44,7 @@ import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape 
 import { defaultPhotoPlacement } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
-import { buildClipboard, applyEraseRegion } from '../tools/cutCopyTool.js';
+import { buildClipboard, applyEraseRegion, applyPaste } from '../tools/cutCopyTool.js';
 import { applyMirror } from '../tools/mirrorTool.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
@@ -94,6 +96,11 @@ export function mountEditorView(appState, hooks) {
   const selectionMirrorHButton = document.getElementById('selection-mirror-h');
   const selectionMirrorVButton = document.getElementById('selection-mirror-v');
   const selectionDeselectButton = document.getElementById('selection-deselect');
+  const pasteControlsEl = document.getElementById('paste-controls');
+  const pasteModeFrontButton = document.getElementById('paste-mode-front');
+  const pasteModeBehindButton = document.getElementById('paste-mode-behind');
+  const pasteCancelButton = document.getElementById('paste-cancel');
+  const pasteConfirmButton = document.getElementById('paste-confirm');
   const photoTraceFileInput = document.getElementById('photo-trace-file');
   const photoTraceLoadButton = document.getElementById('photo-trace-load');
   const photoTraceOpacityLabel = document.getElementById('photo-trace-opacity-label');
@@ -133,6 +140,7 @@ export function mountEditorView(appState, hooks) {
       appState.photoTrace
     );
     drawSelectionOverlay(ctx, appState.viewport, appState.gridParams, appState.selection);
+    drawPastePreviewOverlay(ctx, appState.viewport, appState.gridParams, appState.clipboard, appState.pastePreview, resolveColor);
   }
 
   // Centers the grid's bounding box in the canvas at a scale that fits it with
@@ -259,6 +267,7 @@ export function mountEditorView(appState, hooks) {
   function setTool(tool) {
     appState.tool = tool;
     updateToolButtons();
+    updatePasteControls();
   }
 
   function updateToolButtons() {
@@ -267,6 +276,7 @@ export function mountEditorView(appState, hooks) {
     toolFillButton.setAttribute('aria-pressed', String(appState.tool === 'fill'));
     toolReplaceButton.setAttribute('aria-pressed', String(appState.tool === 'replace'));
     toolSelectButton.setAttribute('aria-pressed', String(appState.tool === 'select'));
+    selectionPasteButton.setAttribute('aria-pressed', String(appState.tool === 'paste'));
     photoTraceMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move-photo'));
   }
 
@@ -306,6 +316,34 @@ export function mountEditorView(appState, hooks) {
       : '';
     selectionPasteButton.disabled = !appState.clipboard;
     selectionDeselectButton.disabled = !hasSelection;
+  }
+
+  // Paste-controls (mode toggle + Cancel/Confirm) only make sense while the
+  // 'paste' tool is active — every other tool change hides them.
+  function updatePasteControls() {
+    const active = appState.tool === 'paste';
+    pasteControlsEl.hidden = !active;
+    pasteModeFrontButton.setAttribute('aria-pressed', String(appState.pasteMode === 'front'));
+    pasteModeBehindButton.setAttribute('aria-pressed', String(appState.pasteMode === 'behind'));
+    pasteConfirmButton.disabled = !appState.pastePreview;
+  }
+
+  // If a selection is currently active, anchor at its own top-left — reproduces
+  // the old "paste in place" behavior as the starting position for the common
+  // Copy-then-Paste flow. Otherwise (e.g. deselected after copying) default to
+  // the cell nearest the viewport's center, so a first-time paste doesn't need
+  // to be dragged in from a corner.
+  function defaultPasteAnchor() {
+    if (appState.selection) {
+      return { anchorRow: appState.selection.rowStart, anchorCol: appState.selection.colStart };
+    }
+    const centerWorld = screenToWorld(lastCssSize.cssWidth / 2, lastCssSize.cssHeight / 2, appState.viewport);
+    const hit = peyoteCellAtPointClamped(
+      centerWorld.xMm, centerWorld.yMm,
+      appState.gridParams.beadWidthMm, appState.gridParams.beadHeightMm,
+      appState.gridParams.rows, appState.gridParams.cols
+    );
+    return { anchorRow: hit.row, anchorCol: hit.col };
   }
 
   function updatePhotoTraceControls() {
@@ -364,9 +402,12 @@ export function mountEditorView(appState, hooks) {
     // one — the colorway list itself (names/count) survives, only contents clear.
     appState.colorways = appState.colorways.map((cw) => ({ ...cw, colorEntries: [] }));
     appState.selection = null; // coordinates are meaningless against the new geometry
+    appState.pastePreview = null; // coordinates meaningless against the new geometry
+    if (appState.tool === 'paste') setTool('draw');
     clearHistory(appState.history);
     updateHistoryButtons();
     updateSelectionButtons();
+    updatePasteControls();
     fitViewportToGrid();
     updateSizeReadout();
     hidePendingColorCard();
@@ -398,10 +439,13 @@ export function mountEditorView(appState, hooks) {
     appState.rows = newRows;
     appState.cols = newCols;
     appState.selection = null; // coordinates are meaningless against the new geometry
+    appState.pastePreview = null; // coordinates meaningless against the new geometry
+    if (appState.tool === 'paste') setTool('draw');
     rebuildGridParams();
     clearHistory(appState.history); // old patches reference now-invalid coordinates
     updateHistoryButtons();
     updateSelectionButtons();
+    updatePasteControls();
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
@@ -716,18 +760,54 @@ export function mountEditorView(appState, hooks) {
     updateSelectionButtons();
     scheduleRedraw();
   }
-  // Not a persistent toggle in #tool-toggle — clicking Paste directly switches into
-  // stamp mode so a repeated motif can be stamped several times in a row; the user
-  // switches tools normally (Draw, Erase, ...) when done, no auto-revert on tap.
+  // Clicking Paste opens a pending preview at a sensible default anchor and
+  // switches into the 'paste' tool — positioning happens by dragging the ghost
+  // (pointerRouter.js's paste-drag interaction), confirmed explicitly via Confirm.
   function handlePasteButtonClick() {
     if (!appState.clipboard) return;
+    appState.pastePreview = defaultPasteAnchor();
     setTool('paste');
+    scheduleRedraw();
+  }
+  // Confirm stamps the preview into cells as one undo-able patch. Deliberately does
+  // not clear appState.pastePreview or change appState.tool — the ghost stays at the
+  // same anchor so the user can immediately drag it elsewhere and Confirm again for
+  // the next stamp (preserves Phase 7's repeated-stamping workflow).
+  function handlePasteConfirm() {
+    if (!appState.pastePreview || !appState.clipboard) return;
+    const { anchorRow, anchorCol } = appState.pastePreview;
+    const patch = applyPaste(
+      appState.cells, appState.clipboard, anchorRow, anchorCol,
+      appState.gridParams.rows, appState.gridParams.cols, appState.pasteMode
+    );
+    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    scheduleRedraw();
+    if (patch.length > 0) hooks.onCellsChanged();
+  }
+  function handlePasteCancel() {
+    appState.pastePreview = null;
+    setTool('draw');
+    scheduleRedraw();
+  }
+  function handlePasteModeChange(mode) {
+    appState.pasteMode = mode;
+    updatePasteControls();
+  }
+  function handlePasteModeFrontClick() {
+    handlePasteModeChange('front');
+  }
+  function handlePasteModeBehindClick() {
+    handlePasteModeChange('behind');
   }
   function handleKeyDown(e) {
     const isTextInput = document.activeElement?.tagName === 'INPUT';
     if (isTextInput) return;
     if (e.key === 'Escape') {
-      handleDeselect();
+      // The more specific in-progress action gets cancelled first — same
+      // reasoning a text field's own undo already takes precedence over the
+      // app's undo shortcut.
+      if (appState.pastePreview) handlePasteCancel();
+      else handleDeselect();
       return;
     }
     if (!(e.metaKey || e.ctrlKey) || e.key.toLowerCase() !== 'z') return;
@@ -822,6 +902,10 @@ export function mountEditorView(appState, hooks) {
   selectionMirrorHButton.addEventListener('click', handleMirrorHorizontal);
   selectionMirrorVButton.addEventListener('click', handleMirrorVertical);
   selectionDeselectButton.addEventListener('click', handleDeselect);
+  pasteModeFrontButton.addEventListener('click', handlePasteModeFrontClick);
+  pasteModeBehindButton.addEventListener('click', handlePasteModeBehindClick);
+  pasteCancelButton.addEventListener('click', handlePasteCancel);
+  pasteConfirmButton.addEventListener('click', handlePasteConfirm);
   photoTraceLoadButton.addEventListener('click', handlePhotoTraceLoadClick);
   photoTraceFileInput.addEventListener('change', handlePhotoTraceFileChange);
   photoTraceOpacityInput.addEventListener('input', handlePhotoTraceOpacityInput);
@@ -854,6 +938,11 @@ export function mountEditorView(appState, hooks) {
       scheduleRedraw();
       hooks.onPhotoTraceChanged();
     },
+    onPastePreviewChange: (preview) => {
+      appState.pastePreview = preview;
+      updatePasteControls();
+      scheduleRedraw();
+    },
   });
 
   // Reflect the bead type/rows/cols the opened design already carries, and sync
@@ -873,6 +962,7 @@ export function mountEditorView(appState, hooks) {
   updateToolButtons();
   updateHistoryButtons();
   updateSelectionButtons();
+  updatePasteControls();
   updatePhotoTraceControls();
   deriveGridAndRender();
 
@@ -911,6 +1001,10 @@ export function mountEditorView(appState, hooks) {
     selectionMirrorHButton.removeEventListener('click', handleMirrorHorizontal);
     selectionMirrorVButton.removeEventListener('click', handleMirrorVertical);
     selectionDeselectButton.removeEventListener('click', handleDeselect);
+    pasteModeFrontButton.removeEventListener('click', handlePasteModeFrontClick);
+    pasteModeBehindButton.removeEventListener('click', handlePasteModeBehindClick);
+    pasteCancelButton.removeEventListener('click', handlePasteCancel);
+    pasteConfirmButton.removeEventListener('click', handlePasteConfirm);
     photoTraceLoadButton.removeEventListener('click', handlePhotoTraceLoadClick);
     photoTraceFileInput.removeEventListener('change', handlePhotoTraceFileChange);
     photoTraceOpacityInput.removeEventListener('input', handlePhotoTraceOpacityInput);
