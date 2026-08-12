@@ -1,3 +1,5 @@
+**Status: implemented, 2026-08-12. See CLAUDE.md's Phase Status for the build/verification summary.**
+
 # Fix: word chart doesn't split rows into real thread passes beyond the foundation
 
 **Status: written up only, deferred — not implemented.** Found and diagnosed during the Loomerly import planning/build session (2026-08-11) when the user built matching tiny (4 wide × 10 tall, 2-color) test patterns in both this app and Loomerly and compared the printed word charts directly. Not blocking the Loomerly importer — see "Relationship to the Loomerly importer" below — logged here so it isn't lost, and the importer work resumed after this was written.

@@ -96,48 +96,92 @@ test('buildWordChart: unassignedCount matches a hand-counted fixture and is fold
   assert.deepEqual(chart.colorCounts, [{ colorId: 'red', count: 1 }]);
 });
 
-test('buildWordChart: physical rows 1 & 2 combine into one interleaved entry; row 3 stays separate', () => {
+test('buildWordChart: physical row 0 (the foundation) prints as its own single, unsplit line — not merged with row 1', () => {
   const cells = new Map();
-  // Physical row 1 (col 0) is all red, physical row 2 (col 1) is all blue,
-  // physical row 3 (col 2) is all green. If rows 1&2 were merely concatenated
-  // instead of truly interleaved bead-by-bead, this would collapse to
-  // [{red,3},{blue,3}] instead of six alternating single-count runs.
+  // Physical row 0 (col 0) is all red, physical row 1 (col 1) is all blue.
+  // If row 0 were still being interleaved with row 1 (the old, wrong
+  // behavior), the first entry would carry all 6 beads (3 red + 3 blue)
+  // instead of the foundation's own 3 red alone.
   for (let row = 0; row < 3; row++) {
     setCell(cells, row, 0, 'red');
     setCell(cells, row, 1, 'blue');
-    setCell(cells, row, 2, 'green');
   }
-  const chart = buildWordChart(cells, 3, 3);
+  const chart = buildWordChart(cells, 3, 2);
 
-  assert.equal(chart.rows.length, 2);
   assert.deepEqual(chart.rows[0], {
     entryIndex: 0,
-    rowNumbers: [1, 2],
-    combined: true,
-    runs: [
-      { colorId: 'red', count: 1 },
-      { colorId: 'blue', count: 1 },
-      { colorId: 'red', count: 1 },
-      { colorId: 'blue', count: 1 },
-      { colorId: 'red', count: 1 },
-      { colorId: 'blue', count: 1 },
-    ],
-  });
-  assert.deepEqual(chart.rows[1], {
-    entryIndex: 1,
-    rowNumbers: [3],
-    combined: false,
-    runs: [{ colorId: 'green', count: 3 }],
+    runs: [{ colorId: 'red', count: 3 }],
   });
 });
 
-test('buildWordChart: a single-physical-row design (cols: 1) never combines', () => {
+test('buildWordChart: a band past the foundation splits into an even-position and an odd-position half-pass', () => {
+  const cells = new Map();
+  // Physical row 1 (col 1): positions 0-3 are A,B,A,B. Even positions (0,2)
+  // are both A; odd positions (1,3) are both B.
+  setCell(cells, 0, 1, 'A');
+  setCell(cells, 1, 1, 'B');
+  setCell(cells, 2, 1, 'A');
+  setCell(cells, 3, 1, 'B');
+  const chart = buildWordChart(cells, 4, 2);
+
+  // Entry 0 is the (empty) foundation; entries 1 & 2 are row 1's two halves.
+  assert.equal(chart.rows.length, 3);
+  assert.deepEqual(chart.rows[1], {
+    entryIndex: 1,
+    runs: [{ colorId: 'A', count: 2 }],
+  });
+  assert.deepEqual(chart.rows[2], {
+    entryIndex: 2,
+    runs: [{ colorId: 'B', count: 2 }],
+  });
+});
+
+test('buildWordChart: total printed line count is 1 + 2 * (cols - 1)', () => {
+  const cells = new Map();
+  const chart = buildWordChart(cells, 4, 10);
+  assert.equal(chart.rows.length, 1 + 2 * (10 - 1));
+});
+
+test('buildWordChart: a single-physical-row design (cols: 1) produces exactly one unsplit line', () => {
   const cells = new Map();
   setCell(cells, 0, 0, 'red');
   const chart = buildWordChart(cells, 1, 1);
   assert.equal(chart.rows.length, 1);
-  assert.equal(chart.rows[0].combined, false);
-  assert.deepEqual(chart.rows[0].rowNumbers, [1]);
+  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 1 }] });
+});
+
+test('buildWordChart: 4-wide x 10-tall regression fixture — foundation alone, then each later band split even/odd', () => {
+  const cells = new Map();
+  // Every band (0-9) alternates A,B,A,B across its 4 positions — a simple,
+  // uniform stand-in for the ground-truth 4x10 sample compared against
+  // Loomerly's own printout (see fix-wordchart-half-pass-splitting-plan.md).
+  // What's under test is the shape of the output (1 foundation line, then two
+  // half-pass lines per later band, 19 lines total for 10 bands), not this
+  // fixture's specific colors.
+  for (let physicalRow = 0; physicalRow < 10; physicalRow++) {
+    setCell(cells, 0, physicalRow, 'A');
+    setCell(cells, 1, physicalRow, 'B');
+    setCell(cells, 2, physicalRow, 'A');
+    setCell(cells, 3, physicalRow, 'B');
+  }
+  const chart = buildWordChart(cells, 4, 10);
+
+  assert.equal(chart.rows.length, 19);
+  assert.deepEqual(chart.rows[0], {
+    entryIndex: 0,
+    runs: [
+      { colorId: 'A', count: 1 },
+      { colorId: 'B', count: 1 },
+      { colorId: 'A', count: 1 },
+      { colorId: 'B', count: 1 },
+    ],
+  });
+  // Band 1 (rows[1] & rows[2]): even positions (0,2) are A,A; odd (1,3) are B,B.
+  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'A', count: 2 }] });
+  assert.deepEqual(chart.rows[2], { entryIndex: 2, runs: [{ colorId: 'B', count: 2 }] });
+  // Band 9, the last one (rows[17] & rows[18]), follows the identical pattern.
+  assert.deepEqual(chart.rows[17], { entryIndex: 17, runs: [{ colorId: 'A', count: 2 }] });
+  assert.deepEqual(chart.rows[18], { entryIndex: 18, runs: [{ colorId: 'B', count: 2 }] });
 });
 
 test('isRowReversed: default (startsReversed omitted) matches entryIndex parity — even not reversed, odd reversed', () => {

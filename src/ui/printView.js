@@ -100,10 +100,14 @@ function formatRun(run, codes) {
   return `${run.count}${codes.get(run.colorId)}`;
 }
 
+// A physical row/band no longer maps 1:1 to a printed line (see wordChart.js's
+// buildWordChart — a band past the foundation splits into two half-pass
+// entries), so there's no single "row number" left to derive a label from.
+// Numbering printed lines sequentially instead, matching Loomerly's own
+// convention, which also makes cross-referencing a Loomerly-originated
+// pattern more natural.
 function formatRowLabel(chartRow) {
-  return chartRow.combined
-    ? `Rows ${chartRow.rowNumbers[0]} & ${chartRow.rowNumbers[1]} (strung together)`
-    : `Row ${chartRow.rowNumbers[0]}`;
+  return `Row ${chartRow.entryIndex + 1}`;
 }
 
 function buildChart(chart, codes, startsReversed) {

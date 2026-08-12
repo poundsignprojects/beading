@@ -14,19 +14,24 @@ import { peyoteRowCount, peyoteRowCells } from '../grid/peyote.js';
 // follow literally.
 export const UNASSIGNED = Symbol('unassigned-color');
 
-// Rows 1 & 2 can't be worked as separate thread passes — row 2's beads lock
-// row 1's in place, so both are strung onto the thread together in one
-// alternating sequence (row1-bead0, row2-bead0, row1-bead1, row2-bead1, ...)
-// before any weaving happens. This is strict single-bead alternation because
-// it's single-drop peyote; multi-drop (2+ beads alternating per stitch) would
-// need this generalized, but that's an unscheduled future stitch variant, not
-// built here.
-function interleaveCells(rowACells, rowBCells) {
-  const interleaved = [];
-  for (let i = 0; i < rowACells.length; i++) {
-    interleaved.push(rowACells[i], rowBCells[i]);
-  }
-  return interleaved;
+// A physical row (one full finished band, per peyoteRowCells) holds every bead in
+// that band — the right level of abstraction for drawing — but single-drop peyote
+// can only actually populate a band that way via two alternating-position thread
+// passes once past the foundation: the beads sit alternately at even/odd positions
+// within the band, and each pass only ever touches one of those two interleaved
+// sets. Physical row 0 (the foundation ladder) is the exception — it's worked as
+// one pass on its own, not split — so it prints as a single line. Every row after
+// that splits into its even-position beads (0, 2, 4, ...) as one printed line and
+// its odd-position beads (1, 3, 5, ...) as the next. Position within a band is
+// peyoteRowCells' own `row` field, which is already emitted in ascending order, so
+// its index in the returned array doubles as the position.
+function splitByPosition(rowCells) {
+  const even = [];
+  const odd = [];
+  rowCells.forEach((cell, position) => {
+    (position % 2 === 0 ? even : odd).push(cell);
+  });
+  return { even, odd };
 }
 
 function buildRuns(cells, cellList, colorCounts, tallyUnassigned) {
@@ -63,26 +68,24 @@ export function buildWordChart(cells, rows, cols) {
   let unassignedCount = 0;
   const tallyUnassigned = () => { unassignedCount++; };
 
-  const rowCount = peyoteRowCount(cols);
-  let nextPhysicalRow = 0;
-
-  // Rows 1 & 2 (physical row index 0 & 1) are strung together as one
-  // alternating sequence — see interleaveCells above — so they print as a
-  // single combined instruction rather than two separate ones.
-  if (rowCount >= 2) {
-    const runs = buildRuns(
-      cells,
-      interleaveCells(peyoteRowCells(rows, 0), peyoteRowCells(rows, 1)),
-      colorCounts,
-      tallyUnassigned
-    );
-    chartRows.push({ entryIndex: 0, rowNumbers: [1, 2], combined: true, runs });
-    nextPhysicalRow = 2;
+  function pushEntry(cellList) {
+    const runs = buildRuns(cells, cellList, colorCounts, tallyUnassigned);
+    chartRows.push({ entryIndex: chartRows.length, runs });
   }
 
-  for (let physicalRowIndex = nextPhysicalRow; physicalRowIndex < rowCount; physicalRowIndex++) {
-    const runs = buildRuns(cells, peyoteRowCells(rows, physicalRowIndex), colorCounts, tallyUnassigned);
-    chartRows.push({ entryIndex: chartRows.length, rowNumbers: [physicalRowIndex + 1], combined: false, runs });
+  const rowCount = peyoteRowCount(cols);
+
+  // Physical row 0 is the foundation ladder — worked as one pass, not split.
+  if (rowCount >= 1) {
+    pushEntry(peyoteRowCells(rows, 0));
+  }
+
+  // Every band after the foundation splits into its two alternating thread
+  // passes — see splitByPosition above.
+  for (let physicalRowIndex = 1; physicalRowIndex < rowCount; physicalRowIndex++) {
+    const { even, odd } = splitByPosition(peyoteRowCells(rows, physicalRowIndex));
+    pushEntry(even);
+    pushEntry(odd);
   }
 
   const colorCountList = Array.from(colorCounts.entries()).map(([colorId, count]) => ({ colorId, count }));
@@ -90,12 +93,12 @@ export function buildWordChart(cells, rows, cols) {
   return { rows: chartRows, colorCounts: colorCountList, totalBeadCount, unassignedCount };
 }
 
-// Direction alternates per *printed instruction*, not per physical row —
-// after any instruction (whether it covers one row or, for the combined
-// rows-1&2 case, two), the thread ends on the opposite side from where that
-// instruction started, so the next one reads in the opposite direction.
-// entryIndex (the printed line's own position), not a physical row number,
-// is what drives this. startsReversed (from the printStartDirection global
+// Direction alternates per *printed instruction*, not per physical row/band —
+// after any instruction (the foundation pass, or one half-pass of a later
+// band), the thread ends on the opposite side from where that instruction
+// started, so the next one reads in the opposite direction. entryIndex (the
+// printed line's own sequential position), not a physical row number, is what
+// drives this. startsReversed (from the printStartDirection global
 // preference) flips which side the very first instruction reads from, and
 // every later instruction's direction is XOR'd against that same base rather
 // than recomputed independently.
