@@ -31,6 +31,7 @@
 
 import { BEAD_TYPES } from '../palette/beadSpecs.js';
 import { resolveSwatchHex } from '../palette/colorLibrary.js';
+import { findPatternsUsingColor } from '../palette/colorUsage.js';
 import { generatePeyoteGrid, peyoteCellAtPointClamped } from '../grid/peyote.js';
 import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer.js';
 import { drawSelectionOverlay } from '../render/selectionOverlay.js';
@@ -639,7 +640,22 @@ export function mountEditorView(appState, hooks) {
     });
   }
   function handleColorDelete(id) {
-    if (!window.confirm('Delete this color? Beads already using it will show as an unmatched placeholder color.')) return;
+    const usage = findPatternsUsingColor(appState.designs, id, {
+      currentDesignId: appState.currentDesignId,
+      colorways: appState.colorways,
+      activeColorwayId: appState.activeColorwayId,
+      cells: appState.cells,
+    });
+    if (usage.length > 0) {
+      const lines = usage.map((u) =>
+        u.colorwayNames.length > 1 ? `${u.designName} (${u.colorwayNames.join(', ')})` : u.designName
+      );
+      window.alert(
+        `This color is used in ${usage.length} pattern${usage.length === 1 ? '' : 's'} and can't be deleted:\n\n${lines.join('\n')}`
+      );
+      return;
+    }
+    if (!window.confirm('Delete this color?')) return;
     hooks.onCustomColorDeleted(id).then(() => {
       renderColorPalette();
       renderColorManageList();

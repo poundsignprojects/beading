@@ -1,4 +1,5 @@
 import { peyoteCellOriginMm } from '../grid/peyote.js';
+import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
 
 const THUMBNAIL_BACKGROUND_STYLE = '#fff';
 const THUMBNAIL_CORNER_RADIUS_FRACTION = 0.25; // matches canvasRenderer.js's round-bead constant
@@ -27,7 +28,7 @@ export function renderThumbnailDataUrl(gridParams, cells, resolveColor, beadShap
     const y = origin.yMm * scale;
     const w = beadHeightMm * scale;
     const h = beadWidthMm * scale;
-    ctx.fillStyle = resolveColor(cell.colorId);
+    ctx.fillStyle = resolveColor(cell.colorId) ?? MISSING_COLOR_FALLBACK_HEX;
     if (beadShape === 'round') {
       ctx.beginPath();
       ctx.roundRect(x, y, w, h, Math.min(w, h) * THUMBNAIL_CORNER_RADIUS_FRACTION);

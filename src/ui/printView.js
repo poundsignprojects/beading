@@ -7,6 +7,7 @@ import { BEAD_TYPES } from '../palette/beadSpecs.js';
 import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
+import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
 
 function resolveSwatch(customColors, colorId) {
   return customColors.find((swatch) => swatch.id === colorId);
@@ -71,7 +72,7 @@ function buildMaterials(chart, codes, customColors) {
     const swatchCell = document.createElement('td');
     const swatchEl = document.createElement('span');
     swatchEl.className = 'print-color-swatch';
-    swatchEl.style.background = swatch?.hex ?? '#ff00ff';
+    swatchEl.style.background = swatch?.hex ?? MISSING_COLOR_FALLBACK_HEX;
     swatchCell.append(swatchEl);
 
     const nameCell = document.createElement('td');

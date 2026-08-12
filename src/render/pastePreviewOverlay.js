@@ -1,5 +1,6 @@
 import { peyoteCellOriginMm } from '../grid/peyote.js';
 import { worldToScreen } from './viewport.js';
+import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
 
 const PASTE_PREVIEW_ALPHA = 0.9;
 const PASTE_PREVIEW_BORDER_STYLE = '#2c7be5';
@@ -21,7 +22,7 @@ export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pa
     const originMm = peyoteCellOriginMm(anchorRow + relRow, anchorCol + relCol, beadWidthMm, beadHeightMm, rows);
     const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
     const bottomRight = worldToScreen(originMm.xMm + beadHeightMm, originMm.yMm + beadWidthMm, viewport);
-    ctx.fillStyle = resolveColor(colorId);
+    ctx.fillStyle = resolveColor(colorId) ?? MISSING_COLOR_FALLBACK_HEX;
     ctx.fillRect(topLeft.xPx, topLeft.yPx, bottomRight.xPx - topLeft.xPx, bottomRight.yPx - topLeft.yPx);
   }
   ctx.restore();

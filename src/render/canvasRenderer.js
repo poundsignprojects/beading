@@ -23,6 +23,15 @@ const BEAD_LINE_WIDTH_MIN_PX = 0.4;
 // Rocailles are round-bodied beads and render with rounded cell corners; Delicas are
 // cylindrical (square-cut sides) and stay sharp-cornered — see beadSpecs.js `shape`.
 const BEAD_CORNER_RADIUS_FRACTION = 0.25; // fraction of the smaller bead dimension
+// resolveColor can return null for a cell whose colorId no longer matches any
+// customColors entry (a deleted color still referenced by an old cell) — drawn
+// as a white bead with a red X instead of guessing a color, per
+// .work/feature-color-deletion-guard-and-missing-color-plan.md.
+const MISSING_COLOR_FILL_STYLE = '#fff';
+const MISSING_COLOR_X_STYLE = '#c0392b';
+const MISSING_COLOR_X_LINE_WIDTH_FRACTION = 0.12;
+const MISSING_COLOR_X_LINE_WIDTH_MIN_PX = 0.75;
+const MISSING_COLOR_X_INSET_FRACTION = 0.22; // keeps the X inside the bead outline
 
 // Syncs the canvas's backing-store resolution to its CSS size * devicePixelRatio
 // (crisp on Retina iPad) and scales the context so all drawing below can use CSS
@@ -91,7 +100,8 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
         const beadY = topLeft.yPx + insetPx;
         const beadWidthPx = widthPx - insetPx * 2;
         const beadHeightPx = heightPx - insetPx * 2;
-        ctx.fillStyle = resolveColor(cell.colorId);
+        const hex = resolveColor(cell.colorId);
+        ctx.fillStyle = hex ?? MISSING_COLOR_FILL_STYLE;
         ctx.lineWidth = lineWidthPx;
         ctx.beginPath();
         if (beadShape === 'round') {
@@ -102,6 +112,22 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
         }
         ctx.fill();
         ctx.stroke();
+
+        if (hex === null) {
+          const inset = Math.min(beadWidthPx, beadHeightPx) * MISSING_COLOR_X_INSET_FRACTION;
+          ctx.strokeStyle = MISSING_COLOR_X_STYLE;
+          ctx.lineWidth = Math.max(
+            MISSING_COLOR_X_LINE_WIDTH_MIN_PX,
+            Math.min(beadWidthPx, beadHeightPx) * MISSING_COLOR_X_LINE_WIDTH_FRACTION
+          );
+          ctx.beginPath();
+          ctx.moveTo(beadX + inset, beadY + inset);
+          ctx.lineTo(beadX + beadWidthPx - inset, beadY + beadHeightPx - inset);
+          ctx.moveTo(beadX + beadWidthPx - inset, beadY + inset);
+          ctx.lineTo(beadX + inset, beadY + beadHeightPx - inset);
+          ctx.stroke();
+          ctx.strokeStyle = CELL_STROKE_STYLE; // restore — reused unset across the loop's outline strokes
+        }
       } else {
         const centerXPx = topLeft.xPx + widthPx / 2;
         const centerYPx = topLeft.yPx + heightPx / 2;

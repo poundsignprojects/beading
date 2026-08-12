@@ -13,11 +13,18 @@
 // finding this via a lookup table works the same way a real swatch lookup does.
 export const UNASSIGNED_SWATCH = { id: null, name: 'Unassigned', hex: '#d9cdf0' };
 
+// Shared fallback for a colorId that no longer resolves to a real swatch (a
+// deleted color still referenced by an old cell, or data predating this app's
+// model) — used by canvasRenderer.js's X-marked bead fill and by the other
+// render/print call sites that are too small to draw an X of their own.
+export const MISSING_COLOR_FALLBACK_HEX = '#c0392b';
+
 // Shared by editorView.js/printView.js/thumbnailRenderer's caller — colorId === null
-// means "occupied, no color assigned in this colorway" (see UNASSIGNED_SWATCH above);
-// an id with no matching customColors entry (a deleted color still referenced by an
-// old cell) falls back to a visibly-wrong magenta rather than throwing.
+// means "occupied, no color assigned in this colorway" (see UNASSIGNED_SWATCH above,
+// unchanged); colorId set but not found in customColors means a dangling reference
+// (the color it pointed to was deleted, or predates this app's data model) — returns
+// null so callers can render that state distinctly instead of guessing a color.
 export function resolveSwatchHex(customColors, colorId) {
   if (colorId === null) return UNASSIGNED_SWATCH.hex;
-  return customColors.find((swatch) => swatch.id === colorId)?.hex ?? '#ff00ff';
+  return customColors.find((swatch) => swatch.id === colorId)?.hex ?? null;
 }
