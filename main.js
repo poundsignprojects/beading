@@ -124,6 +124,14 @@ async function handleCustomColorRenamed(id, name) {
   appState.customColors[idx] = saved;
 }
 
+async function handleCustomColorHexChanged(id, hex) {
+  const color = appState.customColors.find((c) => c.id === id);
+  if (!color) return;
+  const saved = await saveCustomColor(appState.db, { ...color, hex });
+  const idx = appState.customColors.findIndex((c) => c.id === id);
+  appState.customColors[idx] = saved;
+}
+
 async function handleCustomColorDeleted(id) {
   await deleteCustomColor(appState.db, id);
   appState.customColors = appState.customColors.filter((c) => c.id !== id);
@@ -207,6 +215,7 @@ async function openDesign(design) {
     onBeadTypeChanged: handleBeadTypeChanged,
     onCustomColorAdded: handleCustomColorAdded,
     onCustomColorRenamed: handleCustomColorRenamed,
+    onCustomColorHexChanged: handleCustomColorHexChanged,
     onCustomColorDeleted: handleCustomColorDeleted,
     onCustomColorReordered: handleCustomColorReordered,
     onBack: backToLibrary,

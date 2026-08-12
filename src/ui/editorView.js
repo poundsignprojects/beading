@@ -24,6 +24,7 @@
 //   onCustomColorAdded({name, hex}) — fired from the palette's "+" tile;
 //                            main.js persists and pushes onto appState.customColors.
 //   onCustomColorRenamed(id, name) — Manage Colors list rename.
+//   onCustomColorHexChanged(id, hex) — Manage Colors list color edit.
 //   onCustomColorDeleted(id)       — Manage Colors list delete.
 //   onCustomColorReordered(id, newOrder) — Manage Colors list drag-reorder.
 //   onBack()              — fired when "Back to Library" is tapped, after this
@@ -77,6 +78,7 @@ export function mountEditorView(appState, hooks) {
   const colorPalette = document.getElementById('color-palette');
   const colorPaletteEmptyMessage = document.getElementById('color-palette-empty');
   const colorManageToggleButton = document.getElementById('color-manage-toggle');
+  const colorUndoEditButton = document.getElementById('color-undo-edit');
   const colorManageList = document.getElementById('color-manage-list');
   const colorPickerInput = document.getElementById('color-picker-input');
   const pendingColorCard = document.getElementById('pending-color-card');
@@ -113,6 +115,8 @@ export function mountEditorView(appState, hooks) {
   let lastCssSize = { cssWidth: 0, cssHeight: 0 };
   let manageMode = false; // Manage Colors list vs. swatch grid — ephemeral UI state, not persisted
   let colorDrag = null; // { pointerId, rowEl, colorId } or null, mirrors libraryView.js's drag shape
+  let editingColorId = null; // id of the color whose hex the shared #color-picker-input is currently editing, or null when it's in "add a new color" mode
+  let lastColorHexEdit = null; // { id, previousHex } for the single most recent hex edit, or null — a one-level undo, not a stack; cleared by using it, by a design/bead-type switch, or superseded by the next hex edit
 
   function scheduleRedraw() {
     if (redrawScheduled) return;
@@ -195,6 +199,13 @@ export function mountEditorView(appState, hooks) {
     addTile.title = 'Add color';
     addTile.setAttribute('aria-label', 'Add color');
     addTile.textContent = '+';
+    // Guards against a stale editingColorId left over from a previous edit-color
+    // tap whose native picker the user dismissed without actually changing
+    // anything — some browsers don't fire `change` on cancel, so it wouldn't
+    // otherwise get cleared before the next add.
+    addTile.addEventListener('click', () => {
+      editingColorId = null;
+    });
 
     colorPalette.replaceChildren(
       ...colors.map((swatch) => {
@@ -243,6 +254,21 @@ export function mountEditorView(appState, hooks) {
     name.className = 'color-manage-name';
     name.textContent = color.name;
 
+    // A <label for="color-picker-input"> rather than a button that calls
+    // colorPickerInput.click() — same iOS Safari constraint as the palette's "+"
+    // add tile above (a programmatic .click() doesn't reliably open the native
+    // color picker there). handleColorPickerChange branches on editingColorId to
+    // tell this apart from the add flow sharing the same input.
+    const editButton = document.createElement('label');
+    editButton.htmlFor = 'color-picker-input';
+    editButton.className = 'color-manage-action';
+    editButton.setAttribute('aria-label', 'Edit color');
+    editButton.textContent = '🎨';
+    editButton.addEventListener('click', () => {
+      editingColorId = color.id;
+      colorPickerInput.value = color.hex;
+    });
+
     const renameButton = document.createElement('button');
     renameButton.type = 'button';
     renameButton.className = 'color-manage-action';
@@ -257,7 +283,7 @@ export function mountEditorView(appState, hooks) {
     deleteButton.textContent = '✖';
     deleteButton.addEventListener('click', () => handleColorDelete(color.id));
 
-    row.append(handle, swatch, name, renameButton, deleteButton);
+    row.append(handle, swatch, name, editButton, renameButton, deleteButton);
     return row;
   }
 
@@ -383,6 +409,8 @@ export function mountEditorView(appState, hooks) {
     fitViewportToGrid();
     updateSizeReadout();
     hidePendingColorCard();
+    lastColorHexEdit = null; // a prior design's edit isn't meaningful to revert once we've switched away
+    updateColorUndoButton();
     renderColorPalette();
     updateColorwaySelect();
     scheduleRedraw();
@@ -412,6 +440,8 @@ export function mountEditorView(appState, hooks) {
     fitViewportToGrid();
     updateSizeReadout();
     hidePendingColorCard();
+    lastColorHexEdit = null; // bead type may have changed underneath the edited color's id
+    updateColorUndoButton();
     renderColorPalette();
     updateColorwaySelect();
     scheduleRedraw();
@@ -600,8 +630,39 @@ export function mountEditorView(appState, hooks) {
   // whenever they're actually ready. The confirmation is a real tap, not a
   // timing guess.
   function handleColorPickerChange() {
+    if (editingColorId) {
+      const id = editingColorId;
+      editingColorId = null;
+      const existing = appState.customColors.find((c) => c.id === id);
+      const previousHex = existing ? existing.hex : null;
+      hooks.onCustomColorHexChanged(id, colorPickerInput.value).then(() => {
+        // Only the most recently edited color is revertible — a single slot,
+        // not a stack, matching the deliberately narrow scope of this undo
+        // (just the hex-edit action, not add/rename/delete/reorder too).
+        lastColorHexEdit = previousHex !== null ? { id, previousHex } : null;
+        updateColorUndoButton();
+        renderColorPalette();
+        renderColorManageList();
+        scheduleRedraw();
+      });
+      return;
+    }
     pendingColorSwatch.style.background = colorPickerInput.value;
     pendingColorCard.hidden = false;
+  }
+  function updateColorUndoButton() {
+    colorUndoEditButton.hidden = !lastColorHexEdit;
+  }
+  function handleColorUndoEdit() {
+    if (!lastColorHexEdit) return;
+    const { id, previousHex } = lastColorHexEdit;
+    lastColorHexEdit = null;
+    updateColorUndoButton();
+    hooks.onCustomColorHexChanged(id, previousHex).then(() => {
+      renderColorPalette();
+      renderColorManageList();
+      scheduleRedraw();
+    });
   }
   function hidePendingColorCard() {
     pendingColorCard.hidden = true;
@@ -656,6 +717,10 @@ export function mountEditorView(appState, hooks) {
       return;
     }
     if (!window.confirm('Delete this color?')) return;
+    if (lastColorHexEdit && lastColorHexEdit.id === id) {
+      lastColorHexEdit = null; // nothing left to revert to once the color itself is gone
+      updateColorUndoButton();
+    }
     hooks.onCustomColorDeleted(id).then(() => {
       renderColorPalette();
       renderColorManageList();
@@ -901,6 +966,7 @@ export function mountEditorView(appState, hooks) {
   clearButton.addEventListener('click', handleClear);
   panelToggleButton.addEventListener('click', handlePanelToggle);
   colorManageToggleButton.addEventListener('click', handleColorManageToggle);
+  colorUndoEditButton.addEventListener('click', handleColorUndoEdit);
   colorPickerInput.addEventListener('change', handleColorPickerChange);
   pendingColorAddButton.addEventListener('click', handlePendingColorAdd);
   pendingColorCancelButton.addEventListener('click', handlePendingColorCancel);
@@ -1001,6 +1067,7 @@ export function mountEditorView(appState, hooks) {
     clearButton.removeEventListener('click', handleClear);
     panelToggleButton.removeEventListener('click', handlePanelToggle);
     colorManageToggleButton.removeEventListener('click', handleColorManageToggle);
+    colorUndoEditButton.removeEventListener('click', handleColorUndoEdit);
     colorPickerInput.removeEventListener('change', handleColorPickerChange);
     pendingColorAddButton.removeEventListener('click', handlePendingColorAdd);
     pendingColorCancelButton.removeEventListener('click', handlePendingColorCancel);

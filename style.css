@@ -389,6 +389,12 @@ body {
   margin: 0;
 }
 
+#palette-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
 #color-manage-toggle[aria-pressed="true"] {
   background: #333;
   color: #fff;

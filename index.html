@@ -70,7 +70,10 @@
         <section id="palette-section" aria-label="Color palette">
           <div id="palette-section-header">
             <h2>Colors</h2>
-            <button id="color-manage-toggle" type="button" aria-pressed="false">Manage</button>
+            <div id="palette-header-actions">
+              <button id="color-undo-edit" type="button" hidden>Undo Color Change</button>
+              <button id="color-manage-toggle" type="button" aria-pressed="false">Manage</button>
+            </div>
           </div>
           <div id="color-palette" role="group" aria-label="Color"></div>
           <p id="color-palette-empty" hidden>No colors yet — tap + to add one.</p>
