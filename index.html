@@ -14,51 +14,11 @@
         <button id="library-view-list" type="button" aria-pressed="true">List</button>
         <button id="library-view-gallery" type="button" aria-pressed="false">Gallery</button>
       </div>
-      <button id="library-import">Import</button>
       <button id="library-new">+ New</button>
     </div>
     <ul id="library-list"></ul>
     <p id="library-empty-message" hidden>No patterns yet. Tap "+ New" to start one.</p>
   </div>
-
-  <input type="file" id="import-file-input" accept=".pdf" hidden>
-  <dialog id="import-dialog">
-    <div id="import-step-error" hidden>
-      <h2>Import failed</h2>
-      <p id="import-error-message"></p>
-      <div class="dialog-actions">
-        <button type="button" id="import-error-close">Close</button>
-      </div>
-    </div>
-    <div id="import-step-preview" hidden>
-      <h2>Import Pattern</h2>
-      <dl id="import-preview-stats"></dl>
-      <label id="import-bead-type-row">Bead type
-        <select id="import-bead-type-select">
-          <option value="delica11">Delica 11/0</option>
-          <option value="rocaille11">Rocaille 11/0</option>
-        </select>
-      </label>
-      <p id="import-bead-type-source"></p>
-      <ul id="import-warnings" hidden></ul>
-      <table id="import-colors-table">
-        <thead><tr><th>Code</th><th>Catalog #</th><th>Name</th><th>Count</th></tr></thead>
-        <tbody id="import-colors-tbody"></tbody>
-      </table>
-      <div class="dialog-actions">
-        <button type="button" id="import-preview-cancel">Cancel</button>
-        <button type="button" id="import-preview-continue">Continue</button>
-      </div>
-    </div>
-    <div id="import-step-colors" hidden>
-      <h2>Assign Colors</h2>
-      <ul id="import-color-assign-list"></ul>
-      <div class="dialog-actions">
-        <button type="button" id="import-colors-cancel">Cancel</button>
-        <button type="button" id="import-colors-confirm" disabled>Confirm &amp; Import</button>
-      </div>
-    </div>
-  </dialog>
 
   <div id="editor-view" hidden>
     <div id="top-bar">

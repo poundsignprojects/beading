@@ -40,10 +40,8 @@ In `src/export/wordChart.js`:
 5. `printView.js`'s row-label formatting (`formatRowLabel`) needs rework — there's no longer a clean 1:1 between "physical row" and "printed line," so labels can no longer be derived from a single `rowNumbers` field the way `combined`/non-combined rows work today. Loomerly's own convention (just sequentially numbering every printed line, `Row 3`, `Row 4`, `Row 5`, ...) is a reasonable model to follow, partly because it would also make cross-referencing against a Loomerly-originated pattern more natural.
 6. New `wordChart.test.js` coverage needed for: row-0-alone (no over-interleaving), the even/odd split on an interior row, line-count formula, and a regression fixture built directly from this session's 4×10 ground-truth sample (expected output known exactly, not just structurally).
 
-## Relationship to the Loomerly importer
-
-This fix and the importer's row-pairing step (`.work/feature-loomerly-import-plan.md`) are mirror-image operations on the same data: import combines two Loomerly half-passes into one of this app's full bands; this fix would split one full band back into two half-passes for printing. Worth factoring the split/combine logic into one shared pure module (candidate location: `src/grid/` alongside `peyote.js`, or a new small module either side imports) when both are actually built, rather than writing the interleave-by-parity logic twice. Not done now since this fix is deferred — the importer's own pairing logic (already written and validated against real sample PDFs, see the import plan) doesn't depend on this fix landing first, and was intentionally left self-contained rather than speculatively factored ahead of a real second caller.
-
 ## Next step
 
-Not scheduled into a session yet. When picked up: implement the fix above, rewrite `wordChart.test.js`'s fixtures (existing tests encode the old, wrong 1-line-per-band assumption), verify in headless Chromium against a freshly-printed real design, and consider extracting the shared split/combine logic if the Loomerly importer has landed by then.
+Not scheduled into a session yet. When picked up: implement the fix above, rewrite `wordChart.test.js`'s fixtures (existing tests encode the old, wrong 1-line-per-band assumption), verify in headless Chromium against a freshly-printed real design.
+
+(An earlier version of this doc noted a "mirror-image" relationship to a Loomerly PDF-import feature that combined half-passes the opposite direction — that importer was built, then removed after repeated correctness bugs on real shaped/tapered patterns proved the reverse-engineered format too fragile for what turned out to be a one-time migration need; see CLAUDE.md's Phase Status. No longer relevant to this fix, which stands on its own.)

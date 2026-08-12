@@ -29,7 +29,7 @@ export function applyFill(cells, startRow, startCol, colorId, rows, cols) {
     patch.push({ row, col, before: cell, after: { colorId } });
     setCell(cells, row, col, colorId);
 
-    for (const [nRow, nCol] of peyoteNeighbors(row, col)) {
+    for (const [nRow, nCol] of peyoteNeighbors(row, col, rows)) {
       if (nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols) continue;
       if (!visited.has(cellKey(nRow, nCol))) queue.push([nRow, nCol]);
     }

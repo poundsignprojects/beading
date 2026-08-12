@@ -70,7 +70,7 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
 
   for (let row = rowRange.start; row <= rowRange.end; row++) {
     for (let col = colRange.start; col <= colRange.end; col++) {
-      const originMm = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm);
+      const originMm = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, rows);
       const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
       const bottomRight = worldToScreen(
         originMm.xMm + beadHeightMm,

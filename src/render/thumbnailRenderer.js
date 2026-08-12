@@ -8,7 +8,7 @@ const THUMBNAIL_CORNER_RADIUS_FRACTION = 0.25; // matches canvasRenderer.js's ro
 // dots — both would just be noise at thumbnail scale — only occupied cells are
 // drawn, which is also cheaper than a full rows*cols sweep for a sparse pattern.
 export function renderThumbnailDataUrl(gridParams, cells, resolveColor, beadShape, maxSizePx) {
-  const { beadWidthMm, beadHeightMm, boundingBoxMm } = gridParams;
+  const { rows, beadWidthMm, beadHeightMm, boundingBoxMm } = gridParams;
   const scale = maxSizePx / Math.max(boundingBoxMm.widthMm, boundingBoxMm.heightMm);
   const canvasWidth = Math.max(1, Math.round(boundingBoxMm.widthMm * scale));
   const canvasHeight = Math.max(1, Math.round(boundingBoxMm.heightMm * scale));
@@ -22,7 +22,7 @@ export function renderThumbnailDataUrl(gridParams, cells, resolveColor, beadShap
 
   for (const [key, cell] of cells) {
     const [row, col] = key.split(',').map(Number);
-    const origin = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm);
+    const origin = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, rows);
     const x = origin.xMm * scale;
     const y = origin.yMm * scale;
     const w = beadHeightMm * scale;

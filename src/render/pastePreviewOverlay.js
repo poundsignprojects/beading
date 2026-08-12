@@ -12,13 +12,13 @@ const PASTE_PREVIEW_DASH = [4, 3];
 // same corner math selectionOverlay.js already uses for a selection rectangle.
 export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pastePreview, resolveColor) {
   if (!clipboard || !pastePreview) return;
-  const { beadWidthMm, beadHeightMm } = gridParams;
+  const { rows, beadWidthMm, beadHeightMm } = gridParams;
   const { anchorRow, anchorCol } = pastePreview;
 
   ctx.save();
   ctx.globalAlpha = PASTE_PREVIEW_ALPHA;
   for (const [relRow, relCol, colorId] of clipboard.cells) {
-    const originMm = peyoteCellOriginMm(anchorRow + relRow, anchorCol + relCol, beadWidthMm, beadHeightMm);
+    const originMm = peyoteCellOriginMm(anchorRow + relRow, anchorCol + relCol, beadWidthMm, beadHeightMm, rows);
     const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
     const bottomRight = worldToScreen(originMm.xMm + beadHeightMm, originMm.yMm + beadWidthMm, viewport);
     ctx.fillStyle = resolveColor(colorId);
@@ -26,8 +26,8 @@ export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pa
   }
   ctx.restore();
 
-  const topLeftMm = peyoteCellOriginMm(anchorRow, anchorCol, beadWidthMm, beadHeightMm);
-  const bottomRightMm = peyoteCellOriginMm(anchorRow + clipboard.rows - 1, anchorCol + clipboard.cols - 1, beadWidthMm, beadHeightMm);
+  const topLeftMm = peyoteCellOriginMm(anchorRow, anchorCol, beadWidthMm, beadHeightMm, rows);
+  const bottomRightMm = peyoteCellOriginMm(anchorRow + clipboard.rows - 1, anchorCol + clipboard.cols - 1, beadWidthMm, beadHeightMm, rows);
   const topLeft = worldToScreen(topLeftMm.xMm, topLeftMm.yMm, viewport);
   const bottomRight = worldToScreen(bottomRightMm.xMm + beadHeightMm, bottomRightMm.yMm + beadWidthMm, viewport);
   ctx.save();

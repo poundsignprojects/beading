@@ -216,7 +216,8 @@ export function attachPointerRouter(canvas, viewport, {
       worldPoint.xMm,
       worldPoint.yMm,
       gridParams.beadWidthMm,
-      gridParams.beadHeightMm
+      gridParams.beadHeightMm,
+      gridParams.rows
     );
   }
 
