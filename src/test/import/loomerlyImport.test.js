@@ -62,13 +62,18 @@ test('buildGridFromLoomerly reconstructs the tiny ground-truth sample exactly', 
   assert.equal(band0.get('2,0'), 'A');
   assert.equal(band0.get('3,0'), 'B');
 
-  // band 1 (Row 3 "(2)A" + Row 4 "(2)B") interleaves to A,B,A,B -- matches the sample's
-  // picture chart exactly (see the plan/session notes)
+  // band 1 (Row 3 "(2)A" + Row 4 "(2)B") interleaves to B,A,B,A -- canonB (Row 4, reversed)
+  // lands first/leftmost, canonA (Row 3) second. This was originally hand-read against
+  // this sample's own tiny picture chart as A,B,A,B (the opposite push order) -- that
+  // reading turned out to be a mistake, found and corrected in a later session via a much
+  // stronger ground truth: a different real sample's PDF embeds an exact per-bead text
+  // grid, independently confirming B-before-A across 10 real consecutive bands (see
+  // bandFromPair's header comment in loomerlyImport.js for the full derivation).
   const band1 = new Map(grid.colorEntries.filter(([key]) => key.endsWith(',1')));
-  assert.equal(band1.get('0,1'), 'A');
-  assert.equal(band1.get('1,1'), 'B');
-  assert.equal(band1.get('2,1'), 'A');
-  assert.equal(band1.get('3,1'), 'B');
+  assert.equal(band1.get('0,1'), 'B');
+  assert.equal(band1.get('1,1'), 'A');
+  assert.equal(band1.get('2,1'), 'B');
+  assert.equal(band1.get('3,1'), 'A');
 
   // last band ("Row 19 (2)B" + "Row 20 (2)B") is solid B, matching the picture's tip
   const band9 = new Map(grid.colorEntries.filter(([key]) => key.endsWith(',9')));
@@ -93,8 +98,11 @@ test('buildGridFromLoomerly centers a shaped row within the full band width', ()
     .filter((k) => k.endsWith(',1'))
     .map((k) => Number(k.split(',')[0]))
     .sort((a, b) => a - b);
-  // verified independently against the real module before being hardcoded here
-  assert.deepEqual(band1Rows, [7, 8, 9, 10, 11, 12, 14, 41, 42, 43, 44, 45, 46, 47]);
+  // verified independently against the real module before being hardcoded here (updated
+  // for bandFromPair's corrected push order -- see its header comment; centering itself,
+  // i.e. this band's overall 7..47 span, is unaffected, only which interior offset within
+  // that span ends up null shifts by one)
+  assert.deepEqual(band1Rows, [7, 8, 9, 10, 11, 12, 13, 41, 42, 43, 44, 45, 46, 47]);
 });
 
 test('buildGridFromLoomerly interleaves unequal-length pair halves (a genuine shaping row)', () => {
@@ -105,14 +113,15 @@ test('buildGridFromLoomerly interleaves unequal-length pair halves (a genuine sh
   ];
   const parsed = parse(pages);
   const grid = buildGridFromLoomerly(parsed);
-  // canonA = [B,C] as-is; canonB = reverse([D,D,D]) = [D,D,D]; interleave -> B,D,C,D,D
+  // canonA = [B,C] as-is; canonB = reverse([D,D,D]) = [D,D,D]; interleave (B pushed
+  // first, per bandFromPair's corrected push order) -> D,B,D,C,D
   const band1 = new Map(grid.colorEntries.filter(([key]) => key.endsWith(',1')));
   const rows = grid.shapeEntries.filter((k) => k.endsWith(',1')).map((k) => Number(k.split(',')[0])).sort((a, b) => a - b);
   assert.deepEqual(rows, [2, 3, 4, 5, 6]); // 10-wide capacity, 5-bead band centered: start=floor((10-5)/2)=2
-  assert.equal(band1.get('2,1'), 'B');
-  assert.equal(band1.get('3,1'), 'D');
-  assert.equal(band1.get('4,1'), 'C');
-  assert.equal(band1.get('5,1'), 'D');
+  assert.equal(band1.get('2,1'), 'D');
+  assert.equal(band1.get('3,1'), 'B');
+  assert.equal(band1.get('4,1'), 'D');
+  assert.equal(band1.get('5,1'), 'C');
   assert.equal(band1.get('6,1'), 'D');
 });
 
@@ -138,6 +147,49 @@ test('buildGridFromLoomerly reports an error for an odd number of rows after the
   };
   const grid = buildGridFromLoomerly(parsed);
   assert.match(grid.error, /odd number of rows/);
+});
+
+// Regression for the real bug report this session: a user-reported "the upper bead is on
+// the right in the PDF, on the left after import" traced to bandFromPair pushing the
+// wrong row first for every pair beyond the combined foundation row (see bandFromPair's
+// header comment). This fixture is a real excerpt (Rows 1&2 through Row 10) of a real,
+// solid/untapered 20-wide sample PDF ("Pattern copy.pdf") whose own page also embeds an
+// exact per-bead text grid alongside its picture chart — independent, exact ground truth
+// for every position below (not hand-read off a picture), used to derive the fix.
+test('buildGridFromLoomerly matches a real sample\'s own per-bead ground truth across 5 consecutive bands', () => {
+  const pages = [
+    'Title\nType: Peyote\nWidth: 20\nHeight: 5\nFinished size: 1.1 x 0.3"\nTotal beads: 100',
+    [
+      'Word Chart',
+      'Starting bead: Top Right',
+      'Row 1&2 (←) (1)A, (5)D, (2)B, (5)D, (1)A, (6)C',
+      'Row 3 (→) (3)C, (1)A, (1)D, (1)B, (1)A, (2)D, (1)B',
+      'Row 4 (←) (1)B, (1)D, (1)A, (2)B, (2)A, (3)C',
+      'Row 5 (→) (3)C, (1)A, (2)B, (2)A, (2)B',
+      'Row 6 (←) (2)B, (1)A, (2)B, (2)A, (3)C',
+      'Row 7 (→) (3)C, (1)A, (2)B, (2)A, (2)B',
+      'Row 8 (←) (2)B, (1)A, (1)C, (1)B, (1)A, (4)C',
+      'Row 9 (→) (4)C, (1)B, (2)C, (1)A, (1)B, (1)C',
+      'Row 10 (←) (1)C, (1)B, (8)C',
+    ].join('\n'),
+    'Miyuki Delica 11/0 (DB)\nA\nDB133\nName\nCount: 1\nB\nDB353\nName\nCount: 1\nC\nDB769\nName\nCount: 1\nD\nDB2281\nName\nCount: 1',
+  ];
+  const parsed = parse(pages);
+  const grid = buildGridFromLoomerly(parsed);
+  assert.equal(grid.bandCount, 5);
+
+  const expectedBands = [
+    'C,C,C,C,C,C,A,D,D,D,D,D,B,B,D,D,D,D,D,A',
+    'C,C,C,C,C,C,A,A,A,D,B,B,B,A,A,D,D,D,B,B',
+    'C,C,C,C,C,C,A,A,A,B,B,B,B,A,A,A,B,B,B,B',
+    'C,C,C,C,C,C,C,A,A,B,B,B,C,A,A,A,B,B,B,B',
+    'C,C,C,C,C,C,C,C,C,B,C,C,C,C,C,A,B,B,C,C',
+  ];
+  expectedBands.forEach((expected, col) => {
+    const band = new Map(grid.colorEntries.filter(([key]) => key.endsWith(`,${col}`)));
+    const actual = Array.from({ length: 20 }, (_, row) => band.get(`${row},${col}`)).join(',');
+    assert.equal(actual, expected, `band ${col} mismatch`);
+  });
 });
 
 test('guessBeadType prefers the color list header line when present', () => {

@@ -14,13 +14,26 @@ function positiveMod2(n) {
 // within-pass spacing); row-to-row horizontal spacing uses bead *height* (the
 // thread-axis dimension), since that's what governs how tightly rows pack.
 //
+// Which parity is "raised" (offset 0) vs "recessed" (offset +half) is otherwise an
+// arbitrary rendering choice — it has no effect on which cell holds which color, only
+// on the on-screen zigzag silhouette — but it needed to be pinned to SOME external
+// reference to be checkable at all. Flipped from row-even-raised to row-odd-raised
+// (a real user-facing visual change to every existing pattern, confirmed with the
+// user before making it) to match Loomerly's own picture-chart convention, found via
+// a real Loomerly PDF import: its "Starting bead: Top Right" position — this app's
+// row index rows-1, always odd for an even Width like that file's 20 — renders as
+// the raised/topmost tooth in Loomerly's own picture, which only holds under
+// row-odd-raised. peyoteCellAtPoint/peyoteCellAtPointClamped/
+// peyoteCellAtPointUnbounded and peyoteNeighbors (below) all encode the same
+// parity and must stay in lockstep with this if it ever moves again.
+//
 // row/col are ordinarily in [0,rows)/[0,cols), but this is also called with
 // out-of-range (including negative) values while rendering a pending paste's ghost
 // overlay — its clipboard content can legitimately hang off any edge of the grid
 // while being positioned (see peyoteCellAtPointUnbounded) — so the stagger parity
 // must stay correct past both ends, not just within the grid's own bounds.
 export function peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm) {
-  const colOffsetMm = positiveMod2(row) === 1 ? beadWidthMm / 2 : 0;
+  const colOffsetMm = positiveMod2(row) === 0 ? beadWidthMm / 2 : 0;
   return {
     xMm: row * beadHeightMm,
     yMm: col * beadWidthMm + colOffsetMm,
@@ -43,7 +56,7 @@ export function generatePeyoteGrid({ rows, cols, beadWidthMm, beadHeightMm }) {
 export function peyoteCellAtPoint(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols) {
   const row = Math.floor(xMm / beadHeightMm);
   if (row < 0 || row >= rows) return null;
-  const colOffsetMm = (row % 2 === 1) ? beadWidthMm / 2 : 0;
+  const colOffsetMm = (row % 2 === 0) ? beadWidthMm / 2 : 0;
   const col = Math.floor((yMm - colOffsetMm) / beadWidthMm);
   if (col < 0 || col >= cols) return null;
   return { row, col };
@@ -55,7 +68,7 @@ export function peyoteCellAtPoint(xMm, yMm, beadWidthMm, beadHeightMm, rows, col
 // in-bounds cell rather than freezing the selection.
 export function peyoteCellAtPointClamped(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols) {
   const row = Math.max(0, Math.min(rows - 1, Math.floor(xMm / beadHeightMm)));
-  const colOffsetMm = (row % 2 === 1) ? beadWidthMm / 2 : 0;
+  const colOffsetMm = (row % 2 === 0) ? beadWidthMm / 2 : 0;
   const col = Math.max(0, Math.min(cols - 1, Math.floor((yMm - colOffsetMm) / beadWidthMm)));
   return { row, col };
 }
@@ -69,18 +82,21 @@ export function peyoteCellAtPointClamped(xMm, yMm, beadWidthMm, beadHeightMm, ro
 // time, so the hit-test itself has nothing to protect by clamping.
 export function peyoteCellAtPointUnbounded(xMm, yMm, beadWidthMm, beadHeightMm) {
   const row = Math.floor(xMm / beadHeightMm);
-  const colOffsetMm = positiveMod2(row) === 1 ? beadWidthMm / 2 : 0;
+  const colOffsetMm = positiveMod2(row) === 0 ? beadWidthMm / 2 : 0;
   const col = Math.floor((yMm - colOffsetMm) / beadWidthMm);
   return { row, col };
 }
 
 // The six physically-adjacent cells for peyote's offset-row structure — two in the
 // same row, two in the row above, two in the row below. Which two columns in an
-// adjacent row depends on this row's parity (see peyoteCellOriginMm's offset rule).
-// Does not clamp to grid bounds — callers filter out-of-range results themselves
-// (flood fill already needs a bounds check per neighbor to stop the search).
+// adjacent row depends on this row's parity (see peyoteCellOriginMm's offset rule) —
+// re-derived from that formula (row-odd-raised) whenever it changes, since the two
+// must stay geometrically consistent or flood fill would compute adjacency against
+// stale geometry. Does not clamp to grid bounds — callers filter out-of-range
+// results themselves (flood fill already needs a bounds check per neighbor to stop
+// the search).
 export function peyoteNeighbors(row, col) {
-  const [a, b] = row % 2 === 0 ? [col - 1, col] : [col, col + 1];
+  const [a, b] = row % 2 === 0 ? [col, col + 1] : [col - 1, col];
   return [
     [row, col - 1], [row, col + 1],
     [row - 1, a], [row - 1, b],

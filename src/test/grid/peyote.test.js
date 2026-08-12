@@ -5,37 +5,40 @@ import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint, peyoteCellAt
 const BEAD_W = 1.6;
 const BEAD_H = 1.3;
 
-test('peyoteCellOriginMm: first cell (row 0, col 0) has no offset', () => {
-  assert.deepEqual(peyoteCellOriginMm(0, 0, BEAD_W, BEAD_H), { xMm: 0, yMm: 0 });
+// Parity flipped (row-even-offset, row-odd-raised) to match Loomerly's own picture-chart
+// stagger convention, found via a real Loomerly import and confirmed with the user before
+// changing — see peyoteCellOriginMm's header comment for the full derivation.
+test('peyoteCellOriginMm: first cell (row 0, col 0) is offset by half a bead width (row 0 is even)', () => {
+  assert.deepEqual(peyoteCellOriginMm(0, 0, BEAD_W, BEAD_H), { xMm: 0, yMm: BEAD_W / 2 });
 });
 
-test('peyoteCellOriginMm: even row has no half-width offset', () => {
+test('peyoteCellOriginMm: even row is offset by half a bead width', () => {
   const origin = peyoteCellOriginMm(2, 3, BEAD_W, BEAD_H);
   assert.equal(origin.xMm, 2 * BEAD_H);
-  assert.equal(origin.yMm, 3 * BEAD_W);
+  assert.equal(origin.yMm, 3 * BEAD_W + BEAD_W / 2);
 });
 
-test('peyoteCellOriginMm: odd row is offset by half a bead width', () => {
+test('peyoteCellOriginMm: odd row has no half-width offset', () => {
   const origin = peyoteCellOriginMm(1, 0, BEAD_W, BEAD_H);
   assert.equal(origin.xMm, BEAD_H);
-  assert.equal(origin.yMm, BEAD_W / 2);
+  assert.equal(origin.yMm, 0);
 });
 
-test('peyoteCellOriginMm: odd row col offset stacks with half-width offset', () => {
-  const origin = peyoteCellOriginMm(3, 2, BEAD_W, BEAD_H);
-  assert.equal(origin.xMm, 3 * BEAD_H);
+test('peyoteCellOriginMm: even row col offset stacks with half-width offset', () => {
+  const origin = peyoteCellOriginMm(4, 2, BEAD_W, BEAD_H);
+  assert.equal(origin.xMm, 4 * BEAD_H);
   assert.equal(origin.yMm, 2 * BEAD_W + BEAD_W / 2);
 });
 
-test('peyoteCellOriginMm: negative odd row still gets the half-width offset (JS % keeps the sign of -1, which would otherwise skip it)', () => {
-  const origin = peyoteCellOriginMm(-1, 0, BEAD_W, BEAD_H);
-  assert.equal(origin.xMm, -1 * BEAD_H);
+test('peyoteCellOriginMm: negative even row still gets the half-width offset (JS % keeps the sign of -2, which would otherwise skip it)', () => {
+  const origin = peyoteCellOriginMm(-2, 0, BEAD_W, BEAD_H);
+  assert.equal(origin.xMm, -2 * BEAD_H);
   assert.equal(origin.yMm, BEAD_W / 2);
 });
 
-test('peyoteCellOriginMm: negative even row has no offset, same as a positive even row', () => {
-  const origin = peyoteCellOriginMm(-2, 0, BEAD_W, BEAD_H);
-  assert.equal(origin.xMm, -2 * BEAD_H);
+test('peyoteCellOriginMm: negative odd row has no offset, same as a positive odd row', () => {
+  const origin = peyoteCellOriginMm(-1, 0, BEAD_W, BEAD_H);
+  assert.equal(origin.xMm, -1 * BEAD_H);
   assert.equal(origin.yMm, 0);
 });
 
@@ -75,11 +78,11 @@ test('peyoteCellAtPoint: point past the last row returns null', () => {
   assert.equal(peyoteCellAtPoint(10 * BEAD_H + 1, 0, BEAD_W, BEAD_H, 10, 10), null);
 });
 
-test('peyoteCellAtPoint: point past the last col on an odd (offset) row returns null', () => {
-  // Odd row's usable y-range is shifted down by BEAD_W / 2, so a point just past
+test('peyoteCellAtPoint: point past the last col on an even (offset) row returns null', () => {
+  // Even row's usable y-range is shifted down by BEAD_W / 2, so a point just past
   // cols * beadWidthMm should fall outside — this is the case the offset math could
   // silently get wrong if row resolution didn't happen before col resolution.
-  const xMm = 1 * BEAD_H + BEAD_H / 2; // inside row 1 (odd)
+  const xMm = 2 * BEAD_H + BEAD_H / 2; // inside row 2 (even)
   const yMm = 10 * BEAD_W + BEAD_W / 2 + 0.01;
   assert.equal(peyoteCellAtPoint(xMm, yMm, BEAD_W, BEAD_H, 10, 10), null);
 });
@@ -125,8 +128,8 @@ test('peyoteCellAtPointUnbounded: point past the last row/col returns values pas
   assert.deepEqual(peyoteCellAtPointUnbounded(point.xMm, point.yMm, BEAD_W, BEAD_H), { row: 14, col: 15 });
 });
 
-test('peyoteCellAtPointUnbounded: negative-row parity offset matches the positive-row pattern (odd rows offset, even rows do not)', () => {
-  // Row -1 is odd (stagger applies); row -2 is even (no stagger) — same
+test('peyoteCellAtPointUnbounded: negative-row parity offset matches the positive-row pattern (even rows offset, odd rows do not)', () => {
+  // Row -1 is odd (no stagger); row -2 is even (stagger applies) — same
   // alternation as positive rows, not flipped by JS's sign-preserving % operator.
   const oddOrigin = peyoteCellOriginMm(-1, 0, BEAD_W, BEAD_H);
   const oddPoint = { xMm: oddOrigin.xMm + BEAD_H / 2, yMm: oddOrigin.yMm + BEAD_W / 2 };
@@ -137,19 +140,19 @@ test('peyoteCellAtPointUnbounded: negative-row parity offset matches the positiv
   assert.deepEqual(peyoteCellAtPointUnbounded(evenPoint.xMm, evenPoint.yMm, BEAD_W, BEAD_H), { row: -2, col: 0 });
 });
 
-test('peyoteNeighbors: even row uses col-1/col in adjacent rows', () => {
+test('peyoteNeighbors: even row uses col/col+1 in adjacent rows', () => {
   const neighbors = peyoteNeighbors(2, 3);
   assert.deepEqual(
     neighbors.map(String).sort(),
-    [[2, 2], [2, 4], [1, 2], [1, 3], [3, 2], [3, 3]].map(String).sort()
+    [[2, 2], [2, 4], [1, 3], [1, 4], [3, 3], [3, 4]].map(String).sort()
   );
 });
 
-test('peyoteNeighbors: odd row uses col/col+1 in adjacent rows', () => {
+test('peyoteNeighbors: odd row uses col-1/col in adjacent rows', () => {
   const neighbors = peyoteNeighbors(1, 3);
   assert.deepEqual(
     neighbors.map(String).sort(),
-    [[1, 2], [1, 4], [0, 3], [0, 4], [2, 3], [2, 4]].map(String).sort()
+    [[1, 2], [1, 4], [0, 2], [0, 3], [2, 2], [2, 3]].map(String).sort()
   );
 });
 

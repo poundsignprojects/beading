@@ -76,6 +76,23 @@ function groupIntoPairs(rowEntries) {
 // (A, B, A, B) after reversing, exactly like Row 4's printed text only matches its own
 // picture-chart row after reversing. A later pair's first row (always odd-indexed) prints
 // canonical as-is; its second row (always even-indexed) prints reversed, same rule.
+//
+// The interleave PUSH ORDER (which row's bead lands first, at row_internal 0/leftmost)
+// was wrong here for a full session-plus, and shipped that way: this pushed canonA
+// (the pair's first/odd row) first, canonB second. Found and fixed from a real user
+// report ("upper bead is on the right in the PDF, on the left after import") on a real
+// 20x97 solid-rectangle sample whose PDF embeds an exact per-bead text grid alongside its
+// picture chart (a Loomerly artifact, not something this importer reads for parsing —
+// see pdfText.js/loomerlyParser.js's module notes — but perfect independent ground truth
+// here). Checked band-by-band, exact-position, against 10 real consecutive bands: pushing
+// canonB before canonA matched all 10/10; the shipped canonA-before-canonB order matched
+// only the 2 bands where the two halves happened to be position-symmetric either way.
+// The original tiny-ground-truth-sample test's one order-sensitive case (a plain (2)A +
+// (2)B pair) did encode the old, wrong order as its expected value — that appears to have
+// been a hand-reading mistake against that sample's own (small, easy to miscount) picture
+// chart, not a second, genuinely different convention; this real file's exact per-bead
+// text is far stronger evidence than an eyeballed tiny picture. Test updated alongside
+// this fix (see loomerlyImport.test.js) once the real bug was found.
 function bandFromPair(pair) {
   if (pair.length === 1) return pair[0].runs.slice().reverse();
   const [a, b] = pair;
@@ -84,8 +101,8 @@ function bandFromPair(pair) {
   const band = [];
   const len = Math.max(canonA.length, canonB.length);
   for (let i = 0; i < len; i++) {
-    if (i < canonA.length) band.push(canonA[i]);
     if (i < canonB.length) band.push(canonB[i]);
+    if (i < canonA.length) band.push(canonA[i]);
   }
   return band;
 }
