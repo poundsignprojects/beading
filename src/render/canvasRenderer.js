@@ -20,9 +20,6 @@ const BEAD_LINE_WIDTH_FRACTION = 0.06; // fraction of the smaller bead dimension
 // at small cell sizes instead of the fraction, making the outline look thicker
 // than the bead it was outlining rather than scaling down with it.
 const BEAD_LINE_WIDTH_MIN_PX = 0.4;
-// Rocailles are round-bodied beads and render with rounded cell corners; Delicas are
-// cylindrical (square-cut sides) and stay sharp-cornered — see beadSpecs.js `shape`.
-const BEAD_CORNER_RADIUS_FRACTION = 0.25; // fraction of the smaller bead dimension
 // resolveColor can return null for a cell whose colorId no longer matches any
 // customColors entry (a deleted color still referenced by an old cell) — drawn
 // as a white bead with a red X instead of guessing a color, per
@@ -63,7 +60,12 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 // (see cellStore.js) and `resolveColor` maps a colorId to a paintable hex string —
 // this module stays ignorant of what a "color library" is, it just resolves and
 // paints. Both are optional so Phase 1 callers/tests keep working unchanged.
-export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, beadShape = 'cylinder', photoLayer = null) {
+// beadCornerRadiusFraction is a property of the bead type itself (see
+// beadSpecs.js's findBeadType) — 0/undefined draws sharp corners, a positive
+// fraction (of the smaller bead dimension) draws rounded ones. ctx.roundRect(...,
+// 0) draws identically to ctx.rect(...), so there's no need to branch on a
+// separate "shape" concept.
+export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0) {
   const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
 
   ctx.fillStyle = BACKGROUND_STYLE;
@@ -104,12 +106,8 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
         ctx.fillStyle = hex ?? MISSING_COLOR_FILL_STYLE;
         ctx.lineWidth = lineWidthPx;
         ctx.beginPath();
-        if (beadShape === 'round') {
-          const radiusPx = Math.min(beadWidthPx, beadHeightPx) * BEAD_CORNER_RADIUS_FRACTION;
-          ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);
-        } else {
-          ctx.rect(beadX, beadY, beadWidthPx, beadHeightPx);
-        }
+        const radiusPx = Math.min(beadWidthPx, beadHeightPx) * beadCornerRadiusFraction;
+        ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);
         ctx.fill();
         ctx.stroke();
 

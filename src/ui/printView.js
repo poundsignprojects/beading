@@ -3,7 +3,7 @@
 // both round-trip through storage). Sits on top of the already-mounted editor —
 // closing it just hides the overlay again, no re-mount of the editor.
 
-import { BEAD_TYPES } from '../palette/beadSpecs.js';
+import { findBeadType } from '../palette/beadSpecs.js';
 import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
@@ -14,7 +14,7 @@ function resolveSwatch(customColors, colorId) {
 }
 
 function buildHeader(appState, designName) {
-  const bead = BEAD_TYPES[appState.beadTypeKey];
+  const bead = findBeadType(appState.beadCatalog, appState.beadTypeKey);
   const { widthMm, heightMm } = appState.gridParams.boundingBoxMm;
 
   const header = document.createElement('header');

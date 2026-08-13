@@ -9,3 +9,4 @@ To do:
 - Ability to Copy colors between rocaille and delica
 - switch between bead types without losing work
 - make thumbnails clickable
+- Crop to design

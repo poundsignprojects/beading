@@ -15,6 +15,11 @@ export function createAppState() {
     preferences: null,
     designs: [], // in-memory list, kept sorted by `order`
     currentDesignId: null,
+    // User-defined bead type catalog (see src/storage/beadCatalogStore.js,
+    // src/palette/beadSpecs.js's findBeadType) — full in-memory list, loaded once
+    // at boot (like preferences) and mutated in place, same role
+    // appState.designs/appState.customColors play for their own stores.
+    beadCatalog: [],
 
     // Per-design/editor fields (Phase 1–3, unchanged in shape)
     beadTypeKey: 'delica11',

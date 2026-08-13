@@ -2,7 +2,7 @@
 // designStore.js/preferencesStore.js are the shape-specific layers on top.
 
 const DB_NAME = 'bead-pattern-designer';
-const DB_VERSION = 3;
+const DB_VERSION = 5;
 
 export function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -20,6 +20,11 @@ export function openDatabase() {
       // rather than one global list — a Delica and a Rocaille aren't interchangeable
       // even painted the same color.
       if (!db.objectStoreNames.contains('customColors')) db.createObjectStore('customColors', { keyPath: 'id' });
+      // User-defined bead type catalog (see beadCatalogStore.js) — replaces the
+      // earlier fixed Delica/Rocaille pair + per-field beadSpecOverrides store
+      // (DB_VERSION 4, dropped here). Global, not per-design: a bead type's
+      // physical dimensions apply to every design that uses it.
+      if (!db.objectStoreNames.contains('beadCatalog')) db.createObjectStore('beadCatalog', { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error);

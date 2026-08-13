@@ -47,6 +47,36 @@ export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
   return design;
 }
 
+// Creates a new, independent design record from an already-resolved shape/
+// colorways — the output of the Convert Bead Type flow (Part C of
+// .work/feature-bead-catalog-and-conversion-plan.md's clone-based conversion:
+// same pattern, new bead type, colors resolved per the user's chosen mapping,
+// leaving the source design completely untouched). Same shape/defaults as
+// createDesign/duplicateDesign (fresh id, order = maxOrder + 1, thumbnailDataUrl:
+// null) but takes shapeEntries/colorways/activeColorwayId directly rather than
+// starting empty or copying another record verbatim.
+export async function createConvertedDesign(db, { name, beadTypeKey, rows, cols, shapeEntries, colorways, activeColorwayId }) {
+  const existing = await getAll(db, STORE);
+  const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
+  const now = Date.now();
+  const design = {
+    id: generateId(),
+    name,
+    beadTypeKey,
+    rows,
+    cols,
+    shapeEntries,
+    colorways,
+    activeColorwayId,
+    thumbnailDataUrl: null,
+    order: existing.length === 0 ? 0 : maxOrder + 1,
+    createdAt: now,
+    updatedAt: now,
+  };
+  await put(db, STORE, design);
+  return design;
+}
+
 export async function saveDesign(db, design) {
   const updated = { ...design, updatedAt: Date.now() };
   await put(db, STORE, updated);

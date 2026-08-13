@@ -4,19 +4,22 @@
 // the design list lives in src/ui/libraryView.js — this file only coordinates them.
 
 import { openDatabase } from './src/storage/db.js';
-import { listDesignsSorted, createDesign, saveDesign, deleteDesign, duplicateDesign } from './src/storage/designStore.js';
+import { listDesignsSorted, createDesign, saveDesign, deleteDesign, duplicateDesign, createConvertedDesign } from './src/storage/designStore.js';
 import { getPreferences, savePreferences } from './src/storage/preferencesStore.js';
 import { getPhotoTrace, savePhotoTrace, deletePhotoTrace } from './src/storage/photoTraceStore.js';
 import { listCustomColorsSorted, createCustomColor, saveCustomColor, deleteCustomColor } from './src/storage/customColorStore.js';
+import { listBeadCatalogSorted, createBeadType, saveBeadType, deleteBeadType, seedDefaultBeadCatalog } from './src/storage/beadCatalogStore.js';
+import { generateId } from './src/storage/id.js';
 import { debounce } from './src/storage/debounce.js';
 import { createAppState } from './src/state/appState.js';
 import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from './src/state/colorwaySync.js';
+import { remapColorwayColorIds } from './src/state/beadTypeConversion.js';
 import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchHex } from './src/palette/colorLibrary.js';
-import { BEAD_TYPES } from './src/palette/beadSpecs.js';
+import { findBeadType } from './src/palette/beadSpecs.js';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 // Rendered once at a size that stays crisp scaled down into either the small list
@@ -74,8 +77,8 @@ async function persistCurrentDesign() {
         appState.gridParams,
         appState.cells,
         (colorId) => resolveSwatchHex(appState.customColors, colorId),
-        BEAD_TYPES[appState.beadTypeKey].shape,
         THUMBNAIL_MAX_SIZE_PX,
+        findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0,
       )
     : existing.thumbnailDataUrl;
 
@@ -109,6 +112,124 @@ async function handleViewModeChanged(mode) {
 // returned promise resolves.
 async function handleBeadTypeChanged(beadTypeKey) {
   appState.customColors = await listCustomColorsSorted(appState.db, beadTypeKey);
+}
+
+// Bead catalog CRUD (Part A of .work/feature-bead-catalog-and-conversion-plan.md)
+// — each mutates appState.beadCatalog in place, same convention
+// handlePreferencesChanged already uses for appState.preferences.
+async function handleBeadTypeCreated(fields) {
+  const created = await createBeadType(appState.db, fields);
+  appState.beadCatalog.push(created);
+  return created;
+}
+
+async function handleBeadTypeSaved(beadType) {
+  const saved = await saveBeadType(appState.db, beadType);
+  const idx = appState.beadCatalog.findIndex((b) => b.id === beadType.id);
+  if (idx !== -1) appState.beadCatalog[idx] = saved;
+  return saved;
+}
+
+async function handleBeadTypeDeleted(id) {
+  await deleteBeadType(appState.db, id);
+  appState.beadCatalog = appState.beadCatalog.filter((b) => b.id !== id);
+}
+
+async function handleBeadTypeReordered(id, newOrder) {
+  const beadType = appState.beadCatalog.find((b) => b.id === id);
+  if (!beadType) return;
+  const saved = await saveBeadType(appState.db, { ...beadType, order: newOrder });
+  const idx = appState.beadCatalog.findIndex((b) => b.id === id);
+  appState.beadCatalog[idx] = saved;
+  appState.beadCatalog.sort((a, b) => a.order - b.order);
+}
+
+// Copies a color into another bead type's own independent palette (Part B) — a
+// real create in the target's customColors list, never touching the source.
+async function handleCustomColorCopiedToBeadType(id, targetBeadTypeKey) {
+  const color = appState.customColors.find((c) => c.id === id);
+  if (!color) return;
+  await createCustomColor(appState.db, { beadTypeKey: targetBeadTypeKey, name: color.name, hex: color.hex });
+}
+
+// Builds what the Convert Bead Type mapping dialog needs (Part C): every color
+// actually used across every one of this design's colorways (decomposing the
+// active colorway from live appState.cells so an edit not yet through the
+// autosave debounce still counts, same substitution colorUsage.js's
+// findPatternsUsingColor already makes for the same reason), resolved to
+// {id, name, hex}; and the target bead type's own existing palette, freshly read
+// since it isn't the currently loaded one.
+async function handleRequestBeadTypeConversionData(targetBeadTypeKey) {
+  const { colorEntries } = decomposeCellsForSave(appState.cells);
+  const usedColorIds = new Set();
+  for (const cw of appState.colorways) {
+    const entries = cw.id === appState.activeColorwayId ? colorEntries : cw.colorEntries;
+    for (const [, colorId] of entries) usedColorIds.add(colorId);
+  }
+  const usedColors = [...usedColorIds]
+    .map((id) => appState.customColors.find((c) => c.id === id))
+    .filter(Boolean)
+    .map(({ id, name, hex }) => ({ id, name, hex }));
+
+  const targetColors = (await listCustomColorsSorted(appState.db, targetBeadTypeKey))
+    .map(({ id, name, hex }) => ({ id, name, hex }));
+
+  return { usedColors, targetColors };
+}
+
+// The actual conversion (Part C): resolves every mapping into a source-colorId ->
+// target-colorId table (creating a new color for each 'copy' action first),
+// clones the open design's current shape/colorways with colors remapped through
+// that table into a brand-new design under the target bead type, and switches
+// the editor into it — leaving the source design's own record untouched.
+async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
+  const mappingTable = new Map();
+  for (const mapping of mappings) {
+    if (mapping.action === 'copy') {
+      const created = await createCustomColor(appState.db, { beadTypeKey: targetBeadTypeKey, name: mapping.name, hex: mapping.hex });
+      mappingTable.set(mapping.sourceColorId, created.id);
+    } else {
+      mappingTable.set(mapping.sourceColorId, mapping.targetColorId);
+    }
+  }
+
+  const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
+  const sourceColorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
+    cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+  );
+  const idMap = new Map(sourceColorways.map((cw) => [cw.id, generateId()]));
+  const newColorways = remapColorwayColorIds(sourceColorways, mappingTable).map((cw) => ({ ...cw, id: idMap.get(cw.id) }));
+  const newActiveColorwayId = idMap.get(appState.activeColorwayId);
+
+  const targetBeadType = findBeadType(appState.beadCatalog, targetBeadTypeKey);
+  const originalDesign = appState.designs.find((d) => d.id === appState.currentDesignId);
+
+  // Flush the still-open original design's own record first, so it's exactly
+  // what's on screen right now before we leave it — same as backToLibrary().
+  await persistCurrentDesign();
+  await persistPhotoTrace();
+  debouncedSave?.flush();
+  debouncedPhotoSave?.flush();
+
+  const newDesign = await createConvertedDesign(appState.db, {
+    name: `${originalDesign.name} (${targetBeadType.name})`,
+    beadTypeKey: targetBeadTypeKey,
+    rows: appState.rows,
+    cols: appState.cols,
+    shapeEntries,
+    colorways: newColorways,
+    activeColorwayId: newActiveColorwayId,
+  });
+  appState.designs.push(newDesign);
+  appState.designs.sort((a, b) => a.order - b.order);
+
+  editorController.unmount();
+  editorController = null;
+  debouncedSave = null;
+  debouncedPhotoSave = null;
+  appState.currentDesignId = null;
+
+  await openDesign(newDesign);
 }
 
 async function handleCustomColorAdded({ name, hex }) {
@@ -213,11 +334,18 @@ async function openDesign(design) {
     onPhotoTraceChanged: () => debouncedPhotoSave(),
     onPhotoTraceRemoved: () => { handlePhotoTraceRemoved(); },
     onBeadTypeChanged: handleBeadTypeChanged,
+    onBeadTypeCreated: handleBeadTypeCreated,
+    onBeadTypeSaved: handleBeadTypeSaved,
+    onBeadTypeDeleted: handleBeadTypeDeleted,
+    onBeadTypeReordered: handleBeadTypeReordered,
+    onRequestBeadTypeConversionData: handleRequestBeadTypeConversionData,
+    onBeadTypeConvertConfirmed: handleBeadTypeConvertConfirmed,
     onCustomColorAdded: handleCustomColorAdded,
     onCustomColorRenamed: handleCustomColorRenamed,
     onCustomColorHexChanged: handleCustomColorHexChanged,
     onCustomColorDeleted: handleCustomColorDeleted,
     onCustomColorReordered: handleCustomColorReordered,
+    onCustomColorCopiedToBeadType: handleCustomColorCopiedToBeadType,
     onBack: backToLibrary,
   });
 
@@ -307,6 +435,8 @@ async function boot() {
   appState.db = await openDatabase();
   appState.preferences = await getPreferences(appState.db);
   appState.designs = await listDesignsSorted(appState.db);
+  await seedDefaultBeadCatalog(appState.db);
+  appState.beadCatalog = await listBeadCatalogSorted(appState.db);
 
   libraryController = mountLibraryView({
     onOpen: handleOpen,

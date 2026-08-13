@@ -2,13 +2,14 @@ import { peyoteCellOriginMm } from '../grid/peyote.js';
 import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
 
 const THUMBNAIL_BACKGROUND_STYLE = '#fff';
-const THUMBNAIL_CORNER_RADIUS_FRACTION = 0.25; // matches canvasRenderer.js's round-bead constant
 
 // Renders a design's current pattern into a small square-bounded PNG data URL, fit
 // (not cropped) within maxSizePx on its longer side. No outlines, no empty-cell
 // dots — both would just be noise at thumbnail scale — only occupied cells are
 // drawn, which is also cheaper than a full rows*cols sweep for a sparse pattern.
-export function renderThumbnailDataUrl(gridParams, cells, resolveColor, beadShape, maxSizePx) {
+// cornerRadiusFraction is the bead type's own corner-roundness (see
+// beadSpecs.js's findBeadType) — 0/undefined draws sharp corners.
+export function renderThumbnailDataUrl(gridParams, cells, resolveColor, maxSizePx, cornerRadiusFraction = 0) {
   const { rows, beadWidthMm, beadHeightMm, boundingBoxMm } = gridParams;
   const scale = maxSizePx / Math.max(boundingBoxMm.widthMm, boundingBoxMm.heightMm);
   const canvasWidth = Math.max(1, Math.round(boundingBoxMm.widthMm * scale));
@@ -29,13 +30,9 @@ export function renderThumbnailDataUrl(gridParams, cells, resolveColor, beadShap
     const w = beadHeightMm * scale;
     const h = beadWidthMm * scale;
     ctx.fillStyle = resolveColor(cell.colorId) ?? MISSING_COLOR_FALLBACK_HEX;
-    if (beadShape === 'round') {
-      ctx.beginPath();
-      ctx.roundRect(x, y, w, h, Math.min(w, h) * THUMBNAIL_CORNER_RADIUS_FRACTION);
-      ctx.fill();
-    } else {
-      ctx.fillRect(x, y, w, h);
-    }
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, Math.min(w, h) * cornerRadiusFraction);
+    ctx.fill();
   }
 
   return canvas.toDataURL('image/png');

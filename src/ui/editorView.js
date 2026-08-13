@@ -17,20 +17,40 @@
 //   onPhotoTraceRemoved() — fired after Remove Photo; main.js deletes the
 //                            persisted record immediately (not debounced).
 //   onBeadTypeChanged(beadTypeKey) — fired before a bead-type change's own
-//                            regenerateGrid() runs; main.js refreshes
+//                            regenerateGrid() runs (empty-design case only, see
+//                            handleBeadTypeChange); main.js refreshes
 //                            appState.customColors for the new bead type and
 //                            this module awaits it so the palette that
 //                            regenerateGrid() renders is already correct.
+//   onBeadTypeCreated/onBeadTypeSaved/onBeadTypeDeleted/onBeadTypeReordered —
+//                            forwarded straight through to beadCatalogDialog.js;
+//                            see that file's own header for their shapes.
+//   onRequestBeadTypeConversionData(targetBeadTypeKey) — fired when switching
+//                            bead type on a non-empty design; main.js returns
+//                            {usedColors, targetColors} for the conversion
+//                            mapping dialog (see .work/feature-bead-catalog-and-
+//                            conversion-plan.md's Part C).
+//   onBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) — fired once the
+//                            mapping dialog resolves (or immediately with an
+//                            empty array if the design uses no colors); main.js
+//                            clones the pattern into a brand-new design under
+//                            the target bead type and switches the editor into
+//                            it. This module's own mount is torn down by
+//                            main.js right after — nothing more happens here.
 //   onCustomColorAdded({name, hex}) — fired from the palette's "+" tile;
 //                            main.js persists and pushes onto appState.customColors.
 //   onCustomColorRenamed(id, name) — Manage Colors list rename.
 //   onCustomColorHexChanged(id, hex) — Manage Colors list color edit.
 //   onCustomColorDeleted(id)       — Manage Colors list delete.
 //   onCustomColorReordered(id, newOrder) — Manage Colors list drag-reorder.
+//   onCustomColorCopiedToBeadType(id, targetBeadTypeKey) — Manage Colors list
+//                            "Copy to…" action; main.js copies the color into
+//                            the target bead type's own independent palette,
+//                            leaving the source color/palette untouched.
 //   onBack()              — fired when "Back to Library" is tapped, after this
 //                            module has finished its own cleanup.
 
-import { BEAD_TYPES } from '../palette/beadSpecs.js';
+import { findBeadType } from '../palette/beadSpecs.js';
 import { resolveSwatchHex } from '../palette/colorLibrary.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
 import { generatePeyoteGrid, peyoteCellAtPointClamped } from '../grid/peyote.js';
@@ -50,6 +70,9 @@ import { buildClipboard, applyEraseRegion, applyPaste } from '../tools/cutCopyTo
 import { applyMirror } from '../tools/mirrorTool.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
+import { mountBeadCatalogDialog } from './beadCatalogDialog.js';
+import { promptCopyColorTarget } from './copyColorDialog.js';
+import { promptConvertBeadType } from './convertBeadTypeDialog.js';
 
 const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
 const REMOVE_PHOTO_CONFIRM_MESSAGE = 'Remove the reference photo?';
@@ -61,6 +84,7 @@ export function mountEditorView(appState, hooks) {
 
   const backButton = document.getElementById('back-to-library');
   const beadTypeSelect = document.getElementById('bead-type');
+  const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
   const rowsInput = document.getElementById('rows');
   const colsInput = document.getElementById('cols');
   const generateButton = document.getElementById('generate');
@@ -133,6 +157,7 @@ export function mountEditorView(appState, hooks) {
 
   function render() {
     lastCssSize = resizeCanvasForDisplay(canvas, ctx);
+    const bead = findBeadType(appState.beadCatalog, appState.beadTypeKey);
     drawPeyoteGrid(
       ctx,
       lastCssSize.cssWidth,
@@ -141,8 +166,8 @@ export function mountEditorView(appState, hooks) {
       appState.viewport,
       appState.cells,
       resolveColor,
-      BEAD_TYPES[appState.beadTypeKey].shape,
-      appState.photoTrace
+      appState.photoTrace,
+      bead.cornerRadiusFraction ?? 0
     );
     drawSelectionOverlay(ctx, appState.viewport, appState.gridParams, appState.selection);
     drawPastePreviewOverlay(ctx, appState.viewport, appState.gridParams, appState.clipboard, appState.pastePreview, resolveColor);
@@ -269,6 +294,14 @@ export function mountEditorView(appState, hooks) {
       colorPickerInput.value = color.hex;
     });
 
+    const copyButton = document.createElement('button');
+    copyButton.type = 'button';
+    copyButton.className = 'color-manage-action';
+    copyButton.setAttribute('aria-label', 'Copy to another bead type');
+    copyButton.title = 'Copy to another bead type';
+    copyButton.textContent = '⎘';
+    copyButton.addEventListener('click', () => handleColorCopyTo(color.id));
+
     const renameButton = document.createElement('button');
     renameButton.type = 'button';
     renameButton.className = 'color-manage-action';
@@ -283,7 +316,7 @@ export function mountEditorView(appState, hooks) {
     deleteButton.textContent = '✖';
     deleteButton.addEventListener('click', () => handleColorDelete(color.id));
 
-    row.append(handle, swatch, name, editButton, renameButton, deleteButton);
+    row.append(handle, swatch, name, editButton, copyButton, renameButton, deleteButton);
     return row;
   }
 
@@ -392,7 +425,7 @@ export function mountEditorView(appState, hooks) {
   }
 
   function rebuildGridParams() {
-    const bead = BEAD_TYPES[appState.beadTypeKey];
+    const bead = findBeadType(appState.beadCatalog, appState.beadTypeKey);
     appState.gridParams = generatePeyoteGrid({
       rows: appState.rows,
       cols: appState.cols,
@@ -598,13 +631,60 @@ export function mountEditorView(appState, hooks) {
     hooks.onImmediateSave();
   }
 
+  // Populates the top-bar bead-type <select> from the live catalog — called on
+  // mount and again whenever the bead catalog manager mutates it, so a
+  // rename/add/delete/reorder is reflected immediately without remounting.
+  function renderBeadTypeSelect() {
+    beadTypeSelect.replaceChildren(
+      ...appState.beadCatalog.map((bead) => {
+        const option = document.createElement('option');
+        option.value = bead.id;
+        option.textContent = bead.name;
+        return option;
+      })
+    );
+    beadTypeSelect.value = appState.beadTypeKey;
+  }
+
+  // An empty design switches bead type directly (nothing to lose or map colors
+  // for). A design with beads placed instead opens the Convert Bead Type flow —
+  // clone the pattern into a brand-new design under the target bead type, with
+  // used colors resolved per a user-confirmed mapping, leaving the open design
+  // completely untouched (see .work/feature-bead-catalog-and-conversion-plan.md's
+  // Part C — the user's own suggestion for sidestepping an in-place geometry
+  // change's usual "clear undo history" tradeoff).
   async function handleBeadTypeChange() {
-    appState.beadTypeKey = beadTypeSelect.value;
-    // Custom colors are scoped per bead type — must be refreshed before
-    // regenerateGrid() renders the palette, or it'd briefly show the old
-    // bead type's colors against the new one.
-    await hooks.onBeadTypeChanged(appState.beadTypeKey);
-    regenerateGrid();
+    const targetBeadTypeKey = beadTypeSelect.value;
+    if (targetBeadTypeKey === appState.beadTypeKey) return;
+
+    if (appState.cells.size === 0) {
+      appState.beadTypeKey = targetBeadTypeKey;
+      // Custom colors are scoped per bead type — must be refreshed before
+      // regenerateGrid() renders the palette, or it'd briefly show the old
+      // bead type's colors against the new one.
+      await hooks.onBeadTypeChanged(appState.beadTypeKey);
+      regenerateGrid();
+      return;
+    }
+
+    const data = await hooks.onRequestBeadTypeConversionData(targetBeadTypeKey);
+    let mappings = [];
+    if (data.usedColors.length > 0) {
+      const targetBeadType = findBeadType(appState.beadCatalog, targetBeadTypeKey);
+      const result = await promptConvertBeadType({
+        usedColors: data.usedColors,
+        targetColors: data.targetColors,
+        targetBeadTypeName: targetBeadType.name,
+      });
+      if (!result) {
+        beadTypeSelect.value = appState.beadTypeKey; // revert the displayed selection
+        return;
+      }
+      mappings = result.mappings;
+    }
+    await hooks.onBeadTypeConvertConfirmed(targetBeadTypeKey, mappings);
+    // main.js unmounts this editor instance and opens the newly created design
+    // right after the promise above resolves — nothing left to do here.
   }
   function handlePanelToggle() {
     const collapsed = !sidePanel.hidden;
@@ -699,6 +779,23 @@ export function mountEditorView(appState, hooks) {
       renderColorPalette();
       renderColorManageList();
     });
+  }
+  // Copies this color into another bead type's own independent palette (Part B
+  // of .work/feature-bead-catalog-and-conversion-plan.md) — palettes stay
+  // independent per bead type (Phase 8), so this is a real create, not a move;
+  // the source color/palette is never touched.
+  async function handleColorCopyTo(id) {
+    const color = appState.customColors.find((c) => c.id === id);
+    if (!color) return;
+    if (appState.beadCatalog.length <= 1) {
+      window.alert('No other bead types to copy to yet.');
+      return;
+    }
+    const targetBeadTypeKey = await promptCopyColorTarget({
+      color, beadCatalog: appState.beadCatalog, currentBeadTypeKey: appState.beadTypeKey,
+    });
+    if (!targetBeadTypeKey) return;
+    await hooks.onCustomColorCopiedToBeadType(id, targetBeadTypeKey);
   }
   function handleColorDelete(id) {
     const usage = findPatternsUsingColor(appState.designs, id, {
@@ -954,7 +1051,42 @@ export function mountEditorView(appState, hooks) {
     scheduleRedraw();
   }
 
+  // Refreshes the top-bar select after any catalog mutation, and — since the
+  // manager can edit the *currently open* design's own bead type without going
+  // through handleBeadTypeChange at all — also re-derives gridParams from the
+  // (already-updated-in-place) appState.beadCatalog and redraws, so a width/
+  // height/corner-roundness edit shows up immediately instead of only after
+  // leaving and reopening the design. rebuildGridParams()/scheduleRedraw() run
+  // unconditionally (cheap, and needed for a live corner-roundness change too,
+  // which doesn't affect boundingBoxMm) but fitViewportToGrid()/
+  // updateSizeReadout() only run when the bounding box actually changed size —
+  // otherwise every keystroke in the manager (including edits to a bead type
+  // that isn't even the open design's own) would reset the canvas's pan/zoom.
+  function handleBeadCatalogChanged() {
+    renderBeadTypeSelect();
+    const previousBoundingBoxMm = appState.gridParams?.boundingBoxMm;
+    rebuildGridParams();
+    const boundingBoxMm = appState.gridParams.boundingBoxMm;
+    if (!previousBoundingBoxMm || previousBoundingBoxMm.widthMm !== boundingBoxMm.widthMm || previousBoundingBoxMm.heightMm !== boundingBoxMm.heightMm) {
+      fitViewportToGrid();
+      updateSizeReadout();
+    }
+    scheduleRedraw();
+  }
+
+  const beadCatalogDialog = mountBeadCatalogDialog(appState, {
+    onBeadTypeCreated: hooks.onBeadTypeCreated,
+    onBeadTypeSaved: hooks.onBeadTypeSaved,
+    onBeadTypeDeleted: hooks.onBeadTypeDeleted,
+    onBeadTypeReordered: hooks.onBeadTypeReordered,
+    onCatalogChanged: handleBeadCatalogChanged,
+  });
+  function handleBeadCatalogManageClick() {
+    beadCatalogDialog.open();
+  }
+
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
+  beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   generateButton.addEventListener('click', handleResizeClick);
   resetViewButton.addEventListener('click', handleResetView);
   unitToggleButton.addEventListener('click', handleUnitToggle);
@@ -1036,7 +1168,7 @@ export function mountEditorView(appState, hooks) {
   // Reflect the bead type/rows/cols the opened design already carries, and sync
   // the units toggle's readout — these controls don't fire their own change
   // events just from being set programmatically.
-  beadTypeSelect.value = appState.beadTypeKey;
+  renderBeadTypeSelect();
   rowsInput.value = String(appState.rows);
   colsInput.value = String(appState.cols);
 
@@ -1055,7 +1187,9 @@ export function mountEditorView(appState, hooks) {
   deriveGridAndRender();
 
   function unmount() {
+    beadCatalogDialog.unmount();
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
+    beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     generateButton.removeEventListener('click', handleResizeClick);
     resetViewButton.removeEventListener('click', handleResetView);
     unitToggleButton.removeEventListener('click', handleUnitToggle);
