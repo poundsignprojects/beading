@@ -278,6 +278,7 @@ export function mountEditorView(appState, hooks) {
     handle.type = 'button';
     handle.className = 'icon-btn color-manage-drag-handle';
     handle.setAttribute('aria-label', 'Reorder');
+    handle.title = 'Drag to reorder';
     handle.append(createIcon('grip-vertical'));
 
     const swatch = document.createElement('span');

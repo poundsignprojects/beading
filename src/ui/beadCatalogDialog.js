@@ -57,6 +57,7 @@ export function mountBeadCatalogDialog(appState, hooks) {
     handle.type = 'button';
     handle.className = 'icon-btn bead-catalog-drag-handle';
     handle.setAttribute('aria-label', 'Reorder');
+    handle.title = 'Drag to reorder';
     handle.append(createIcon('grip-vertical'));
 
     const name = document.createElement('span');

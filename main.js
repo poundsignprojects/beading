@@ -18,6 +18,7 @@ import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
+import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchHex } from './src/palette/colorLibrary.js';
 import { findBeadType } from './src/palette/beadSpecs.js';
@@ -439,6 +440,7 @@ window.addEventListener('pagehide', flushAutosave);
 async function boot() {
   await preloadIcons();
   mountIcons(); // static [data-icon] markup (top bar, tool rail, dialogs) — JS-built rows call createIcon() directly
+  initLongPressTooltips();
 
   appState.db = await openDatabase();
   appState.preferences = await getPreferences(appState.db);

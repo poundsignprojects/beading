@@ -45,6 +45,7 @@ export function mountLibraryView(callbacks) {
     handle.type = 'button';
     handle.className = 'icon-btn library-drag-handle';
     handle.setAttribute('aria-label', 'Reorder');
+    handle.title = 'Drag to reorder';
     handle.append(createIcon('grip-vertical'));
 
     const thumb = document.createElement('div');

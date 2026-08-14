@@ -117,6 +117,28 @@ input[type="number"] {
   border-color: #333;
 }
 
+/* Long-press tooltip bubble (src/ui/longPressTooltip.js) — iOS/iPadOS never
+   surfaces a `title` attribute on tap the way desktop hover does, so
+   icon-only controls need this to stay legible on a touch device. Position
+   (left/top) is computed and set inline per-show; only visual styling lives
+   here. Fixed positioning + a high z-index so it reads above an open
+   <dialog>'s own content too (the script re-parents it into the topmost
+   open dialog when one is open, since a plain body child would otherwise
+   render behind the dialog's top-layer ::backdrop). */
+#long-press-tooltip {
+  position: fixed;
+  z-index: 9999;
+  max-width: 14rem;
+  padding: 0.4rem 0.6rem;
+  border-radius: 6px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  font-size: 0.8rem;
+  line-height: 1.3;
+  text-align: center;
+  pointer-events: none;
+}
+
 #library-view,
 #editor-view {
   display: flex;
@@ -313,13 +335,14 @@ input[type="number"] {
 }
 
 /* Two non-wrapping zones instead of Phase 8's single flat wrapping row: the
-   left zone holds only Back/Settings/the size readout now that bead-type,
+   left zone holds Back/Settings/the size readout plus every other editing
+   control (Outline/Units/Reset View/Panel/Print) now that bead-type,
    rows/cols, and Resize moved into #settings-dialog (rare, per-design setup,
-   not worth permanent top-bar space) — small enough it never wraps. The
-   right zone (margin-left: auto) is everything reachable in normal editing,
-   ending in Undo/Redo pinned at the literal top-right corner for easy reach
-   (the user's explicit ask), a plain flex ordering trick rather than
-   position: fixed. */
+   not worth permanent top-bar space). The right zone (margin-left: auto)
+   holds only Undo/Redo, pinned at the literal top-right corner on their own
+   — the user's explicit ask, kept apart from every other control so the
+   corner stays reachable without hunting past a cluster of buttons — a
+   plain flex ordering trick rather than position: fixed. */
 #top-bar-left,
 #top-bar-right {
   display: flex;
