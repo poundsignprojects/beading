@@ -29,6 +29,94 @@ body {
   flex-direction: column;
 }
 
+/* Shared touch-target baseline (iPad UX pass, 2026-08-13): every plain
+   <button>/<select> gets at least Apple's 44pt (44px @1x) minimum via
+   min-height, even where a component hasn't been converted to .icon-btn
+   below — "make touch targets bigger throughout" was the explicit user
+   direction, not just the handful of worst offenders called out below. */
+button,
+select {
+  min-height: 2.75rem;
+  padding: 0.4rem 0.8rem;
+  font-size: 0.95rem;
+}
+
+input[type="number"] {
+  min-height: 2.75rem;
+  padding: 0.3rem 0.4rem;
+}
+
+/* Icon system (iPad UX pass): vendored Lucide SVGs (src/ui/icons.js,
+   /vendor/icons/) injected via [data-icon] (static markup, main.js's
+   mountIcons()) or createIcon() (JS-built rows). Icons stroke with
+   currentColor, so they inherit the button's text/pressed-state color with
+   no per-icon CSS needed. */
+.icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  flex-shrink: 0;
+  display: block;
+}
+
+/* Square, icon-only button — the default target for the highest-frequency
+   controls (color swatches, tool rail, top-bar right cluster, row actions).
+   44px baseline, bumped to 48px (.icon-btn-lg) for the very highest-frequency
+   groups per the plan (tool rail / selection / paste controls, undo/redo). */
+.icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  min-height: 0; /* override the generic button rule above — icon-btn sizes itself */
+  padding: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.icon-btn-lg {
+  width: 3rem;
+  height: 3rem;
+}
+
+.icon-btn[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
+.icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Icon + short text label, for the few controls that keep a label (Back to
+   Library, Load/Move/Remove Photo) — same touch-target floor as .icon-btn,
+   just not square. */
+.icon-text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.9rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: #fff;
+  color: #333;
+  cursor: pointer;
+  font-size: 0.95rem;
+}
+
+.icon-text-btn[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
 #library-view,
 #editor-view {
   display: flex;
@@ -64,12 +152,6 @@ body {
   gap: 0.25rem;
 }
 
-#library-view-toggle button[aria-pressed="true"] {
-  background: #333;
-  color: #fff;
-  border-color: #333;
-}
-
 #library-list {
   list-style: none;
   margin: 0;
@@ -81,7 +163,7 @@ body {
 
 #library-list.gallery-mode {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr));
   gap: 1rem;
   padding: 1rem;
 }
@@ -111,10 +193,18 @@ body {
   touch-action: none;
   background: none;
   border: none;
-  font-size: 1.1rem;
   color: #999;
   cursor: grab;
-  padding: 0.25rem 0.4rem;
+}
+
+/* Rename/Duplicate/Delete grouped together so gallery mode (a column-flex
+   card, see .gallery-mode .library-row below) can lay them out as their own
+   horizontal strip below the thumbnail/name instead of each one becoming a
+   separate full-width row. */
+.library-row-actions {
+  display: flex;
+  gap: 0.25rem;
+  flex-shrink: 0;
 }
 
 .library-row-thumb {
@@ -163,9 +253,7 @@ body {
 .library-row-action {
   background: none;
   border: none;
-  font-size: 1rem;
   color: #555;
-  padding: 0.35rem;
   cursor: pointer;
 }
 
@@ -200,16 +288,20 @@ body {
   white-space: normal;
 }
 
-.gallery-mode .library-row-action {
-  font-size: 0.85rem;
-  padding: 0.25rem;
+/* .library-row is a column flex in gallery mode, so this direct child
+   (a horizontal group of its own) becomes its own full-width strip below
+   the thumbnail/name — the buttons inside it keep their normal .icon-btn
+   size (touch targets don't shrink just because the layout got tighter). */
+.gallery-mode .library-row-actions {
+  justify-content: center;
+  margin-top: 0.35rem;
 }
 
 #top-bar {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   padding: 0.5rem 0.75rem;
   padding-top: calc(0.5rem + env(safe-area-inset-top));
   padding-left: calc(0.75rem + env(safe-area-inset-left));
@@ -217,30 +309,41 @@ body {
   background: #f2f2f2;
   border-bottom: 1px solid #ccc;
   font-size: 0.9rem;
+  overflow-x: auto; /* backstop only — the left/right zone split below is what actually keeps this to one line */
 }
 
-#top-bar input[type="number"] {
-  width: 4.5rem;
+/* Two non-wrapping zones instead of Phase 8's single flat wrapping row: the
+   left zone holds only Back/Settings/the size readout now that bead-type,
+   rows/cols, and Resize moved into #settings-dialog (rare, per-design setup,
+   not worth permanent top-bar space) — small enough it never wraps. The
+   right zone (margin-left: auto) is everything reachable in normal editing,
+   ending in Undo/Redo pinned at the literal top-right corner for easy reach
+   (the user's explicit ask), a plain flex ordering trick rather than
+   position: fixed. */
+#top-bar-left,
+#top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+}
+
+#top-bar-right {
+  margin-left: auto;
 }
 
 #size-readout {
   color: #444;
+  white-space: nowrap;
+  margin-left: 0.25rem;
 }
 
-#panel-toggle {
-  margin-left: auto;
-}
-
-#panel-toggle[aria-pressed="true"] {
-  background: #333;
-  color: #fff;
-  border-color: #333;
-}
-
-#outline-toggle[aria-pressed="true"] {
-  background: #333;
-  color: #fff;
-  border-color: #333;
+#top-bar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 0.25rem 0.15rem;
+  background: #ccc;
 }
 
 #editor-body {
@@ -249,18 +352,22 @@ body {
   min-height: 0; /* let the canvas/panel scroll internally instead of pushing page height */
 }
 
+/* Icons need far less horizontal room than the old text labels ("Deselect",
+   "Mirror ↔"), so the rail can shrink from Phase 8's 6rem while the buttons
+   inside it actually grow (.icon-btn-lg, 48px) — reclaimed real estate as a
+   side effect of the icon conversion, not a separate task. */
 #tool-rail {
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 0.5rem;
-  width: 6rem;
+  width: 4.75rem;
   flex-shrink: 0;
   overflow-y: auto;
   padding: 0.5rem;
   padding-left: calc(0.5rem + env(safe-area-inset-left));
   background: #f2f2f2;
   border-right: 1px solid #ccc;
-  font-size: 0.85rem;
 }
 
 #tool-rail #tool-toggle,
@@ -275,23 +382,12 @@ body {
 
 #tool-toggle {
   display: flex;
-  gap: 0.25rem;
-}
-
-#tool-toggle button[aria-pressed="true"] {
-  background: #333;
-  color: #fff;
-  border-color: #333;
+  gap: 0.4rem;
 }
 
 #history-controls {
   display: flex;
   gap: 0.25rem;
-}
-
-#history-controls button:disabled {
-  opacity: 0.4;
-  cursor: default;
 }
 
 #colorway-controls {
@@ -308,29 +404,12 @@ body {
 
 #selection-controls {
   display: flex;
-  gap: 0.25rem;
-}
-
-#selection-controls button:disabled {
-  opacity: 0.4;
-  cursor: default;
+  gap: 0.4rem;
 }
 
 #paste-controls {
   display: flex;
-  gap: 0.25rem;
-}
-
-#paste-controls button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
-#paste-mode-front[aria-pressed="true"],
-#paste-mode-behind[aria-pressed="true"] {
-  background: #333;
-  color: #fff;
-  border-color: #333;
+  gap: 0.4rem;
 }
 
 #photo-trace-controls {
@@ -344,12 +423,6 @@ body {
   display: flex;
   align-items: center;
   gap: 0.35rem;
-}
-
-#photo-trace-move[aria-pressed="true"] {
-  background: #333;
-  color: #fff;
-  border-color: #333;
 }
 
 #pattern-canvas {
@@ -416,7 +489,7 @@ body {
 #color-palette {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.35rem;
+  gap: 0.4rem;
 }
 
 #color-palette-empty {
@@ -438,9 +511,9 @@ body {
 }
 
 .color-swatch {
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 4px;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 6px;
   border: 1px solid rgba(0, 0, 0, 0.2);
   padding: 0;
   cursor: pointer;
@@ -455,16 +528,19 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  border-radius: 4px;
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 6px;
   border: 1px dashed #999;
   background: none;
   color: #666;
-  font-size: 1.1rem;
-  line-height: 1;
   padding: 0;
   cursor: pointer;
+}
+
+.color-swatch-add .icon {
+  width: 1.1rem;
+  height: 1.1rem;
 }
 
 #color-manage-list {
@@ -473,11 +549,16 @@ body {
   padding: 0;
 }
 
+/* Two lines per row (name+swatch on the first, actions right-aligned on the
+   second via .color-manage-main's flex-basis: 100% forcing a wrap) — with
+   four 44px action buttons plus a drag handle, one line no longer fits the
+   18rem side panel at the enlarged touch-target size. */
 .color-manage-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.4rem;
-  padding: 0.3rem 0;
+  gap: 0.3rem;
+  padding: 0.4rem 0;
   border-bottom: 1px solid #e8e8e8;
   background: #fff;
 }
@@ -487,38 +568,49 @@ body {
   background: #eef4ff;
 }
 
+.color-manage-main {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 1 1 100%;
+  min-width: 0;
+}
+
 .color-manage-drag-handle {
   touch-action: none;
   background: none;
   border: none;
-  font-size: 1rem;
   color: #999;
   cursor: grab;
-  padding: 0.15rem 0.3rem;
 }
 
 .color-manage-swatch {
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 3px;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 4px;
   border: 1px solid rgba(0, 0, 0, 0.2);
   flex-shrink: 0;
 }
 
 .color-manage-name {
   flex: 1;
-  font-size: 0.85rem;
+  min-width: 0;
+  font-size: 0.9rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
+.color-manage-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+}
+
 .color-manage-action {
   background: none;
   border: none;
-  font-size: 0.9rem;
   color: #555;
-  padding: 0.25rem;
   cursor: pointer;
 }
 
@@ -619,7 +711,8 @@ body {
 #bead-catalog-dialog,
 #convert-bead-type-dialog,
 #copy-color-dialog,
-#resize-dialog {
+#resize-dialog,
+#settings-dialog {
   border: none;
   border-radius: 8px;
   padding: 1rem 1.25rem;
@@ -630,24 +723,52 @@ body {
 #bead-catalog-dialog::backdrop,
 #convert-bead-type-dialog::backdrop,
 #copy-color-dialog::backdrop,
-#resize-dialog::backdrop {
+#resize-dialog::backdrop,
+#settings-dialog::backdrop {
   background: rgba(0, 0, 0, 0.35);
 }
 
 #bead-catalog-dialog h2,
 #convert-bead-type-dialog h2,
 #copy-color-dialog h2,
-#resize-dialog h2 {
+#resize-dialog h2,
+#settings-dialog h2 {
   margin: 0 0 0.5rem;
   font-size: 1.1rem;
 }
 
-#bead-catalog-header {
+#bead-catalog-header,
+#settings-dialog-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 0.75rem;
   margin-bottom: 0.5rem;
+}
+
+#settings-dialog-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+#settings-bead-type-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+#settings-dimensions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#settings-dimensions input[type="number"] {
+  width: 4.5rem;
 }
 
 #bead-catalog-list {
@@ -677,10 +798,8 @@ body {
   touch-action: none;
   background: none;
   border: none;
-  font-size: 1rem;
   color: #999;
   cursor: grab;
-  padding: 0.15rem 0.3rem;
 }
 
 .bead-catalog-name {
@@ -699,14 +818,13 @@ body {
 
 .bead-catalog-field input {
   width: 4rem;
+  min-height: 2.25rem;
 }
 
 .bead-catalog-action {
   background: none;
   border: none;
-  font-size: 0.9rem;
   color: #555;
-  padding: 0.25rem;
   cursor: pointer;
 }
 

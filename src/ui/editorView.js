@@ -50,6 +50,7 @@
 //   onBack()              — fired when "Back to Library" is tapped, after this
 //                            module has finished its own cleanup.
 
+import { createIcon } from './icons.js';
 import { findBeadType } from '../palette/beadSpecs.js';
 import { resolveSwatchHex } from '../palette/colorLibrary.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
@@ -83,6 +84,9 @@ export function mountEditorView(appState, hooks) {
   const ctx = canvas.getContext('2d');
 
   const backButton = document.getElementById('back-to-library');
+  const settingsDialog = document.getElementById('settings-dialog');
+  const settingsOpenButton = document.getElementById('settings-open');
+  const settingsCloseButton = document.getElementById('settings-close');
   const beadTypeSelect = document.getElementById('bead-type');
   const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
   const rowsInput = document.getElementById('rows');
@@ -118,6 +122,7 @@ export function mountEditorView(appState, hooks) {
   const colorwayNewButton = document.getElementById('colorway-new');
   const colorwayRenameButton = document.getElementById('colorway-rename');
   const colorwayDeleteButton = document.getElementById('colorway-delete');
+  const selectionControlsEl = document.getElementById('selection-controls');
   const selectionCopyButton = document.getElementById('selection-copy');
   const selectionCutButton = document.getElementById('selection-cut');
   const selectionPasteButton = document.getElementById('selection-paste');
@@ -226,7 +231,7 @@ export function mountEditorView(appState, hooks) {
     addTile.className = 'color-swatch-add';
     addTile.title = 'Add color';
     addTile.setAttribute('aria-label', 'Add color');
-    addTile.textContent = '+';
+    addTile.append(createIcon('plus'));
     // Guards against a stale editingColorId left over from a previous edit-color
     // tap whose native picker the user dismissed without actually changing
     // anything — some browsers don't fire `change` on cancel, so it wouldn't
@@ -271,9 +276,9 @@ export function mountEditorView(appState, hooks) {
 
     const handle = document.createElement('button');
     handle.type = 'button';
-    handle.className = 'color-manage-drag-handle';
+    handle.className = 'icon-btn color-manage-drag-handle';
     handle.setAttribute('aria-label', 'Reorder');
-    handle.textContent = '☰';
+    handle.append(createIcon('grip-vertical'));
 
     const swatch = document.createElement('span');
     swatch.className = 'color-manage-swatch';
@@ -283,6 +288,10 @@ export function mountEditorView(appState, hooks) {
     name.className = 'color-manage-name';
     name.textContent = color.name;
 
+    const main = document.createElement('div');
+    main.className = 'color-manage-main';
+    main.append(handle, swatch, name);
+
     // A <label for="color-picker-input"> rather than a button that calls
     // colorPickerInput.click() — same iOS Safari constraint as the palette's "+"
     // add tile above (a programmatic .click() doesn't reliably open the native
@@ -290,9 +299,10 @@ export function mountEditorView(appState, hooks) {
     // tell this apart from the add flow sharing the same input.
     const editButton = document.createElement('label');
     editButton.htmlFor = 'color-picker-input';
-    editButton.className = 'color-manage-action';
+    editButton.className = 'icon-btn color-manage-action';
     editButton.setAttribute('aria-label', 'Edit color');
-    editButton.textContent = '🎨';
+    editButton.title = 'Edit color';
+    editButton.append(createIcon('palette'));
     editButton.addEventListener('click', () => {
       editingColorId = color.id;
       editingColorOriginalHex = color.hex;
@@ -301,27 +311,33 @@ export function mountEditorView(appState, hooks) {
 
     const copyButton = document.createElement('button');
     copyButton.type = 'button';
-    copyButton.className = 'color-manage-action';
+    copyButton.className = 'icon-btn color-manage-action';
     copyButton.setAttribute('aria-label', 'Copy to another bead type');
     copyButton.title = 'Copy to another bead type';
-    copyButton.textContent = '⎘';
+    copyButton.append(createIcon('log-in'));
     copyButton.addEventListener('click', () => handleColorCopyTo(color.id));
 
     const renameButton = document.createElement('button');
     renameButton.type = 'button';
-    renameButton.className = 'color-manage-action';
+    renameButton.className = 'icon-btn color-manage-action';
     renameButton.setAttribute('aria-label', 'Rename');
-    renameButton.textContent = '✎';
+    renameButton.title = 'Rename';
+    renameButton.append(createIcon('pencil'));
     renameButton.addEventListener('click', () => handleColorRename(color.id));
 
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
-    deleteButton.className = 'color-manage-action';
+    deleteButton.className = 'icon-btn color-manage-action';
     deleteButton.setAttribute('aria-label', 'Delete');
-    deleteButton.textContent = '✖';
+    deleteButton.title = 'Delete';
+    deleteButton.append(createIcon('trash-2'));
     deleteButton.addEventListener('click', () => handleColorDelete(color.id));
 
-    row.append(handle, swatch, name, editButton, copyButton, renameButton, deleteButton);
+    const actions = document.createElement('div');
+    actions.className = 'color-manage-actions';
+    actions.append(editButton, copyButton, renameButton, deleteButton);
+
+    row.append(main, actions);
     return row;
   }
 
@@ -332,6 +348,7 @@ export function mountEditorView(appState, hooks) {
   function setTool(tool) {
     appState.tool = tool;
     updateToolButtons();
+    updateSelectionButtons();
     updatePasteControls();
   }
 
@@ -369,6 +386,10 @@ export function mountEditorView(appState, hooks) {
   // wrong physical stagger, not fixable at integer column resolution); Paste
   // needs a clipboard, independent of any current selection.
   function updateSelectionButtons() {
+    // The whole group only makes sense while the Select tool is active —
+    // previously it stayed permanently visible (just disabled), matching
+    // #paste-controls' own hidden-unless-active convention now instead.
+    selectionControlsEl.hidden = appState.tool !== 'select';
     const selection = appState.selection;
     const hasSelection = !!selection;
     const heightEven = hasSelection && (selection.rowEnd - selection.rowStart + 1) % 2 === 0;
@@ -1027,6 +1048,17 @@ export function mountEditorView(appState, hooks) {
   function handleBack() {
     hooks.onBack();
   }
+  // Bead type/rows/cols/Resize moved off the permanently-visible top bar into
+  // this dialog (iPad UX pass, 2026-08-13) — genuinely rare, per-design setup
+  // actions, not worth the top-bar space every session. Native <dialog>, same
+  // open/close convention as #bead-catalog-dialog (which can itself still be
+  // opened from inside this one — separate top-level <dialog>s stack fine).
+  function handleSettingsOpen() {
+    settingsDialog.showModal();
+  }
+  function handleSettingsClose() {
+    settingsDialog.close();
+  }
   function handlePrintExport() {
     mountPrintView(appState, { onPreferencesChanged: hooks.onPreferencesChanged });
   }
@@ -1111,6 +1143,8 @@ export function mountEditorView(appState, hooks) {
     beadCatalogDialog.open();
   }
 
+  settingsOpenButton.addEventListener('click', handleSettingsOpen);
+  settingsCloseButton.addEventListener('click', handleSettingsClose);
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   generateButton.addEventListener('click', handleResizeClick);
@@ -1216,6 +1250,8 @@ export function mountEditorView(appState, hooks) {
 
   function unmount() {
     beadCatalogDialog.unmount();
+    settingsOpenButton.removeEventListener('click', handleSettingsOpen);
+    settingsCloseButton.removeEventListener('click', handleSettingsClose);
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     generateButton.removeEventListener('click', handleResizeClick);

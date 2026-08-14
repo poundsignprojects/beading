@@ -11,8 +11,8 @@
     <div id="library-header">
       <h1>Patterns</h1>
       <div id="library-view-toggle" role="group" aria-label="View">
-        <button id="library-view-list" type="button" aria-pressed="true">List</button>
-        <button id="library-view-gallery" type="button" aria-pressed="false">Gallery</button>
+        <button id="library-view-list" type="button" class="icon-btn" data-icon="list" aria-pressed="true" title="List view" aria-label="List view"></button>
+        <button id="library-view-gallery" type="button" class="icon-btn" data-icon="layout-grid" aria-pressed="false" title="Gallery view" aria-label="Gallery view"></button>
       </div>
       <button id="library-new">+ New</button>
     </div>
@@ -22,47 +22,48 @@
 
   <div id="editor-view" hidden>
     <div id="top-bar">
-      <button id="back-to-library">&larr; Library</button>
-      <select id="bead-type"></select>
-      <button id="bead-catalog-manage-button" type="button" title="Add, edit, or remove bead types">Bead Types&hellip;</button>
-      <label>Cols <input id="rows" type="number" value="20" min="1"></label>
-      <label>Rows <input id="cols" type="number" value="20" min="1"></label>
-      <button id="generate">Resize</button>
-      <button id="unit-toggle">mm / in</button>
-      <button id="outline-toggle" aria-pressed="true" title="Toggle bead outlines">Outlines</button>
-      <span id="size-readout"></span>
-      <button id="reset-view">Reset View</button>
-      <div id="history-controls" role="group" aria-label="History">
-        <button id="undo-button" disabled>Undo</button>
-        <button id="redo-button" disabled>Redo</button>
+      <div id="top-bar-left">
+        <button id="back-to-library" class="icon-text-btn" data-icon="chevron-left" title="Back to Library"><span>Library</span></button>
+        <button id="settings-open" type="button" class="icon-btn" data-icon="settings" title="Pattern Settings" aria-label="Pattern Settings"></button>
+        <span id="size-readout"></span>
       </div>
-      <button id="print-export">Print / Export</button>
-      <button id="panel-toggle" aria-pressed="true">Panel</button>
+      <div id="top-bar-right">
+        <button id="outline-toggle" type="button" class="icon-btn" data-icon="square" aria-pressed="true" title="Toggle bead outlines" aria-label="Toggle bead outlines"></button>
+        <button id="unit-toggle" type="button" class="icon-btn" data-icon="ruler" title="Toggle mm / in" aria-label="Toggle units"></button>
+        <button id="reset-view" type="button" class="icon-btn" data-icon="crosshair" title="Reset View" aria-label="Reset View"></button>
+        <button id="panel-toggle" type="button" class="icon-btn" data-icon="panel-right" aria-pressed="true" title="Toggle side panel" aria-label="Toggle side panel"></button>
+        <button id="print-export" type="button" class="icon-btn" data-icon="printer" title="Print / Export" aria-label="Print / Export"></button>
+        <div id="top-bar-divider" role="separator" aria-hidden="true"></div>
+        <div id="history-controls" role="group" aria-label="History">
+          <button id="undo-button" type="button" class="icon-btn icon-btn-lg" data-icon="undo-2" disabled title="Undo" aria-label="Undo"></button>
+          <button id="redo-button" type="button" class="icon-btn icon-btn-lg" data-icon="redo-2" disabled title="Redo" aria-label="Redo"></button>
+        </div>
+      </div>
     </div>
     <div id="editor-body">
       <div id="tool-rail" role="group" aria-label="Tools">
         <div id="tool-toggle" role="group" aria-label="Tool">
-          <button id="tool-draw" aria-pressed="true">Draw</button>
-          <button id="tool-erase" aria-pressed="false">Erase</button>
-          <button id="tool-fill" aria-pressed="false">Fill</button>
-          <button id="tool-replace" aria-pressed="false">Replace</button>
-          <button id="tool-select" aria-pressed="false">Select</button>
+          <button id="tool-draw" type="button" class="icon-btn icon-btn-lg" data-icon="pencil" aria-pressed="true" title="Draw" aria-label="Draw"></button>
+          <button id="tool-erase" type="button" class="icon-btn icon-btn-lg" data-icon="eraser" aria-pressed="false" title="Erase" aria-label="Erase"></button>
+          <button id="tool-fill" type="button" class="icon-btn icon-btn-lg" data-icon="paint-bucket" aria-pressed="false" title="Fill" aria-label="Fill"></button>
+          <button id="tool-replace" type="button" class="icon-btn icon-btn-lg" data-icon="replace" aria-pressed="false" title="Replace" aria-label="Replace"></button>
+          <button id="tool-select" type="button" class="icon-btn icon-btn-lg" data-icon="lasso-select" aria-pressed="false" title="Select" aria-label="Select"></button>
         </div>
-        <div id="selection-controls" role="group" aria-label="Selection">
-          <button id="selection-copy" disabled>Copy</button>
-          <button id="selection-cut" disabled>Cut</button>
-          <button id="selection-paste" disabled>Paste</button>
-          <button id="selection-mirror-h" disabled>Mirror &harr;</button>
-          <button id="selection-mirror-v" disabled>Mirror &updownarrow;</button>
-          <button id="selection-deselect" disabled title="Deselect (Esc)">Deselect</button>
+        <div id="selection-controls" role="group" aria-label="Selection" hidden>
+          <button id="selection-copy" type="button" class="icon-btn icon-btn-lg" data-icon="copy" disabled title="Copy" aria-label="Copy"></button>
+          <button id="selection-cut" type="button" class="icon-btn icon-btn-lg" data-icon="scissors" disabled title="Cut" aria-label="Cut"></button>
+          <button id="selection-paste" type="button" class="icon-btn icon-btn-lg" data-icon="clipboard-paste" disabled title="Paste" aria-label="Paste"></button>
+          <button id="selection-mirror-h" type="button" class="icon-btn icon-btn-lg" data-icon="flip-horizontal-2" disabled title="Mirror Horizontal" aria-label="Mirror Horizontal"></button>
+          <button id="selection-mirror-v" type="button" class="icon-btn icon-btn-lg" data-icon="flip-vertical-2" disabled title="Mirror Vertical" aria-label="Mirror Vertical"></button>
+          <button id="selection-deselect" type="button" class="icon-btn icon-btn-lg" data-icon="square-x" disabled title="Deselect (Esc)" aria-label="Deselect"></button>
         </div>
         <div id="paste-controls" role="group" aria-label="Paste placement" hidden>
-          <button id="paste-mode-front" type="button" aria-pressed="true">In Front</button>
-          <button id="paste-mode-behind" type="button" aria-pressed="false">Behind</button>
-          <button id="paste-cancel" type="button">Cancel</button>
-          <button id="paste-confirm" type="button" disabled>Confirm</button>
+          <button id="paste-mode-front" type="button" class="icon-btn icon-btn-lg" data-icon="bring-to-front" aria-pressed="true" title="Paste In Front" aria-label="Paste In Front"></button>
+          <button id="paste-mode-behind" type="button" class="icon-btn icon-btn-lg" data-icon="send-to-back" aria-pressed="false" title="Paste Behind" aria-label="Paste Behind"></button>
+          <button id="paste-cancel" type="button" class="icon-btn icon-btn-lg" data-icon="x" title="Cancel Paste" aria-label="Cancel Paste"></button>
+          <button id="paste-confirm" type="button" class="icon-btn icon-btn-lg" data-icon="check" disabled title="Confirm Paste" aria-label="Confirm Paste"></button>
         </div>
-        <button id="clear-pattern">Clear</button>
+        <button id="clear-pattern" type="button" class="icon-btn icon-btn-lg" data-icon="trash-2" title="Clear pattern" aria-label="Clear pattern"></button>
       </div>
       <canvas id="pattern-canvas"></canvas>
       <div id="side-panel">
@@ -89,7 +90,7 @@
           <h2>Colorway</h2>
           <div id="colorway-controls" role="group" aria-label="Colorway">
             <select id="colorway-select"></select>
-            <button id="colorway-new" title="New colorway">+</button>
+            <button id="colorway-new" type="button" class="icon-btn" data-icon="plus" title="New colorway" aria-label="New colorway"></button>
             <button id="colorway-rename" title="Rename colorway">Rename</button>
             <button id="colorway-delete" title="Delete colorway">Delete</button>
           </div>
@@ -98,17 +99,35 @@
           <h2>Photo Trace</h2>
           <div id="photo-trace-controls" role="group" aria-label="Photo trace">
             <input type="file" id="photo-trace-file" accept="image/*" hidden>
-            <button id="photo-trace-load">Load Photo</button>
+            <button id="photo-trace-load" class="icon-text-btn" data-icon="image"><span>Load Photo</span></button>
             <label id="photo-trace-opacity-label" hidden>Opacity
               <input id="photo-trace-opacity" type="range" min="0" max="100" value="60">
             </label>
-            <button id="photo-trace-move" aria-pressed="false" hidden>Move Photo</button>
-            <button id="photo-trace-remove" hidden>Remove Photo</button>
+            <button id="photo-trace-move" class="icon-text-btn" aria-pressed="false" hidden data-icon="move"><span>Move Photo</span></button>
+            <button id="photo-trace-remove" class="icon-text-btn" hidden data-icon="trash-2"><span>Remove Photo</span></button>
           </div>
         </section>
       </div>
     </div>
   </div>
+
+  <dialog id="settings-dialog">
+    <div id="settings-dialog-header">
+      <h2>Pattern Settings</h2>
+      <button type="button" id="settings-close" class="icon-btn" data-icon="x" title="Close" aria-label="Close"></button>
+    </div>
+    <div id="settings-dialog-body">
+      <label id="settings-bead-type-label">Bead type
+        <select id="bead-type"></select>
+      </label>
+      <button id="bead-catalog-manage-button" type="button" title="Add, edit, or remove bead types">Bead Types&hellip;</button>
+      <div id="settings-dimensions">
+        <label>Cols <input id="rows" type="number" value="20" min="1"></label>
+        <label>Rows <input id="cols" type="number" value="20" min="1"></label>
+        <button id="generate">Resize</button>
+      </div>
+    </div>
+  </dialog>
 
   <dialog id="bead-catalog-dialog">
     <div id="bead-catalog-header">

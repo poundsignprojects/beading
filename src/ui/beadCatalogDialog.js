@@ -18,6 +18,7 @@
 
 import { findPatternsUsingBeadType } from '../palette/beadTypeUsage.js';
 import { orderForInsertAt } from '../state/designOrder.js';
+import { createIcon } from './icons.js';
 
 const NEW_BEAD_TYPE_DEFAULTS = { widthMm: 1.6, heightMm: 1.3, cornerRadiusFraction: 0, holeMm: null, diameterMm: null };
 const MIN_GEOMETRY_MM = 0.1; // widthMm/heightMm drive grid math — must stay positive
@@ -54,9 +55,9 @@ export function mountBeadCatalogDialog(appState, hooks) {
 
     const handle = document.createElement('button');
     handle.type = 'button';
-    handle.className = 'bead-catalog-drag-handle';
+    handle.className = 'icon-btn bead-catalog-drag-handle';
     handle.setAttribute('aria-label', 'Reorder');
-    handle.textContent = '☰';
+    handle.append(createIcon('grip-vertical'));
 
     const name = document.createElement('span');
     name.className = 'bead-catalog-name';
@@ -85,16 +86,18 @@ export function mountBeadCatalogDialog(appState, hooks) {
 
     const renameButton = document.createElement('button');
     renameButton.type = 'button';
-    renameButton.className = 'bead-catalog-action';
+    renameButton.className = 'icon-btn bead-catalog-action';
     renameButton.setAttribute('aria-label', 'Rename');
-    renameButton.textContent = '✎';
+    renameButton.title = 'Rename';
+    renameButton.append(createIcon('pencil'));
     renameButton.addEventListener('click', () => handleRename(beadType.id));
 
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
-    deleteButton.className = 'bead-catalog-action';
+    deleteButton.className = 'icon-btn bead-catalog-action';
     deleteButton.setAttribute('aria-label', 'Delete');
-    deleteButton.textContent = '✖';
+    deleteButton.title = 'Delete';
+    deleteButton.append(createIcon('trash-2'));
     deleteButton.addEventListener('click', () => handleDelete(beadType.id));
 
     row.append(handle, name, widthField, heightField, cornerField, holeField, diameterField, renameButton, deleteButton);

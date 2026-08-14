@@ -11,6 +11,7 @@
 // the whole drag.
 
 import { orderForInsertAt } from '../state/designOrder.js';
+import { createIcon } from './icons.js';
 
 const DELETE_CONFIRM_MESSAGE = 'Delete this pattern? This cannot be undone.';
 
@@ -42,9 +43,9 @@ export function mountLibraryView(callbacks) {
 
     const handle = document.createElement('button');
     handle.type = 'button';
-    handle.className = 'library-drag-handle';
+    handle.className = 'icon-btn library-drag-handle';
     handle.setAttribute('aria-label', 'Reorder');
-    handle.textContent = '☰';
+    handle.append(createIcon('grip-vertical'));
 
     const thumb = document.createElement('div');
     thumb.className = 'library-row-thumb';
@@ -74,28 +75,35 @@ export function mountLibraryView(callbacks) {
 
     const renameButton = document.createElement('button');
     renameButton.type = 'button';
-    renameButton.className = 'library-row-action';
+    renameButton.className = 'icon-btn library-row-action';
     renameButton.setAttribute('aria-label', 'Rename');
-    renameButton.textContent = '✎';
+    renameButton.title = 'Rename';
+    renameButton.append(createIcon('pencil'));
     renameButton.addEventListener('click', () => callbacks.onRename(design.id));
 
     const duplicateButton = document.createElement('button');
     duplicateButton.type = 'button';
-    duplicateButton.className = 'library-row-action';
+    duplicateButton.className = 'icon-btn library-row-action';
     duplicateButton.setAttribute('aria-label', 'Duplicate');
-    duplicateButton.textContent = '⎘';
+    duplicateButton.title = 'Duplicate';
+    duplicateButton.append(createIcon('copy-plus'));
     duplicateButton.addEventListener('click', () => callbacks.onDuplicate(design.id));
 
     const deleteButton = document.createElement('button');
     deleteButton.type = 'button';
-    deleteButton.className = 'library-row-action';
+    deleteButton.className = 'icon-btn library-row-action';
     deleteButton.setAttribute('aria-label', 'Delete');
-    deleteButton.textContent = '✖';
+    deleteButton.title = 'Delete';
+    deleteButton.append(createIcon('trash-2'));
     deleteButton.addEventListener('click', () => {
       if (window.confirm(DELETE_CONFIRM_MESSAGE)) callbacks.onDelete(design.id);
     });
 
-    row.append(handle, thumb, info, renameButton, duplicateButton, deleteButton);
+    const actions = document.createElement('div');
+    actions.className = 'library-row-actions';
+    actions.append(renameButton, duplicateButton, deleteButton);
+
+    row.append(handle, thumb, info, actions);
     return row;
   }
 
