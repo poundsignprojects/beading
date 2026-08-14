@@ -114,10 +114,16 @@ test('buildWordChart: physical row 0 (the foundation) prints as its own single, 
   });
 });
 
-test('buildWordChart: a band past the foundation splits into an even-position and an odd-position half-pass', () => {
+test('buildWordChart: a band past the foundation splits into a raised-level half-pass (printed first) and a non-raised-level half-pass (printed second)', () => {
   const cells = new Map();
-  // Physical row 1 (col 1): positions 0-3 are A,B,A,B. Even positions (0,2)
-  // are both A; odd positions (1,3) are both B.
+  // Physical row 1 (col 1), rows=4 (even): positions 0-3 are A,B,A,B.
+  // isRaised(row,4) is true for odd row indices (1,3) — see peyote.js's
+  // isRaised derivation — so the raised half-pass (printed first, entry 1)
+  // is B,B and the non-raised half-pass (printed second, entry 2) is A,A.
+  // Getting this backwards prints the physically-later real row before the
+  // physically-earlier one — exactly the historical bug, where a raw
+  // position-parity split only happened to agree with isRaised when `rows`
+  // is odd, and silently inverted for an even `rows` like this one.
   setCell(cells, 0, 1, 'A');
   setCell(cells, 1, 1, 'B');
   setCell(cells, 2, 1, 'A');
@@ -128,12 +134,44 @@ test('buildWordChart: a band past the foundation splits into an even-position an
   assert.equal(chart.rows.length, 3);
   assert.deepEqual(chart.rows[1], {
     entryIndex: 1,
-    runs: [{ colorId: 'A', count: 2 }],
+    runs: [{ colorId: 'B', count: 2 }],
   });
   assert.deepEqual(chart.rows[2], {
     entryIndex: 2,
-    runs: [{ colorId: 'B', count: 2 }],
+    runs: [{ colorId: 'A', count: 2 }],
   });
+});
+
+test('buildWordChart: raised/non-raised split order is correct for an even `rows` value, with distinct colors ruling out a coincidental pass', () => {
+  const cells = new Map();
+  // rows=4 (even): isRaised(row,4) is true for row indices 1,3.
+  setCell(cells, 0, 1, 'P');
+  setCell(cells, 1, 1, 'Q');
+  setCell(cells, 2, 1, 'R');
+  setCell(cells, 3, 1, 'S');
+  const chart = buildWordChart(cells, 4, 2);
+  assert.deepEqual(chart.rows[1].runs, [{ colorId: 'Q', count: 1 }, { colorId: 'S', count: 1 }]);
+  assert.deepEqual(chart.rows[2].runs, [{ colorId: 'P', count: 1 }, { colorId: 'R', count: 1 }]);
+});
+
+test('buildWordChart: raised/non-raised split order is correct for an odd `rows` value', () => {
+  const cells = new Map();
+  // rows=5 (odd): isRaised(row,5) is true for row indices 0,2,4.
+  setCell(cells, 0, 1, 'P');
+  setCell(cells, 1, 1, 'Q');
+  setCell(cells, 2, 1, 'R');
+  setCell(cells, 3, 1, 'S');
+  setCell(cells, 4, 1, 'T');
+  const chart = buildWordChart(cells, 5, 2);
+  assert.deepEqual(chart.rows[1].runs, [
+    { colorId: 'P', count: 1 },
+    { colorId: 'R', count: 1 },
+    { colorId: 'T', count: 1 },
+  ]);
+  assert.deepEqual(chart.rows[2].runs, [
+    { colorId: 'Q', count: 1 },
+    { colorId: 'S', count: 1 },
+  ]);
 });
 
 test('buildWordChart: total printed line count is 1 + 2 * (cols - 1)', () => {
@@ -150,14 +188,16 @@ test('buildWordChart: a single-physical-row design (cols: 1) produces exactly on
   assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 1 }] });
 });
 
-test('buildWordChart: 4-wide x 10-tall regression fixture — foundation alone, then each later band split even/odd', () => {
+test('buildWordChart: 4-wide x 10-tall regression fixture — foundation alone, then each later band split raised/non-raised', () => {
   const cells = new Map();
   // Every band (0-9) alternates A,B,A,B across its 4 positions — a simple,
   // uniform stand-in for the ground-truth 4x10 sample compared against
   // Loomerly's own printout (see fix-wordchart-half-pass-splitting-plan.md).
   // What's under test is the shape of the output (1 foundation line, then two
   // half-pass lines per later band, 19 lines total for 10 bands), not this
-  // fixture's specific colors.
+  // fixture's specific colors. rows=4 is even, so isRaised(row,4) is true
+  // for row indices 1,3 — the raised (printed-first) half-pass is B,B, and
+  // the non-raised (printed-second) half-pass is A,A.
   for (let physicalRow = 0; physicalRow < 10; physicalRow++) {
     setCell(cells, 0, physicalRow, 'A');
     setCell(cells, 1, physicalRow, 'B');
@@ -176,12 +216,12 @@ test('buildWordChart: 4-wide x 10-tall regression fixture — foundation alone, 
       { colorId: 'B', count: 1 },
     ],
   });
-  // Band 1 (rows[1] & rows[2]): even positions (0,2) are A,A; odd (1,3) are B,B.
-  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'A', count: 2 }] });
-  assert.deepEqual(chart.rows[2], { entryIndex: 2, runs: [{ colorId: 'B', count: 2 }] });
+  // Band 1 (rows[1] & rows[2]): raised (row 1,3) is B,B; non-raised (row 0,2) is A,A.
+  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'B', count: 2 }] });
+  assert.deepEqual(chart.rows[2], { entryIndex: 2, runs: [{ colorId: 'A', count: 2 }] });
   // Band 9, the last one (rows[17] & rows[18]), follows the identical pattern.
-  assert.deepEqual(chart.rows[17], { entryIndex: 17, runs: [{ colorId: 'A', count: 2 }] });
-  assert.deepEqual(chart.rows[18], { entryIndex: 18, runs: [{ colorId: 'B', count: 2 }] });
+  assert.deepEqual(chart.rows[17], { entryIndex: 17, runs: [{ colorId: 'B', count: 2 }] });
+  assert.deepEqual(chart.rows[18], { entryIndex: 18, runs: [{ colorId: 'A', count: 2 }] });
 });
 
 test('isRowReversed: default (startsReversed omitted) matches entryIndex parity — even not reversed, odd reversed', () => {

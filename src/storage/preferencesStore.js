@@ -17,6 +17,7 @@ const DEFAULT_PREFERENCES = {
   libraryViewMode: 'list',
   printStartDirection: 'right',
   showBeadOutlines: true,
+  printIncludeReferenceImage: true,
 };
 
 export async function getPreferences(db) {

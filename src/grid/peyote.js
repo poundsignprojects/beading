@@ -29,7 +29,7 @@ function positiveMod2(n) {
 // peyoteCellAtPoint/peyoteCellAtPointClamped/peyoteCellAtPointUnbounded and
 // peyoteNeighbors (below) all encode the same parity via this same helper and must
 // stay in lockstep with it if it ever moves again.
-function isRaised(row, rows) {
+export function isRaised(row, rows) {
   return positiveMod2(row - rows + 1) === 0;
 }
 

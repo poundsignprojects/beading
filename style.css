@@ -731,6 +731,17 @@ input[type="number"] {
   font-weight: 600;
 }
 
+#print-reference-image h3 {
+  margin: 1.25rem 0 0.5rem;
+}
+
+#print-reference-image img {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid #ccc;
+}
+
 #bead-catalog-dialog,
 #convert-bead-type-dialog,
 #copy-color-dialog,
@@ -988,5 +999,9 @@ input[type="number"] {
   #print-content {
     max-width: none;
     padding: 0;
+  }
+
+  #print-reference-image {
+    break-before: page;
   }
 }
