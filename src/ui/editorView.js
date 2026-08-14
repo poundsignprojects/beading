@@ -140,6 +140,7 @@ export function mountEditorView(appState, hooks) {
   let manageMode = false; // Manage Colors list vs. swatch grid — ephemeral UI state, not persisted
   let colorDrag = null; // { pointerId, rowEl, colorId } or null, mirrors libraryView.js's drag shape
   let editingColorId = null; // id of the color whose hex the shared #color-picker-input is currently editing, or null when it's in "add a new color" mode
+  let editingColorOriginalHex = null; // hex captured once when an edit session starts, so Undo reverts to the true pre-edit value even if iOS fires several `change` events (one per wheel drag) during a single edit
   let lastColorHexEdit = null; // { id, previousHex } for the single most recent hex edit, or null — a one-level undo, not a stack; cleared by using it, by a design/bead-type switch, or superseded by the next hex edit
 
   function scheduleRedraw() {
@@ -230,6 +231,7 @@ export function mountEditorView(appState, hooks) {
     // otherwise get cleared before the next add.
     addTile.addEventListener('click', () => {
       editingColorId = null;
+      editingColorOriginalHex = null;
     });
 
     colorPalette.replaceChildren(
@@ -291,6 +293,7 @@ export function mountEditorView(appState, hooks) {
     editButton.textContent = '🎨';
     editButton.addEventListener('click', () => {
       editingColorId = color.id;
+      editingColorOriginalHex = color.hex;
       colorPickerInput.value = color.hex;
     });
 
@@ -443,6 +446,8 @@ export function mountEditorView(appState, hooks) {
     updateSizeReadout();
     hidePendingColorCard();
     lastColorHexEdit = null; // a prior design's edit isn't meaningful to revert once we've switched away
+    editingColorId = null; // any in-flight edit session belonged to the prior design's palette
+    editingColorOriginalHex = null;
     updateColorUndoButton();
     renderColorPalette();
     updateColorwaySelect();
@@ -474,6 +479,8 @@ export function mountEditorView(appState, hooks) {
     updateSizeReadout();
     hidePendingColorCard();
     lastColorHexEdit = null; // bead type may have changed underneath the edited color's id
+    editingColorId = null; // bead type may have changed underneath any in-flight edit session too
+    editingColorOriginalHex = null;
     updateColorUndoButton();
     renderColorPalette();
     updateColorwaySelect();
@@ -711,10 +718,17 @@ export function mountEditorView(appState, hooks) {
   // timing guess.
   function handleColorPickerChange() {
     if (editingColorId) {
+      // Deliberately not cleared here: iOS Safari's color picker sheet fires
+      // `change` repeatedly while it's open (once per wheel/slider drag), not
+      // once on close (same behavior the comment above documents for the add
+      // flow). Clearing editingColorId on the first fire meant every
+      // subsequent drag-tick of the *same* edit gesture fell through to the
+      // add-new-color branch below, so the intended color's edit converged on
+      // whatever the first tick landed on while later ticks spawned a new
+      // color instead of continuing to update the original. Left set until
+      // the next edit-button or add-tile click explicitly changes it.
       const id = editingColorId;
-      editingColorId = null;
-      const existing = appState.customColors.find((c) => c.id === id);
-      const previousHex = existing ? existing.hex : null;
+      const previousHex = editingColorOriginalHex;
       hooks.onCustomColorHexChanged(id, colorPickerInput.value).then(() => {
         // Only the most recently edited color is revertible — a single slot,
         // not a stack, matching the deliberately narrow scope of this undo
@@ -817,6 +831,10 @@ export function mountEditorView(appState, hooks) {
     if (lastColorHexEdit && lastColorHexEdit.id === id) {
       lastColorHexEdit = null; // nothing left to revert to once the color itself is gone
       updateColorUndoButton();
+    }
+    if (editingColorId === id) {
+      editingColorId = null; // a stray change event for a now-deleted color would otherwise resurrect it
+      editingColorOriginalHex = null;
     }
     hooks.onCustomColorDeleted(id).then(() => {
       renderColorPalette();
