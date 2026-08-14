@@ -5,6 +5,12 @@ html, body {
   -webkit-user-select: none;
   user-select: none;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Defense-in-depth alongside the viewport meta tag's user-scalable=no: disables
+     double-tap-to-zoom and pinch-zoom-of-the-page on the toolbar/buttons/panels
+     (the canvas already sets its own touch-action: none for its custom pan/zoom).
+     Without this, a double-tap anywhere outside the canvas zooms the whole app
+     chrome in, which reads as broken on an installed, app-like iPad session. */
+  touch-action: manipulation;
 }
 
 /* Author-stylesheet `display` rules below (e.g. #library-view/#editor-view's

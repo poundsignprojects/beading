@@ -15,6 +15,15 @@ const MIN_SCALE_PX_PER_MM = 1;
 const MAX_SCALE_PX_PER_MM = 150;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
 
+// A lone finger touch is momentarily ambiguous: it could be a tap/drag, the first
+// finger of a pinch about to land, or the start of an iOS system gesture (edge
+// swipe back, bottom-edge swipe-to-exit-app) that's about to cancel it. Deferring
+// the actual draw/fill/select/etc. action by this long gives a second finger or a
+// pointercancel time to resolve which one it is before anything is drawn — see
+// schedulePendingTouchStart. Tune once visible on a real device; doesn't apply to
+// mouse or pen (Apple Pencil), which can't pinch and don't trigger system swipes.
+const TOUCH_DRAW_DISAMBIGUATION_MS = 120;
+
 // How close to the canvas edge (in canvas-local px, inward or outward) a select/
 // paste drag's pointer needs to be before the viewport starts auto-panning to meet
 // it — without this, extending a marquee or repositioning a paste preview is
@@ -110,6 +119,7 @@ export function attachPointerRouter(canvas, viewport, {
   let photoDrag = null; // { pointerId, x, y } in canvas-local px, or null
   let pasteDrag = null; // { pointerId } or null
   let edgePanRafId = null; // rAF handle for the select/paste edge auto-pan loop, or null
+  let pendingTouchStart = null; // { pointerId, point, timerId } or null — see TOUCH_DRAW_DISAMBIGUATION_MS
   let spacePressed = false;
 
   function canvasPoint(e) {
@@ -327,6 +337,55 @@ export function attachPointerRouter(canvas, viewport, {
     onPhotoTraceChange();
   }
 
+  // Runs the deferred action from schedulePendingTouchStart/resolvePendingTouchStart:
+  // starts it at the original down point (so a precise tap still lands exactly
+  // where the finger touched down), then — if the finger has since moved on to
+  // latestPoint during the disambiguation delay — feeds that movement through
+  // whichever continue* function the start just armed, so a fast touch-drag that
+  // begins during the delay window doesn't lose its first few pixels.
+  function activatePendingTouchStart(pointerId, downPoint, latestPoint) {
+    handleSingleInteractionStart(pointerId, downPoint);
+    if (!latestPoint || (latestPoint.x === downPoint.x && latestPoint.y === downPoint.y)) return;
+    if (drawStroke && drawStroke.pointerId === pointerId) continueDrawStroke(latestPoint);
+    else if (selectionDrag && selectionDrag.pointerId === pointerId) continueSelectionDrag(latestPoint);
+    else if (photoDrag && photoDrag.pointerId === pointerId) continuePhotoDrag(latestPoint);
+    else if (pasteDrag && pasteDrag.pointerId === pointerId) continuePastePreviewDrag(latestPoint);
+  }
+
+  function schedulePendingTouchStart(pointerId, point) {
+    pendingTouchStart = {
+      pointerId,
+      point,
+      timerId: setTimeout(() => {
+        pendingTouchStart = null;
+        activatePendingTouchStart(pointerId, point, pointers.get(pointerId));
+      }, TOUCH_DRAW_DISAMBIGUATION_MS),
+    };
+  }
+
+  // A second finger landing resolves the ambiguity as a pinch, not a tap — drops
+  // the pending action outright rather than running it, so a pinch-zoom's first
+  // finger never leaves a stray bead behind.
+  function cancelPendingTouchStart() {
+    if (pendingTouchStart) {
+      clearTimeout(pendingTouchStart.timerId);
+      pendingTouchStart = null;
+    }
+  }
+
+  // Resolves a pending single-finger action at pointerup/pointercancel, ahead of
+  // when the disambiguation timer would otherwise fire. pointerup (a tap/drag
+  // faster than the delay) still runs the action; pointercancel (iOS took the
+  // gesture for itself — the bottom-edge swipe-to-exit gesture, in particular)
+  // drops it entirely, which is what stops that gesture from placing a bead.
+  function resolvePendingTouchStart(pointerId, wasCancelled) {
+    if (!pendingTouchStart || pendingTouchStart.pointerId !== pointerId) return;
+    clearTimeout(pendingTouchStart.timerId);
+    const { point } = pendingTouchStart;
+    pendingTouchStart = null;
+    if (!wasCancelled) activatePendingTouchStart(pointerId, point, pointers.get(pointerId));
+  }
+
   // Routes a single-touch/pen tap or a mouse-left-drag start by the currently
   // active tool. draw/erase keep the existing continuous-stroke path; fill/
   // replace fire once and don't set drawStroke (so handlePointerMove's stroke
@@ -386,13 +445,21 @@ export function attachPointerRouter(canvas, viewport, {
       pinchBaseline = null; // recomputed on next move once both points are known
       const touchCount = touchLikePointers().length;
       if (touchCount >= 2) {
+        cancelPendingTouchStart(); // resolve the first finger's ambiguity as a pinch, not a tap
         commitStroke(); // second finger landed — hand off to pan/zoom, not a stray bead
         selectionDrag = null; // last onSelectionChange already left the selection at its value
         photoDrag = null; // hand off to pinch-scale instead
         pasteDrag = null; // last onPastePreviewChange already left the preview at its value
         stopEdgePanLoop();
       } else if (touchCount === 1) {
-        handleSingleInteractionStart(e.pointerId, point);
+        // Pen (Apple Pencil) skips the disambiguation delay — it can't be one
+        // finger of a pinch and doesn't trigger iOS system swipe gestures, so it
+        // stays instant, which matters since it's the primary drawing tool.
+        if (e.pointerType === 'touch') {
+          schedulePendingTouchStart(e.pointerId, point);
+        } else {
+          handleSingleInteractionStart(e.pointerId, point);
+        }
       }
     } else if (e.pointerType === 'mouse' && e.button === 0) {
       if (spacePressed) {
@@ -450,6 +517,7 @@ export function attachPointerRouter(canvas, viewport, {
   }
 
   function handlePointerEnd(e) {
+    resolvePendingTouchStart(e.pointerId, e.type === 'pointercancel');
     pointers.delete(e.pointerId);
     if (canvas.hasPointerCapture?.(e.pointerId)) {
       canvas.releasePointerCapture(e.pointerId);
