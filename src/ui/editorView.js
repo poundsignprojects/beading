@@ -89,6 +89,7 @@ export function mountEditorView(appState, hooks) {
   const colsInput = document.getElementById('cols');
   const generateButton = document.getElementById('generate');
   const unitToggleButton = document.getElementById('unit-toggle');
+  const outlineToggleButton = document.getElementById('outline-toggle');
   const sizeReadout = document.getElementById('size-readout');
   const resetViewButton = document.getElementById('reset-view');
   const toolDrawButton = document.getElementById('tool-draw');
@@ -168,7 +169,8 @@ export function mountEditorView(appState, hooks) {
       appState.cells,
       resolveColor,
       appState.photoTrace,
-      bead.cornerRadiusFraction ?? 0
+      bead.cornerRadiusFraction ?? 0,
+      appState.showBeadOutlines
     );
     drawSelectionOverlay(ctx, appState.viewport, appState.gridParams, appState.selection);
     drawPastePreviewOverlay(ctx, appState.viewport, appState.gridParams, appState.clipboard, appState.pastePreview, resolveColor);
@@ -884,6 +886,12 @@ export function mountEditorView(appState, hooks) {
     updateSizeReadout();
     hooks.onPreferencesChanged({ units: appState.units });
   }
+  function handleOutlineToggle() {
+    appState.showBeadOutlines = !appState.showBeadOutlines;
+    outlineToggleButton.setAttribute('aria-pressed', String(appState.showBeadOutlines));
+    scheduleRedraw();
+    hooks.onPreferencesChanged({ showBeadOutlines: appState.showBeadOutlines });
+  }
   function handleToolDraw() {
     setTool('draw');
   }
@@ -1108,6 +1116,7 @@ export function mountEditorView(appState, hooks) {
   generateButton.addEventListener('click', handleResizeClick);
   resetViewButton.addEventListener('click', handleResetView);
   unitToggleButton.addEventListener('click', handleUnitToggle);
+  outlineToggleButton.addEventListener('click', handleOutlineToggle);
   toolDrawButton.addEventListener('click', handleToolDraw);
   toolEraseButton.addEventListener('click', handleToolErase);
   toolFillButton.addEventListener('click', handleToolFill);
@@ -1194,6 +1203,7 @@ export function mountEditorView(appState, hooks) {
   // changes the canvas's available width, so it must apply first.
   sidePanel.hidden = !!appState.preferences.panelCollapsed;
   panelToggleButton.setAttribute('aria-pressed', String(!sidePanel.hidden));
+  outlineToggleButton.setAttribute('aria-pressed', String(appState.showBeadOutlines));
 
   // Populate lastCssSize before fitViewportToGrid() divides by its dimensions.
   lastCssSize = resizeCanvasForDisplay(canvas, ctx);
@@ -1211,6 +1221,7 @@ export function mountEditorView(appState, hooks) {
     generateButton.removeEventListener('click', handleResizeClick);
     resetViewButton.removeEventListener('click', handleResetView);
     unitToggleButton.removeEventListener('click', handleUnitToggle);
+    outlineToggleButton.removeEventListener('click', handleOutlineToggle);
     toolDrawButton.removeEventListener('click', handleToolDraw);
     toolEraseButton.removeEventListener('click', handleToolErase);
     toolFillButton.removeEventListener('click', handleToolFill);

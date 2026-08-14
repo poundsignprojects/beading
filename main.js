@@ -312,6 +312,10 @@ async function openDesign(design) {
   const activeColorway = design.colorways.find((cw) => cw.id === design.activeColorwayId);
   appState.cells = materializeColorwayCells(design.shapeEntries, activeColorway.colorEntries);
   appState.units = appState.preferences.units;
+  // !== false rather than a straight read: an existing stored preferences row from
+  // before this field existed has it as undefined, which should mean "on" (the
+  // default), not "off".
+  appState.showBeadOutlines = appState.preferences.showBeadOutlines !== false;
   appState.tool = 'draw';
   appState.gridParams = null;
   appState.history = createHistory();

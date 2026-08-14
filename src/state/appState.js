@@ -26,6 +26,7 @@ export function createAppState() {
     rows: 20,
     cols: 20,
     units: 'mm',
+    showBeadOutlines: true, // whether drawPeyoteGrid strokes a bead outline or fills edge-to-edge; mirrors `units`' preference-backed-default-then-session-toggle pattern
     gridParams: null,
     viewport: { originXmm: 0, originYmm: 0, scalePxPerMm: 10 },
     tool: 'draw',

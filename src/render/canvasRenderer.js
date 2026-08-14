@@ -65,7 +65,10 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 // fraction (of the smaller bead dimension) draws rounded ones. ctx.roundRect(...,
 // 0) draws identically to ctx.rect(...), so there's no need to branch on a
 // separate "shape" concept.
-export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0) {
+// showBeadOutlines toggles the stroked outline around each occupied cell — when
+// false, the fill is drawn edge-to-edge with no inset/stroke, so neighboring
+// beads' colors touch directly rather than leaving a visible line between them.
+export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0, showBeadOutlines = true) {
   const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
 
   ctx.fillStyle = BACKGROUND_STYLE;
@@ -93,10 +96,12 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
 
       const cell = cells?.get(`${row},${col}`);
       if (cell) {
-        const lineWidthPx = Math.max(
-          BEAD_LINE_WIDTH_MIN_PX,
-          Math.min(widthPx, heightPx) * BEAD_LINE_WIDTH_FRACTION
-        );
+        const lineWidthPx = showBeadOutlines
+          ? Math.max(
+              BEAD_LINE_WIDTH_MIN_PX,
+              Math.min(widthPx, heightPx) * BEAD_LINE_WIDTH_FRACTION
+            )
+          : 0;
         const insetPx = lineWidthPx / 2;
         const beadX = topLeft.xPx + insetPx;
         const beadY = topLeft.yPx + insetPx;
@@ -109,7 +114,7 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
         const radiusPx = Math.min(beadWidthPx, beadHeightPx) * beadCornerRadiusFraction;
         ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);
         ctx.fill();
-        ctx.stroke();
+        if (showBeadOutlines) ctx.stroke();
 
         if (hex === null) {
           const inset = Math.min(beadWidthPx, beadHeightPx) * MISSING_COLOR_X_INSET_FRACTION;

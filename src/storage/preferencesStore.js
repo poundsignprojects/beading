@@ -16,6 +16,7 @@ const DEFAULT_PREFERENCES = {
   panelCollapsed: false,
   libraryViewMode: 'list',
   printStartDirection: 'right',
+  showBeadOutlines: true,
 };
 
 export async function getPreferences(db) {

@@ -237,6 +237,12 @@ body {
   border-color: #333;
 }
 
+#outline-toggle[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
+}
+
 #editor-body {
   flex: 1;
   display: flex;
