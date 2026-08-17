@@ -25,9 +25,15 @@ const DEFAULT_META = {
   lastError: null,
 };
 
+// Merges over DEFAULT_META rather than returning a stored row verbatim — this
+// shape has already grown fields more than once (deletedCustomColorIds/
+// deletedBeadTypeIds were added after this store first shipped), and a row
+// saved under an older shape must still get sensible defaults (empty arrays,
+// not undefined) for whatever's been added since, or callers like
+// backupSync.js's propagateDeletes() crash spreading an undefined array.
 export async function getDriveSyncMeta(db) {
   const stored = await get(db, STORE, META_ID);
-  return stored ?? { ...DEFAULT_META };
+  return { ...DEFAULT_META, ...stored };
 }
 
 export async function saveDriveSyncMeta(db, meta) {
