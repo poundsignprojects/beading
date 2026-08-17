@@ -139,6 +139,53 @@ input[type="number"] {
   pointer-events: none;
 }
 
+/* Reconnect banner (src/ui/driveReconnectBanner.js) — appended directly to
+   document.body (like #long-press-tooltip above), shown automatically when a
+   silent Google Drive reconnect fails, either at boot or when an automatic
+   backup gets skipped mid-session. Same top-layer caveat as the tooltip: a
+   plain fixed body child renders behind an open native <dialog>'s own
+   ::backdrop, but this banner only ever appears at moments (boot, returning
+   to the library) where no dialog is normally open, so that's accepted here
+   rather than re-parented like the tooltip is. */
+#drive-reconnect-banner {
+  position: fixed;
+  left: 0.75rem;
+  right: 0.75rem;
+  bottom: calc(0.75rem + env(safe-area-inset-bottom));
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  font-size: 0.85rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+#drive-reconnect-banner span {
+  flex: 1;
+}
+
+#drive-reconnect-banner-connect {
+  background: #fff;
+  color: #111;
+  border: none;
+  border-radius: 6px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+#drive-reconnect-banner-dismiss {
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1;
+  padding: 0.1rem 0.3rem;
+}
+
 #library-view,
 #editor-view {
   display: flex;

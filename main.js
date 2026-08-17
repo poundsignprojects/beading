@@ -18,6 +18,7 @@ import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
 import { mountBackupDialog, DRIVE_CONNECTED_BEFORE_KEY } from './src/ui/backupDialog.js';
+import { showReconnectBanner, hideReconnectBanner } from './src/ui/driveReconnectBanner.js';
 import { getStoredDeviceName } from './src/sync/deviceName.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
 import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
@@ -391,19 +392,37 @@ async function backToLibrary() {
   pushBackupIfConnected();
 }
 
+// Shared by every place that wants to offer "reconnect with one tap" — the
+// boot-time silent-reconnect failure and a skipped design-close backup both
+// funnel here. A real Google sign-in popup can only open from a genuine user
+// click (see driveReconnectBanner.js), so this is what that click runs.
+async function reconnectDrive() {
+  try {
+    await driveClient.connect();
+  } catch (err) {
+    console.warn('Drive reconnect failed:', err);
+  }
+}
+
 // Phase A's "on design close" backup trigger. Fire-and-forget on purpose —
 // this is a background safety net, not something the user should have to
 // wait on every time they leave a design; a failure (or the tab getting
 // backgrounded mid-upload) is caught by pushBackupToDriveTracked's
 // pendingBackup flag and retried on next boot (see retryPendingBackupIfAny).
-// No-ops entirely if the user has never connected Google Drive, or has
-// connected but never named this device yet (see deviceName.js) — naming a
-// device only happens through an explicit Back Up Now click, never silently
-// mid-navigation, so a first-time silent trigger like this one has nothing
-// to push into yet.
+// No-ops entirely (no banner, no warning) if this device has never named
+// itself yet (see deviceName.js) — naming only happens through an explicit
+// Back Up Now click, never silently mid-navigation, so a device that's never
+// opted in has nothing to warn about. But if it HAS opted in before and just
+// isn't connected right now (token expired mid-session, browser lost the
+// Google session, etc.), that's a real missed backup worth surfacing — shows
+// the same reconnect banner boot uses, rather than failing invisibly.
 function pushBackupIfConnected() {
   const deviceName = getStoredDeviceName();
-  if (!deviceName || !driveClient.isConnected()) return;
+  if (!deviceName) return;
+  if (!driveClient.isConnected()) {
+    showReconnectBanner(reconnectDrive);
+    return;
+  }
   pushBackupToDriveTracked(appState.db, driveClient, deviceName).catch((err) => {
     console.warn('Drive backup failed:', err);
   });
@@ -517,14 +536,18 @@ window.addEventListener('pagehide', flushAutosave);
 // Best-effort retained Drive backup checkpoint right before a real schema
 // migration runs (plan's Phase A risks — "the pre-migration backup must
 // block the migration, not fire-and-forget"). Not a hard block: this app has
-// no backend/refresh-token, so a silent reconnect isn't guaranteed even for a
-// previously-connected user (e.g. the ~7-day testing-mode token expiry) —
-// when it can't reconnect, this warns rather than stranding the user unable
-// to open their own app. Only ever attempts anything if this browser has
-// connected to Drive before (a plain localStorage flag, checked before any
-// IndexedDB access at all — set the moment a connect() succeeds, in
-// backupDialog.js — so this works even before the DB can be opened at its
-// current stored version to find out whether a migration is even pending).
+// no backend/refresh-token, and — confirmed directly, see
+// googleDriveClient.js's SILENT_CONNECT_TIMEOUT_MS comment — a *silent*
+// reconnect attempt that fails can leave Google's own client library unable
+// to open an interactive popup for the rest of that page's life, which would
+// be a far worse outcome than just warning here. So this never attempts to
+// reconnect on its own at all (silently or otherwise — no UI is mounted yet
+// to receive a user click this early in boot() anyway); it only warns, and
+// only if this browser has connected to Drive before (a plain localStorage
+// flag, checked before any IndexedDB access at all — set the moment a
+// connect() succeeds, in backupDialog.js — so this works even before the DB
+// can be opened at its current stored version to find out whether a
+// migration is even pending).
 async function attemptPreMigrationDriveBackup() {
   if (localStorage.getItem(DRIVE_CONNECTED_BEFORE_KEY) !== '1') return;
   const deviceName = getStoredDeviceName();
@@ -532,40 +555,39 @@ async function attemptPreMigrationDriveBackup() {
 
   const { db: existingDb, wasBrandNew } = await openExistingDatabase();
   const migrationPending = !wasBrandNew && existingDb.version < CURRENT_DB_VERSION;
-  if (!migrationPending) {
-    existingDb.close();
-    return;
-  }
-
-  const reconnected = await driveClient.trySilentConnect();
-  if (reconnected) {
-    try {
-      await runPreMigrationBackup(existingDb, driveClient, deviceName);
-    } catch (err) {
-      window.alert(
-        `A data update is about to run, and the pre-update Google Drive backup failed (${err.message}). ` +
-        'Consider using Backup & Sync\'s "Export Backup File" once the app has loaded, as an extra local copy.'
-      );
-    }
-  } else {
-    window.alert(
-      'A data update is about to run and Google Drive couldn’t be reached to back up first. ' +
-      'Consider using Backup & Sync\'s "Export Backup File" once the app has loaded, as an extra local copy.'
-    );
-  }
   existingDb.close();
+  if (!migrationPending) return;
+
+  window.alert(
+    'A data update is about to run. This app can’t reach Google Drive to back up automatically at this point in loading — ' +
+    'once the app has loaded, consider using Backup & Sync\'s "Export Backup File" as an extra local copy before continuing to use it.'
+  );
+}
+
+// Shows the reconnect banner immediately if this device has backed up before
+// but isn't connected right now — no silent reconnect attempt first (see
+// attemptPreMigrationDriveBackup's comment on why: a failed silent attempt
+// can break the interactive popup for the rest of the page's life, so the
+// only Google call this app ever makes automatically is none at all — every
+// connect is a direct response to a real click, starting with the banner's
+// own "Reconnect" button).
+function showReconnectBannerIfNeeded() {
+  if (driveClient.isConnected()) return;
+  if (localStorage.getItem(DRIVE_CONNECTED_BEFORE_KEY) !== '1') return;
+  if (!getStoredDeviceName()) return;
+  showReconnectBanner(reconnectDrive);
 }
 
 // If a previous design-close backup started but never confirmed complete
 // (e.g. the tab was backgrounded mid-upload — see pushBackupToDriveTracked),
-// retry it now. Silent no-op if Drive isn't connected/reconnectable.
+// retry it now. Only if already connected this session (see
+// showReconnectBannerIfNeeded's comment — no silent reconnect attempt here
+// either); otherwise the reconnect banner covers surfacing this instead.
 async function retryPendingBackupIfAny() {
   const meta = await getDriveSyncMeta(appState.db);
   if (!meta.pendingBackup) return;
   const deviceName = getStoredDeviceName();
-  if (!deviceName) return;
-  const connected = driveClient.isConnected() || (await driveClient.trySilentConnect());
-  if (!connected) return;
+  if (!deviceName || !driveClient.isConnected()) return;
   pushBackupToDriveTracked(appState.db, driveClient, deviceName).catch((err) => {
     console.warn('Retry of pending Drive backup failed:', err);
   });
@@ -612,6 +634,7 @@ async function boot() {
   showLibraryView();
   libraryController.renderList(appState.designs);
 
+  showReconnectBannerIfNeeded();
   retryPendingBackupIfAny();
 }
 

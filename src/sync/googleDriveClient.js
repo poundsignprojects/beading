@@ -12,8 +12,8 @@ const DRIVE_UPLOAD_API = 'https://www.googleapis.com/upload/drive/v3';
 const FOLDER_MIME = 'application/vnd.google-apps.folder';
 
 // Thrown when a Drive call fails because the access token is missing/expired
-// and a fresh one couldn't be obtained silently — the UI should show a
-// "Reconnect Google Drive" state for this specifically, not a generic error.
+// — the UI should show a "Reconnect Google Drive" state for this
+// specifically, not a generic error.
 export class DriveAuthError extends Error {
   constructor(message) {
     super(message);
@@ -46,27 +46,33 @@ function loadGisScript() {
 // One instance is enough for this app (single global connect/disconnect
 // state, matching there being exactly one settings surface for it).
 export function createGoogleDriveClient() {
-  let tokenClient = null;
   let accessToken = null; // held in memory only for this session, never persisted
   let tokenExpiresAt = 0;
 
-  async function ensureTokenClient() {
-    if (tokenClient) return tokenClient;
+  // A fresh client per call, deliberately not cached/reused — confirmed
+  // directly that reusing one client instance across calls can wedge it: a
+  // silent (prompt: '') request that never truly completes (the same COOP-
+  // blocked `popup.closed` issue trySilentConnect's timeout works around)
+  // leaves the client "busy" from Google's own library's perspective, and a
+  // later interactive request on that same client instance silently did
+  // nothing at all — no popup, no callback, no error. initTokenClient() only
+  // registers local config (no network call), so creating a new one per
+  // request is cheap and sidesteps this entirely.
+  async function createFreshTokenClient() {
     await loadGisScript();
     if (GOOGLE_CLIENT_ID.startsWith('REPLACE_WITH_')) {
       throw new Error('Google Drive isn’t configured yet — GOOGLE_CLIENT_ID in src/sync/googleAuthConfig.js still needs a real OAuth Client ID.');
     }
-    tokenClient = window.google.accounts.oauth2.initTokenClient({
+    return window.google.accounts.oauth2.initTokenClient({
       client_id: GOOGLE_CLIENT_ID,
       scope: GOOGLE_DRIVE_SCOPE,
       callback: () => {}, // overridden per-call below via a fresh Promise
     });
-    return tokenClient;
   }
 
   function requestToken({ interactive }) {
     return new Promise((resolve, reject) => {
-      ensureTokenClient().then((client) => {
+      createFreshTokenClient().then((client) => {
         client.callback = (response) => {
           if (response.error) {
             reject(new DriveAuthError(response.error_description || response.error));
@@ -90,19 +96,6 @@ export function createGoogleDriveClient() {
     return requestToken({ interactive: true });
   }
 
-  // Never throws — returns whether a token was obtained without showing any
-  // UI. Used by main.js's boot() to see if a previously-connected user's
-  // session can be silently resumed before a pre-migration backup, and to
-  // decide whether to show a "reconnect" prompt versus a real connect flow.
-  async function trySilentConnect() {
-    try {
-      await requestToken({ interactive: false });
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
   function disconnect() {
     if (accessToken && window.google?.accounts?.oauth2?.revoke) {
       window.google.accounts.oauth2.revoke(accessToken, () => {});
@@ -115,16 +108,15 @@ export function createGoogleDriveClient() {
     return Boolean(accessToken) && Date.now() < tokenExpiresAt;
   }
 
+  // No silent-refresh fallback here (see the comment above requestToken's
+  // former trySilentConnect sibling, now removed entirely): confirmed
+  // directly that a silent (prompt: '') request which fails can leave
+  // Google's own client library unable to open an interactive popup for the
+  // rest of the page's life. So every reconnect this app ever makes, at any
+  // layer, is a direct response to a real user click — never automatic.
   async function getValidToken() {
     if (isConnected()) return accessToken;
-    // Try a silent refresh first (works if the user already granted consent
-    // this browser session/recently) before forcing the caller to prompt a
-    // fresh interactive connect.
-    try {
-      return await requestToken({ interactive: false });
-    } catch {
-      throw new DriveAuthError('Not connected to Google Drive — reconnect to continue.');
-    }
+    throw new DriveAuthError('Not connected to Google Drive — reconnect to continue.');
   }
 
   async function driveFetch(path, { method = 'GET', headers = {}, body, isUpload = false } = {}) {
@@ -136,17 +128,12 @@ export function createGoogleDriveClient() {
       body,
     });
     if (res.status === 401) {
-      // Token was invalidated server-side (e.g. testing-mode 7-day expiry) —
-      // one retry with a forced silent refresh, else surface as an auth error.
+      // The token looked valid locally (isConnected() was true) but Google
+      // rejected it server-side anyway — consent revoked, the testing-mode
+      // expiry, etc. Clear it and surface a clear reconnect error rather than
+      // attempting a silent refresh (see getValidToken's comment above).
       accessToken = null;
-      const retryToken = await getValidToken();
-      const retryRes = await fetch(`${base}${path}`, {
-        method,
-        headers: { Authorization: `Bearer ${retryToken}`, ...headers },
-        body,
-      });
-      if (!retryRes.ok) throw new DriveAuthError(`Google Drive request failed after reconnecting (HTTP ${retryRes.status}).`);
-      return retryRes;
+      throw new DriveAuthError('Google Drive rejected the request — reconnect to continue, then try again.');
     }
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -234,7 +221,6 @@ export function createGoogleDriveClient() {
 
   return {
     connect,
-    trySilentConnect,
     disconnect,
     isConnected,
     ensureFolder,

@@ -13,6 +13,7 @@ import { downloadSnapshotFile, readSnapshotFile } from '../sync/localBackupFile.
 import { getDriveSyncMeta } from '../storage/driveSyncStore.js';
 import { getStoredDeviceName, setStoredDeviceName, ensureDeviceName } from '../sync/deviceName.js';
 import { promptDeviceBackupPicker } from './deviceBackupPickerDialog.js';
+import { hideReconnectBanner } from './driveReconnectBanner.js';
 
 export const DRIVE_CONNECTED_BEFORE_KEY = 'bpd-drive-connected-before';
 
@@ -88,6 +89,7 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     try {
       await driveClient.connect();
       localStorage.setItem(DRIVE_CONNECTED_BEFORE_KEY, '1');
+      hideReconnectBanner(); // in case it was showing from a failed silent-reconnect attempt
       setMessage('Connected.');
     } catch (err) {
       setMessage(err.message, true);
