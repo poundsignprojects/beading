@@ -18,6 +18,7 @@ import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
 import { mountBackupDialog, DRIVE_CONNECTED_BEFORE_KEY } from './src/ui/backupDialog.js';
+import { getStoredDeviceName } from './src/sync/deviceName.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
 import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
@@ -394,11 +395,16 @@ async function backToLibrary() {
 // this is a background safety net, not something the user should have to
 // wait on every time they leave a design; a failure (or the tab getting
 // backgrounded mid-upload) is caught by pushBackupToDriveTracked's
-// pendingBackup flag and retried on next boot (see attemptPreMigrationOrRetryBackup).
-// No-ops entirely if the user has never connected Google Drive.
+// pendingBackup flag and retried on next boot (see retryPendingBackupIfAny).
+// No-ops entirely if the user has never connected Google Drive, or has
+// connected but never named this device yet (see deviceName.js) — naming a
+// device only happens through an explicit Back Up Now click, never silently
+// mid-navigation, so a first-time silent trigger like this one has nothing
+// to push into yet.
 function pushBackupIfConnected() {
-  if (!driveClient.isConnected()) return;
-  pushBackupToDriveTracked(appState.db, driveClient).catch((err) => {
+  const deviceName = getStoredDeviceName();
+  if (!deviceName || !driveClient.isConnected()) return;
+  pushBackupToDriveTracked(appState.db, driveClient, deviceName).catch((err) => {
     console.warn('Drive backup failed:', err);
   });
 }
@@ -521,6 +527,8 @@ window.addEventListener('pagehide', flushAutosave);
 // current stored version to find out whether a migration is even pending).
 async function attemptPreMigrationDriveBackup() {
   if (localStorage.getItem(DRIVE_CONNECTED_BEFORE_KEY) !== '1') return;
+  const deviceName = getStoredDeviceName();
+  if (!deviceName) return; // never explicitly backed up before — nothing to protect via Drive yet
 
   const { db: existingDb, wasBrandNew } = await openExistingDatabase();
   const migrationPending = !wasBrandNew && existingDb.version < CURRENT_DB_VERSION;
@@ -532,7 +540,7 @@ async function attemptPreMigrationDriveBackup() {
   const reconnected = await driveClient.trySilentConnect();
   if (reconnected) {
     try {
-      await runPreMigrationBackup(existingDb, driveClient);
+      await runPreMigrationBackup(existingDb, driveClient, deviceName);
     } catch (err) {
       window.alert(
         `A data update is about to run, and the pre-update Google Drive backup failed (${err.message}). ` +
@@ -554,9 +562,11 @@ async function attemptPreMigrationDriveBackup() {
 async function retryPendingBackupIfAny() {
   const meta = await getDriveSyncMeta(appState.db);
   if (!meta.pendingBackup) return;
+  const deviceName = getStoredDeviceName();
+  if (!deviceName) return;
   const connected = driveClient.isConnected() || (await driveClient.trySilentConnect());
   if (!connected) return;
-  pushBackupToDriveTracked(appState.db, driveClient).catch((err) => {
+  pushBackupToDriveTracked(appState.db, driveClient, deviceName).catch((err) => {
     console.warn('Retry of pending Drive backup failed:', err);
   });
 }

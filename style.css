@@ -781,6 +781,7 @@ input[type="number"] {
 #convert-bead-type-dialog,
 #copy-color-dialog,
 #colorway-picker-dialog,
+#device-backup-picker-dialog,
 #resize-dialog,
 #settings-dialog,
 #backup-dialog {
@@ -795,6 +796,7 @@ input[type="number"] {
 #convert-bead-type-dialog::backdrop,
 #copy-color-dialog::backdrop,
 #colorway-picker-dialog::backdrop,
+#device-backup-picker-dialog::backdrop,
 #resize-dialog::backdrop,
 #settings-dialog::backdrop,
 #backup-dialog::backdrop {
@@ -805,6 +807,7 @@ input[type="number"] {
 #convert-bead-type-dialog h2,
 #copy-color-dialog h2,
 #colorway-picker-dialog h2,
+#device-backup-picker-dialog h2,
 #resize-dialog h2,
 #settings-dialog h2,
 #backup-dialog h2 {
@@ -842,6 +845,17 @@ input[type="number"] {
   margin: 0 0 0.5rem;
   font-size: 0.85rem;
   color: #555;
+}
+
+#backup-device-row {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#backup-device-row button {
+  font-size: 0.8rem;
+  padding: 0.15rem 0.5rem;
 }
 
 #backup-drive-actions,
@@ -998,6 +1012,27 @@ input[type="number"] {
 }
 
 .copy-color-target {
+  text-align: left;
+  padding: 0.4rem 0.6rem;
+}
+
+#device-backup-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+#device-backup-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.5rem 0 0.75rem;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.device-backup-picker-target {
   text-align: left;
   padding: 0.4rem 0.6rem;
 }

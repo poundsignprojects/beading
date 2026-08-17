@@ -182,16 +182,24 @@ export function createGoogleDriveClient() {
   }
 
   async function listFiles(parentId) {
-    const q = encodeURIComponent(`'${parentId}' in parents and trashed=false`);
+    const q = encodeURIComponent(`'${parentId}' in parents and trashed=false and mimeType!='${FOLDER_MIME}'`);
+    const res = await driveFetch(`/files?q=${q}&fields=files(id,name,modifiedTime)&spaces=drive&pageSize=1000`);
+    const { files } = await res.json();
+    return files ?? [];
+  }
+
+  // Just the subfolders directly under parentId — used for backupSync.js's
+  // per-device "devices/" folder listing (one subfolder per device that's
+  // ever backed up here), so Restore can offer a picker instead of guessing.
+  async function listFolders(parentId) {
+    const q = encodeURIComponent(`'${parentId}' in parents and trashed=false and mimeType='${FOLDER_MIME}'`);
     const res = await driveFetch(`/files?q=${q}&fields=files(id,name,modifiedTime)&spaces=drive&pageSize=1000`);
     const { files } = await res.json();
     return files ?? [];
   }
 
   // Creates or updates (if a file with this name already exists in the
-  // folder) a JSON file. Returns {id, modifiedTime} — modifiedTime lets
-  // backupSync.js's overwrite guard record a baseline without a separate
-  // lookup call.
+  // folder) a JSON file. Returns {id, modifiedTime}.
   async function uploadJson(name, parentId, data) {
     const existing = await findByName(name, parentId);
     const metadata = existing ? { name } : { name, parents: [parentId] };
@@ -232,6 +240,7 @@ export function createGoogleDriveClient() {
     ensureFolder,
     findByName,
     listFiles,
+    listFolders,
     uploadJson,
     downloadJson,
     deleteFile,

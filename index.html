@@ -160,6 +160,15 @@
     </div>
   </dialog>
 
+  <dialog id="device-backup-picker-dialog">
+    <h2>Restore From…</h2>
+    <p id="device-backup-picker-empty" hidden>No backups found on Google Drive yet.</p>
+    <div id="device-backup-picker-list"></div>
+    <div id="device-backup-picker-actions">
+      <button type="button" id="device-backup-picker-cancel">Cancel</button>
+    </div>
+  </dialog>
+
   <dialog id="colorway-picker-dialog">
     <h2 id="colorway-picker-title">Colorways</h2>
     <div id="colorway-picker-list"></div>
@@ -176,11 +185,12 @@
     <section id="backup-drive-section" aria-label="Google Drive">
       <h3>Google Drive</h3>
       <p id="backup-drive-status">Not connected to Google Drive.</p>
+      <p id="backup-device-row" hidden>This device backs up as “<span id="backup-device-name"></span>” <button type="button" id="backup-device-rename">Change</button></p>
       <div id="backup-drive-actions">
         <button type="button" id="backup-drive-connect" class="icon-text-btn" data-icon="cloud"><span>Connect Google Drive</span></button>
         <button type="button" id="backup-drive-disconnect" class="icon-text-btn" data-icon="log-out" hidden><span>Disconnect</span></button>
         <button type="button" id="backup-drive-now" class="icon-text-btn" data-icon="cloud-upload" disabled><span>Back Up Now</span></button>
-        <button type="button" id="backup-drive-restore" class="icon-text-btn" data-icon="cloud-download" disabled><span>Restore from Drive</span></button>
+        <button type="button" id="backup-drive-restore" class="icon-text-btn" data-icon="cloud-download" disabled><span>Restore From…</span></button>
       </div>
     </section>
     <section id="backup-local-section" aria-label="Local backup file">

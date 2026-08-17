@@ -6,11 +6,13 @@
 // header, independent of any open design, since restore is meant to work on
 // a fresh install with nothing open yet.
 
-import { pushBackupToDriveTracked, restoreFromDrive } from '../sync/backupSync.js';
+import { pushBackupToDriveTracked, restoreFromDeviceBackup, listDeviceBackups } from '../sync/backupSync.js';
 import { buildSnapshotFromDb, readAllStoreData, applyRestorePlan } from '../sync/dbSnapshot.js';
 import { planRestore } from '../sync/snapshot.js';
 import { downloadSnapshotFile, readSnapshotFile } from '../sync/localBackupFile.js';
 import { getDriveSyncMeta } from '../storage/driveSyncStore.js';
+import { getStoredDeviceName, setStoredDeviceName, ensureDeviceName } from '../sync/deviceName.js';
+import { promptDeviceBackupPicker } from './deviceBackupPickerDialog.js';
 
 export const DRIVE_CONNECTED_BEFORE_KEY = 'bpd-drive-connected-before';
 
@@ -21,6 +23,9 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
   const dialog = document.getElementById('backup-dialog');
   const closeButton = document.getElementById('backup-close');
   const statusEl = document.getElementById('backup-drive-status');
+  const deviceRowEl = document.getElementById('backup-device-row');
+  const deviceNameEl = document.getElementById('backup-device-name');
+  const deviceRenameButton = document.getElementById('backup-device-rename');
   const connectButton = document.getElementById('backup-drive-connect');
   const disconnectButton = document.getElementById('backup-drive-disconnect');
   const backupNowButton = document.getElementById('backup-drive-now');
@@ -47,6 +52,12 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     return `Added ${parts.join(', ')}.${skippedNote}`;
   }
 
+  function refreshDeviceRow() {
+    const name = getStoredDeviceName();
+    deviceRowEl.hidden = !name;
+    deviceNameEl.textContent = name ?? '';
+  }
+
   async function refreshStatus() {
     const meta = await getDriveSyncMeta(appState.db);
     const connected = driveClient.isConnected();
@@ -61,6 +72,7 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     } else {
       statusEl.textContent = 'Not connected to Google Drive.';
     }
+    refreshDeviceRow();
   }
 
   async function open() {
@@ -89,16 +101,24 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     await refreshStatus();
   });
 
+  deviceRenameButton.addEventListener('click', () => {
+    const current = getStoredDeviceName() ?? '';
+    const name = window.prompt('Rename this device (used as its Drive backup folder name):', current);
+    if (!name || !name.trim()) return;
+    setStoredDeviceName(name.trim());
+    refreshDeviceRow();
+    setMessage(`This device now backs up as "${name.trim()}". Past backups under the old name are untouched — they’ll still show up as a separate entry in Restore From…`);
+  });
+
   backupNowButton.addEventListener('click', async () => {
+    const deviceName = ensureDeviceName();
+    if (!deviceName) return; // user cancelled the name prompt
+    refreshDeviceRow();
     setMessage('Backing up…');
     backupNowButton.disabled = true;
     try {
-      const { pushed, conflicted } = await pushBackupToDriveTracked(appState.db, driveClient);
-      setMessage(
-        conflicted.length > 0
-          ? `Backed up ${pushed.length} pattern(s). ${conflicted.length} pattern(s) were skipped — they changed on Drive since this device last backed them up.`
-          : `Backed up ${pushed.length} pattern(s).`
-      );
+      const { designCount } = await pushBackupToDriveTracked(appState.db, driveClient, deviceName);
+      setMessage(`Backed up ${designCount} pattern(s) as "${deviceName}".`);
     } catch (err) {
       setMessage(err.message, true);
     }
@@ -106,17 +126,48 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
   });
 
   restoreButton.addEventListener('click', async () => {
-    if (!window.confirm('Restore from Google Drive?\n\nThis only adds patterns, colors, and bead types that aren’t already on this device — nothing already here will be changed or removed.')) return;
-    setMessage('Restoring from Google Drive…');
+    setMessage('Looking for backups on Google Drive…');
     restoreButton.disabled = true;
+    let devices;
     try {
-      const plan = await restoreFromDrive(appState.db, driveClient);
+      devices = await listDeviceBackups(driveClient);
+    } catch (err) {
+      setMessage(err.message, true);
+      await refreshStatus();
+      return;
+    }
+    await refreshStatus();
+
+    // Don't offer this device's own backup as a restore target — restoring
+    // from yourself is a no-op at best, confusing at worst.
+    const thisDeviceName = getStoredDeviceName();
+    const otherDevices = devices.filter((d) => d.name !== thisDeviceName);
+
+    if (otherDevices.length === 0) {
+      setMessage(devices.length > 0
+        ? 'No other devices have backed up to this Google Drive account yet — only this one.'
+        : 'No backups found on Google Drive yet.');
+      return;
+    }
+
+    const deviceFolderId = await promptDeviceBackupPicker({ devices: otherDevices });
+    if (!deviceFolderId) {
+      setMessage('');
+      return;
+    }
+
+    if (!window.confirm('Restore from this device’s backup?\n\nThis only adds patterns, colors, and bead types that aren’t already on this device — nothing already here will be changed or removed.')) {
+      setMessage('');
+      return;
+    }
+    setMessage('Restoring…');
+    try {
+      const plan = await restoreFromDeviceBackup(appState.db, driveClient, deviceFolderId);
       setMessage(summarizePlan(plan));
       await onDataRestored();
     } catch (err) {
       setMessage(err.message, true);
     }
-    await refreshStatus();
   });
 
   exportButton.addEventListener('click', async () => {
