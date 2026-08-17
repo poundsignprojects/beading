@@ -3,7 +3,7 @@
 // views, and wires autosave. Grid/tool/canvas logic lives in src/ui/editorView.js;
 // the design list lives in src/ui/libraryView.js — this file only coordinates them.
 
-import { openDatabase } from './src/storage/db.js';
+import { openDatabase, openExistingDatabase, CURRENT_DB_VERSION } from './src/storage/db.js';
 import { listDesignsSorted, createDesign, saveDesign, deleteDesign, duplicateDesign, createConvertedDesign } from './src/storage/designStore.js';
 import { getPreferences, savePreferences } from './src/storage/preferencesStore.js';
 import { getPhotoTrace, savePhotoTrace, deletePhotoTrace } from './src/storage/photoTraceStore.js';
@@ -17,12 +17,16 @@ import { remapColorwayColorIds } from './src/state/beadTypeConversion.js';
 import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
+import { mountBackupDialog, DRIVE_CONNECTED_BEFORE_KEY } from './src/ui/backupDialog.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
 import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchHex } from './src/palette/colorLibrary.js';
 import { findBeadType } from './src/palette/beadSpecs.js';
 import { generatePeyoteGrid } from './src/grid/peyote.js';
+import { createGoogleDriveClient } from './src/sync/googleDriveClient.js';
+import { pushBackupToDriveTracked, recordDesignDeletedLocally, recordCustomColorDeletedLocally, recordBeadTypeDeletedLocally, runPreMigrationBackup } from './src/sync/backupSync.js';
+import { getDriveSyncMeta } from './src/storage/driveSyncStore.js';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 // Rendered once at a size that stays crisp scaled down into either the small list
@@ -39,6 +43,8 @@ const editorViewEl = document.getElementById('editor-view');
 
 let libraryController = null;
 let editorController = null;
+let backupController = null;
+const driveClient = createGoogleDriveClient();
 let debouncedSave = null; // created per open design, discarded on unmount
 // Separate from debouncedSave: targets photoTraceStore, not designStore, and
 // changes (move/scale/opacity) happen far less often than cell edits — see
@@ -138,6 +144,7 @@ async function handleBeadTypeSaved(beadType) {
 
 async function handleBeadTypeDeleted(id) {
   await deleteBeadType(appState.db, id);
+  await recordBeadTypeDeletedLocally(appState.db, id); // so a later Drive push removes it there too
   appState.beadCatalog = appState.beadCatalog.filter((b) => b.id !== id);
 }
 
@@ -260,6 +267,7 @@ async function handleCustomColorHexChanged(id, hex) {
 
 async function handleCustomColorDeleted(id) {
   await deleteCustomColor(appState.db, id);
+  await recordCustomColorDeletedLocally(appState.db, id); // so a later Drive push removes it there too
   appState.customColors = appState.customColors.filter((c) => c.id !== id);
 }
 
@@ -379,6 +387,20 @@ async function backToLibrary() {
 
   showLibraryView();
   libraryController.renderList(appState.designs);
+  pushBackupIfConnected();
+}
+
+// Phase A's "on design close" backup trigger. Fire-and-forget on purpose —
+// this is a background safety net, not something the user should have to
+// wait on every time they leave a design; a failure (or the tab getting
+// backgrounded mid-upload) is caught by pushBackupToDriveTracked's
+// pendingBackup flag and retried on next boot (see attemptPreMigrationOrRetryBackup).
+// No-ops entirely if the user has never connected Google Drive.
+function pushBackupIfConnected() {
+  if (!driveClient.isConnected()) return;
+  pushBackupToDriveTracked(appState.db, driveClient).catch((err) => {
+    console.warn('Drive backup failed:', err);
+  });
 }
 
 async function handleOpen(id) {
@@ -456,6 +478,10 @@ async function handleDuplicate(id) {
 
 async function handleDelete(id) {
   await deleteDesign(appState.db, id);
+  // Queued for Drive too (see backupSync.js) so a design deleted locally
+  // doesn't get resurrected by a later restore — actual Drive file removal
+  // happens on the next push, not here, to avoid a network call per delete.
+  await recordDesignDeletedLocally(appState.db, id);
   appState.designs = appState.designs.filter((d) => d.id !== id);
   libraryController.renderList(appState.designs);
 }
@@ -482,10 +508,73 @@ document.addEventListener('visibilitychange', () => {
 });
 window.addEventListener('pagehide', flushAutosave);
 
+// Best-effort retained Drive backup checkpoint right before a real schema
+// migration runs (plan's Phase A risks — "the pre-migration backup must
+// block the migration, not fire-and-forget"). Not a hard block: this app has
+// no backend/refresh-token, so a silent reconnect isn't guaranteed even for a
+// previously-connected user (e.g. the ~7-day testing-mode token expiry) —
+// when it can't reconnect, this warns rather than stranding the user unable
+// to open their own app. Only ever attempts anything if this browser has
+// connected to Drive before (a plain localStorage flag, checked before any
+// IndexedDB access at all — set the moment a connect() succeeds, in
+// backupDialog.js — so this works even before the DB can be opened at its
+// current stored version to find out whether a migration is even pending).
+async function attemptPreMigrationDriveBackup() {
+  if (localStorage.getItem(DRIVE_CONNECTED_BEFORE_KEY) !== '1') return;
+
+  const { db: existingDb, wasBrandNew } = await openExistingDatabase();
+  const migrationPending = !wasBrandNew && existingDb.version < CURRENT_DB_VERSION;
+  if (!migrationPending) {
+    existingDb.close();
+    return;
+  }
+
+  const reconnected = await driveClient.trySilentConnect();
+  if (reconnected) {
+    try {
+      await runPreMigrationBackup(existingDb, driveClient);
+    } catch (err) {
+      window.alert(
+        `A data update is about to run, and the pre-update Google Drive backup failed (${err.message}). ` +
+        'Consider using Backup & Sync\'s "Export Backup File" once the app has loaded, as an extra local copy.'
+      );
+    }
+  } else {
+    window.alert(
+      'A data update is about to run and Google Drive couldn’t be reached to back up first. ' +
+      'Consider using Backup & Sync\'s "Export Backup File" once the app has loaded, as an extra local copy.'
+    );
+  }
+  existingDb.close();
+}
+
+// If a previous design-close backup started but never confirmed complete
+// (e.g. the tab was backgrounded mid-upload — see pushBackupToDriveTracked),
+// retry it now. Silent no-op if Drive isn't connected/reconnectable.
+async function retryPendingBackupIfAny() {
+  const meta = await getDriveSyncMeta(appState.db);
+  if (!meta.pendingBackup) return;
+  const connected = driveClient.isConnected() || (await driveClient.trySilentConnect());
+  if (!connected) return;
+  pushBackupToDriveTracked(appState.db, driveClient).catch((err) => {
+    console.warn('Retry of pending Drive backup failed:', err);
+  });
+}
+
+// Reloads the lists a Drive restore or local-file import can add to, and
+// re-renders the library — passed as onDataRestored to backupDialog.js.
+async function handleDataRestored() {
+  appState.designs = await listDesignsSorted(appState.db);
+  appState.beadCatalog = await listBeadCatalogSorted(appState.db);
+  libraryController.renderList(appState.designs);
+}
+
 async function boot() {
   await preloadIcons();
   mountIcons(); // static [data-icon] markup (top bar, tool rail, dialogs) — JS-built rows call createIcon() directly
   initLongPressTooltips();
+
+  await attemptPreMigrationDriveBackup();
 
   appState.db = await openDatabase();
   appState.preferences = await getPreferences(appState.db);
@@ -506,9 +595,14 @@ async function boot() {
     resolveBeadTypeName,
   });
 
+  backupController = mountBackupDialog(appState, { driveClient, onDataRestored: handleDataRestored });
+  document.getElementById('library-backup-open').addEventListener('click', () => backupController.open());
+
   libraryController.setViewMode(appState.preferences.libraryViewMode === 'gallery' ? 'gallery' : 'list');
   showLibraryView();
   libraryController.renderList(appState.designs);
+
+  retryPendingBackupIfAny();
 }
 
 boot();

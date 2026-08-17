@@ -14,6 +14,7 @@
         <button id="library-view-list" type="button" class="icon-btn" data-icon="list" aria-pressed="true" title="List view" aria-label="List view"></button>
         <button id="library-view-gallery" type="button" class="icon-btn" data-icon="layout-grid" aria-pressed="false" title="Gallery view" aria-label="Gallery view"></button>
       </div>
+      <button id="library-backup-open" type="button" class="icon-btn" data-icon="cloud" title="Backup &amp; Sync" aria-label="Backup &amp; Sync"></button>
       <button id="library-new">+ New</button>
     </div>
     <ul id="library-list"></ul>
@@ -165,6 +166,33 @@
     <div id="colorway-picker-actions">
       <button type="button" id="colorway-picker-cancel">Cancel</button>
     </div>
+  </dialog>
+
+  <dialog id="backup-dialog">
+    <div id="backup-dialog-header">
+      <h2>Backup &amp; Sync</h2>
+      <button type="button" id="backup-close" class="icon-btn" data-icon="x" title="Close" aria-label="Close"></button>
+    </div>
+    <section id="backup-drive-section" aria-label="Google Drive">
+      <h3>Google Drive</h3>
+      <p id="backup-drive-status">Not connected to Google Drive.</p>
+      <div id="backup-drive-actions">
+        <button type="button" id="backup-drive-connect" class="icon-text-btn" data-icon="cloud"><span>Connect Google Drive</span></button>
+        <button type="button" id="backup-drive-disconnect" class="icon-text-btn" data-icon="log-out" hidden><span>Disconnect</span></button>
+        <button type="button" id="backup-drive-now" class="icon-text-btn" data-icon="cloud-upload" disabled><span>Back Up Now</span></button>
+        <button type="button" id="backup-drive-restore" class="icon-text-btn" data-icon="cloud-download" disabled><span>Restore from Drive</span></button>
+      </div>
+    </section>
+    <section id="backup-local-section" aria-label="Local backup file">
+      <h3>Local Backup File</h3>
+      <p>A Google-free copy, in case Drive or the Google account itself is ever unavailable.</p>
+      <div id="backup-local-actions">
+        <input type="file" id="backup-local-import-file" accept="application/json" hidden>
+        <button type="button" id="backup-local-export" class="icon-text-btn" data-icon="download"><span>Export Backup File</span></button>
+        <button type="button" id="backup-local-import" class="icon-text-btn" data-icon="upload"><span>Import Backup File</span></button>
+      </div>
+    </section>
+    <p id="backup-message" hidden></p>
   </dialog>
 
   <dialog id="resize-dialog">

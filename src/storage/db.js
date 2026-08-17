@@ -2,7 +2,7 @@
 // designStore.js/preferencesStore.js are the shape-specific layers on top.
 
 const DB_NAME = 'bead-pattern-designer';
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 
 export function openDatabase() {
   return new Promise((resolve, reject) => {
@@ -25,8 +25,35 @@ export function openDatabase() {
       // (DB_VERSION 4, dropped here). Global, not per-design: a bead type's
       // physical dimensions apply to every design that uses it.
       if (!db.objectStoreNames.contains('beadCatalog')) db.createObjectStore('beadCatalog', { keyPath: 'id' });
+      // Google Drive backup/sync bookkeeping (see driveSyncStore.js) — Drive
+      // folder/file ids and per-design last-synced markers, never the OAuth
+      // token itself (that stays in memory only, per session).
+      if (!db.objectStoreNames.contains('driveSync')) db.createObjectStore('driveSync', { keyPath: 'id' });
     };
     request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error);
+  });
+}
+
+export const CURRENT_DB_VERSION = DB_VERSION;
+
+// Opens the database at whatever version is already on disk, without
+// upgrading it — a version-less indexedDB.open() connects at the existing
+// version, or creates an empty one at version 1 if none exists yet.
+// `wasBrandNew` distinguishes "just created, nothing to protect" from "really
+// is on an old version." Used by main.js's boot() to read/back-up existing
+// data (via the returned db handle) *before* openDatabase() runs the real
+// upgrade to CURRENT_DB_VERSION — see .work/feature-cloud-sync-plan.md's
+// Phase A risks section ("pre-migration backup must block the migration").
+// Caller is responsible for closing the returned db once done with it.
+export function openExistingDatabase() {
+  return new Promise((resolve, reject) => {
+    let wasBrandNew = false;
+    const request = indexedDB.open(DB_NAME);
+    request.onupgradeneeded = (event) => {
+      wasBrandNew = event.oldVersion === 0;
+    };
+    request.onsuccess = () => resolve({ db: request.result, wasBrandNew });
     request.onerror = () => reject(request.error);
   });
 }
