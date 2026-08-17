@@ -9,9 +9,25 @@ import { DEFAULT_BEAD_CATALOG } from '../palette/beadSpecs.js';
 
 const STORE = 'beadCatalog';
 
+// DEFAULT_BEAD_CATALOG's rocaille11 entry was renamed from "Round Rocaille 11/0"
+// to "Rocaille 11/0" — seedDefaultBeadCatalog only ever runs once (a no-op for
+// every existing install), so an already-persisted row needs its own one-time
+// rename, same opportunistic-migration-on-read idea as migrateDesign.js. Keyed
+// on the old name specifically (not just the id), so a user who has since
+// renamed their own rocaille11 row to something else is left untouched.
+const LEGACY_ROCAILLE_NAME = 'Round Rocaille 11/0';
+
 export async function listBeadCatalogSorted(db) {
   const all = await getAll(db, STORE);
-  return all.sort((a, b) => a.order - b.order);
+  const migrated = await Promise.all(
+    all.map(async (bead) => {
+      if (bead.id !== 'rocaille11' || bead.name !== LEGACY_ROCAILLE_NAME) return bead;
+      const renamed = { ...bead, name: 'Rocaille 11/0', updatedAt: Date.now() };
+      await put(db, STORE, renamed);
+      return renamed;
+    })
+  );
+  return migrated.sort((a, b) => a.order - b.order);
 }
 
 // No-ops if the store already has rows — called once from boot(), same idea as

@@ -5,7 +5,7 @@ import { DEFAULT_BEAD_CATALOG, findBeadType } from '../../palette/beadSpecs.js';
 test('findBeadType returns the matching entry', () => {
   const catalog = [
     { id: 'delica11', name: 'Delica 11/0' },
-    { id: 'rocaille11', name: 'Round Rocaille 11/0' },
+    { id: 'rocaille11', name: 'Rocaille 11/0' },
   ];
   assert.equal(findBeadType(catalog, 'rocaille11'), catalog[1]);
 });

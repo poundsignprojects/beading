@@ -12,6 +12,7 @@
 
 import { orderForInsertAt } from '../state/designOrder.js';
 import { createIcon } from './icons.js';
+import { promptColorwayPicker } from './colorwayPickerDialog.js';
 
 const DELETE_CONFIRM_MESSAGE = 'Delete this pattern? This cannot be undone.';
 
@@ -48,8 +49,11 @@ export function mountLibraryView(callbacks) {
     handle.title = 'Drag to reorder';
     handle.append(createIcon('grip-vertical'));
 
-    const thumb = document.createElement('div');
+    const thumb = document.createElement('button');
+    thumb.type = 'button';
     thumb.className = 'library-row-thumb';
+    thumb.setAttribute('aria-label', `Open ${design.name}`);
+    thumb.addEventListener('click', () => callbacks.onOpen(design.id));
     if (design.thumbnailDataUrl) {
       const img = document.createElement('img');
       img.src = design.thumbnailDataUrl;
@@ -68,11 +72,15 @@ export function mountLibraryView(callbacks) {
     name.className = 'library-row-name';
     name.textContent = design.name;
 
+    const beadType = document.createElement('span');
+    beadType.className = 'library-row-beadtype';
+    beadType.textContent = callbacks.resolveBeadTypeName(design.beadTypeKey);
+
     const updated = document.createElement('span');
     updated.className = 'library-row-updated';
     updated.textContent = relativeTime(design.updatedAt);
 
-    info.append(name, updated);
+    info.append(name, beadType, updated);
 
     const renameButton = document.createElement('button');
     renameButton.type = 'button';
@@ -104,8 +112,31 @@ export function mountLibraryView(callbacks) {
     actions.className = 'library-row-actions';
     actions.append(renameButton, duplicateButton, deleteButton);
 
-    row.append(handle, thumb, info, actions);
+    row.append(handle, thumb, info);
+    if (design.colorways.length > 1) row.append(buildColorwayBadge(design));
+    row.append(actions);
     return row;
+  }
+
+  // Only shown when a pattern actually has more than one colorway — surfaces
+  // that fact directly in the list (the original ask), and opens a small
+  // picker with a rendered preview per colorway so "open it" means landing
+  // on that exact colorway, not just the design's own stored default.
+  function buildColorwayBadge(design) {
+    const badge = document.createElement('button');
+    badge.type = 'button';
+    badge.className = 'icon-text-btn library-row-colorway-badge';
+    badge.setAttribute('aria-label', `${design.colorways.length} colorways`);
+    badge.title = `${design.colorways.length} colorways`;
+    const count = document.createElement('span');
+    count.textContent = String(design.colorways.length);
+    badge.append(createIcon('layers'), count);
+    badge.addEventListener('click', async () => {
+      const colorways = await callbacks.onRequestColorwayPreviews(design.id);
+      const chosenId = await promptColorwayPicker({ designName: design.name, colorways });
+      if (chosenId) callbacks.onOpenColorway(design.id, chosenId);
+    });
+    return badge;
   }
 
   function renderList(designs) {

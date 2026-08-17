@@ -17,7 +17,7 @@
 
 export const DEFAULT_BEAD_CATALOG = [
   { id: 'delica11', name: 'Delica 11/0', widthMm: 1.6, heightMm: 1.3, cornerRadiusFraction: null, holeMm: 0.8, diameterMm: 1.6 },
-  { id: 'rocaille11', name: 'Round Rocaille 11/0', widthMm: 2.0, heightMm: 1.4, cornerRadiusFraction: 0.25, holeMm: 0.8, diameterMm: 2.0 },
+  { id: 'rocaille11', name: 'Rocaille 11/0', widthMm: 2.0, heightMm: 1.4, cornerRadiusFraction: 0.25, holeMm: 0.8, diameterMm: 2.0 },
 ];
 
 export function findBeadType(catalog, beadTypeKey) {

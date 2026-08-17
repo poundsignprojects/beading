@@ -12,6 +12,7 @@ const ICON_NAMES = [
   'chevron-left', 'undo-2', 'redo-2', 'printer', 'panel-right', 'settings',
   'ruler', 'square', 'crosshair', 'list', 'layout-grid', 'palette', 'image',
   'move', 'plus', 'check', 'x', 'bring-to-front', 'send-to-back', 'pipette',
+  'layers',
 ];
 
 const templates = new Map(); // name -> parsed <svg> template element

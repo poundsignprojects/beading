@@ -229,13 +229,20 @@ input[type="number"] {
   flex-shrink: 0;
 }
 
+/* A real <button> (tapping it opens the design, same as .library-row-info) —
+   overrides the generic button/select touch-target rule's padding/min-height/
+   border so it still renders as a plain, borderless thumbnail box. */
 .library-row-thumb {
   width: 44px;
   height: 44px;
+  min-height: 0;
   flex-shrink: 0;
+  padding: 0;
+  border: none;
   border-radius: 4px;
   overflow: hidden;
   background: #eee;
+  cursor: pointer;
 }
 
 .library-row-thumb img {
@@ -267,6 +274,11 @@ input[type="number"] {
   max-width: 100%;
 }
 
+.library-row-beadtype {
+  font-size: 0.8rem;
+  color: #666;
+}
+
 .library-row-updated {
   font-size: 0.8rem;
   color: #888;
@@ -277,6 +289,22 @@ input[type="number"] {
   border: none;
   color: #555;
   cursor: pointer;
+}
+
+/* Only rendered when a design has 2+ colorways (see libraryView.js's
+   buildColorwayBadge) — keeps the .icon-text-btn 44px touch-target floor,
+   just with tighter padding than the standard Back-to-Library-style label
+   button so it doesn't crowd the row's other actions. */
+.library-row-colorway-badge {
+  gap: 0.3rem;
+  padding: 0.3rem 0.6rem;
+  font-size: 0.8rem;
+  flex-shrink: 0;
+}
+
+.library-row-colorway-badge .icon {
+  width: 1rem;
+  height: 1rem;
 }
 
 .gallery-mode .library-row {
@@ -300,6 +328,13 @@ input[type="number"] {
   left: 0.25rem;
   background: rgba(255, 255, 255, 0.85);
   border-radius: 4px;
+}
+
+.gallery-mode .library-row-colorway-badge {
+  position: absolute;
+  top: 0.25rem;
+  right: 0.25rem;
+  background: rgba(255, 255, 255, 0.85);
 }
 
 .gallery-mode .library-row-info {
@@ -745,6 +780,7 @@ input[type="number"] {
 #bead-catalog-dialog,
 #convert-bead-type-dialog,
 #copy-color-dialog,
+#colorway-picker-dialog,
 #resize-dialog,
 #settings-dialog {
   border: none;
@@ -757,6 +793,7 @@ input[type="number"] {
 #bead-catalog-dialog::backdrop,
 #convert-bead-type-dialog::backdrop,
 #copy-color-dialog::backdrop,
+#colorway-picker-dialog::backdrop,
 #resize-dialog::backdrop,
 #settings-dialog::backdrop {
   background: rgba(0, 0, 0, 0.35);
@@ -765,6 +802,7 @@ input[type="number"] {
 #bead-catalog-dialog h2,
 #convert-bead-type-dialog h2,
 #copy-color-dialog h2,
+#colorway-picker-dialog h2,
 #resize-dialog h2,
 #settings-dialog h2 {
   margin: 0 0 0.5rem;
@@ -916,6 +954,53 @@ input[type="number"] {
 .copy-color-target {
   text-align: left;
   padding: 0.4rem 0.6rem;
+}
+
+#colorway-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  max-height: 55vh;
+  overflow-y: auto;
+  margin: 0.5rem 0 0.75rem;
+}
+
+.colorway-picker-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+}
+
+.colorway-picker-thumb {
+  width: 2.75rem;
+  height: 2.75rem;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #eee;
+}
+
+.colorway-picker-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.colorway-picker-name {
+  flex: 1;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#colorway-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 #resize-warning {

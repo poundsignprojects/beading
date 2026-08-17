@@ -22,11 +22,15 @@ import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchHex } from './src/palette/colorLibrary.js';
 import { findBeadType } from './src/palette/beadSpecs.js';
+import { generatePeyoteGrid } from './src/grid/peyote.js';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 // Rendered once at a size that stays crisp scaled down into either the small list
 // thumbnail box or the larger gallery tile via CSS, rather than re-rendering two sizes.
 const THUMBNAIL_MAX_SIZE_PX = 200;
+// Smaller than the library's own thumbnail — these render inside a compact picker
+// row (see colorwayPickerDialog.js), not a full library tile.
+const COLORWAY_PREVIEW_MAX_SIZE_PX = 96;
 
 const appState = createAppState();
 
@@ -203,7 +207,6 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
   const newColorways = remapColorwayColorIds(sourceColorways, mappingTable).map((cw) => ({ ...cw, id: idMap.get(cw.id) }));
   const newActiveColorwayId = idMap.get(appState.activeColorwayId);
 
-  const targetBeadType = findBeadType(appState.beadCatalog, targetBeadTypeKey);
   const originalDesign = appState.designs.find((d) => d.id === appState.currentDesignId);
 
   // Flush the still-open original design's own record first, so it's exactly
@@ -214,7 +217,7 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
   debouncedPhotoSave?.flush();
 
   const newDesign = await createConvertedDesign(appState.db, {
-    name: `${originalDesign.name} (${targetBeadType.name})`,
+    name: originalDesign.name,
     beadTypeKey: targetBeadTypeKey,
     rows: appState.rows,
     cols: appState.cols,
@@ -304,14 +307,19 @@ async function loadPhotoTraceForDesign(designId) {
   });
 }
 
-async function openDesign(design) {
+// colorwayId defaults to the design's own stored default, but a caller can pass
+// a specific one (the library's colorway badge/picker — see handleOpenColorway)
+// to land directly on that colorway instead. Whichever one is opened becomes the
+// active colorway going forward, same as switching colorways from inside the
+// editor already does.
+async function openDesign(design, colorwayId = design.activeColorwayId) {
   appState.currentDesignId = design.id;
   appState.beadTypeKey = design.beadTypeKey;
   appState.rows = design.rows;
   appState.cols = design.cols;
   appState.colorways = design.colorways;
-  appState.activeColorwayId = design.activeColorwayId;
-  const activeColorway = design.colorways.find((cw) => cw.id === design.activeColorwayId);
+  appState.activeColorwayId = colorwayId;
+  const activeColorway = design.colorways.find((cw) => cw.id === colorwayId);
   appState.cells = materializeColorwayCells(design.shapeEntries, activeColorway.colorEntries);
   appState.units = appState.preferences.units;
   // !== false rather than a straight read: an existing stored preferences row from
@@ -376,6 +384,43 @@ async function backToLibrary() {
 async function handleOpen(id) {
   const design = appState.designs.find((d) => d.id === id);
   if (design) await openDesign(design);
+}
+
+async function handleOpenColorway(id, colorwayId) {
+  const design = appState.designs.find((d) => d.id === id);
+  if (design) await openDesign(design, colorwayId);
+}
+
+function resolveBeadTypeName(beadTypeKey) {
+  return findBeadType(appState.beadCatalog, beadTypeKey)?.name ?? beadTypeKey;
+}
+
+// Renders a small preview thumbnail per colorway of a (closed) design, for the
+// library's colorway picker (see colorwayPickerDialog.js) — libraryView.js has
+// no business reading customColors/beadCatalog itself, so this is the one place
+// that resolves the DB read + render on its behalf.
+async function handleRequestColorwayPreviews(designId) {
+  const design = appState.designs.find((d) => d.id === designId);
+  if (!design) return [];
+  const bead = findBeadType(appState.beadCatalog, design.beadTypeKey);
+  const gridParams = generatePeyoteGrid({
+    rows: design.rows,
+    cols: design.cols,
+    beadWidthMm: bead.widthMm,
+    beadHeightMm: bead.heightMm,
+  });
+  const customColors = await listCustomColorsSorted(appState.db, design.beadTypeKey);
+  return design.colorways.map((cw) => ({
+    id: cw.id,
+    name: cw.name,
+    thumbnailDataUrl: renderThumbnailDataUrl(
+      gridParams,
+      materializeColorwayCells(design.shapeEntries, cw.colorEntries),
+      (colorId) => resolveSwatchHex(customColors, colorId),
+      COLORWAY_PREVIEW_MAX_SIZE_PX,
+      bead.cornerRadiusFraction ?? 0,
+    ),
+  }));
 }
 
 async function handleCreate() {
@@ -456,6 +501,9 @@ async function boot() {
     onDelete: handleDelete,
     onReorder: handleReorder,
     onViewModeChanged: handleViewModeChanged,
+    onOpenColorway: handleOpenColorway,
+    onRequestColorwayPreviews: handleRequestColorwayPreviews,
+    resolveBeadTypeName,
   });
 
   libraryController.setViewMode(appState.preferences.libraryViewMode === 'gallery' ? 'gallery' : 'list');
