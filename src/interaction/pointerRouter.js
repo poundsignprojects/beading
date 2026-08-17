@@ -36,7 +36,9 @@ const EDGE_PAN_MAX_SPEED_PX_PER_FRAME = 14;
 // Phase 2). fill/replace: one action per pointerdown, no interpolation — a flood
 // fill only makes sense at the tapped cell. paste is no longer a discrete tap-to-
 // stamp action — it's a drag-to-position preview, confirmed explicitly (see
-// startPastePreviewDrag/continuePastePreviewDrag below).
+// startPastePreviewDrag/continuePastePreviewDrag below). eyedropper is its own
+// branch, not part of DISCRETE_TOOLS — unlike fill/replace it never mutates
+// cells, so it has no patch to commit through onStrokeCommitted.
 const STROKE_TOOLS = new Set(['draw', 'erase']);
 const DISCRETE_TOOLS = new Set(['fill', 'replace']);
 
@@ -110,6 +112,7 @@ export function attachPointerRouter(canvas, viewport, {
   onSelectionChange,
   onPhotoTraceChange,
   onPastePreviewChange,
+  onColorPicked,
 }) {
   const pointers = new Map(); // pointerId -> { x, y, pointerType }
   let pinchBaseline = null; // { midpoint, distance } in canvas-local px
@@ -197,6 +200,29 @@ export function attachPointerRouter(canvas, viewport, {
       onCellsChanged();
       onStrokeCommitted(patch);
     }
+  }
+
+  // One-shot action for the eyedropper: hit-tests the tapped cell and, if it's
+  // occupied with a real color, reports it via onColorPicked — never touches
+  // cells, so there's nothing to commit through onStrokeCommitted. A tapped cell
+  // that's empty, or occupied but unassigned (colorId: null, see Phase 6's
+  // shared-shape colorways), has no color to pick and is a silent no-op either way.
+  function performEyedropperAction(point) {
+    const worldPoint = screenToWorld(point.x, point.y, viewport);
+    const gridParams = getGridParams();
+    if (!gridParams) return;
+    const hit = peyoteCellAtPoint(
+      worldPoint.xMm,
+      worldPoint.yMm,
+      gridParams.beadWidthMm,
+      gridParams.beadHeightMm,
+      gridParams.rows,
+      gridParams.cols
+    );
+    if (!hit) return;
+    const cell = getCells().get(cellKey(hit.row, hit.col));
+    if (!cell || cell.colorId == null) return;
+    onColorPicked(cell.colorId);
   }
 
   function clampedHit(point) {
@@ -397,6 +423,8 @@ export function attachPointerRouter(canvas, viewport, {
       if (!drawStroke) startDrawStroke(pointerId, point);
     } else if (DISCRETE_TOOLS.has(tool)) {
       performDiscreteAction(point);
+    } else if (tool === 'eyedropper') {
+      performEyedropperAction(point);
     } else if (tool === 'select') {
       startSelectionDrag(pointerId, point);
     } else if (tool === 'move-photo') {

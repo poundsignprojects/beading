@@ -100,6 +100,7 @@ export function mountEditorView(appState, hooks) {
   const toolEraseButton = document.getElementById('tool-erase');
   const toolFillButton = document.getElementById('tool-fill');
   const toolReplaceButton = document.getElementById('tool-replace');
+  const toolEyedropperButton = document.getElementById('tool-eyedropper');
   const toolSelectButton = document.getElementById('tool-select');
   const clearButton = document.getElementById('clear-pattern');
   const panelToggleButton = document.getElementById('panel-toggle');
@@ -358,6 +359,7 @@ export function mountEditorView(appState, hooks) {
     toolEraseButton.setAttribute('aria-pressed', String(appState.tool === 'erase'));
     toolFillButton.setAttribute('aria-pressed', String(appState.tool === 'fill'));
     toolReplaceButton.setAttribute('aria-pressed', String(appState.tool === 'replace'));
+    toolEyedropperButton.setAttribute('aria-pressed', String(appState.tool === 'eyedropper'));
     toolSelectButton.setAttribute('aria-pressed', String(appState.tool === 'select'));
     selectionPasteButton.setAttribute('aria-pressed', String(appState.tool === 'paste'));
     photoTraceMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move-photo'));
@@ -926,8 +928,24 @@ export function mountEditorView(appState, hooks) {
   function handleToolReplace() {
     setTool('replace');
   }
+  function handleToolEyedropper() {
+    setTool('eyedropper');
+  }
   function handleToolSelect() {
     setTool('select');
+  }
+  // Fired by pointerRouter.js when the eyedropper tool taps an occupied,
+  // color-assigned cell. Guards against a dangling colorId (a cell referencing a
+  // since-deleted custom color, rendered on canvas as a red X marker — see the
+  // color-deletion-guard feature) — that colorId doesn't correspond to any current
+  // swatch, so picking it would select a color the palette can't show as active.
+  // Switches back to Draw afterward, matching the standard pick-then-draw
+  // eyedropper convention (Photoshop/Procreate's alt-click sample-and-return).
+  function handleColorPicked(colorId) {
+    if (!appState.customColors.some((color) => color.id === colorId)) return;
+    appState.selectedColorId = colorId;
+    setTool('draw');
+    renderColorPalette();
   }
   function handleClear() {
     if (appState.cells.size === 0) return;
@@ -1156,6 +1174,7 @@ export function mountEditorView(appState, hooks) {
   toolEraseButton.addEventListener('click', handleToolErase);
   toolFillButton.addEventListener('click', handleToolFill);
   toolReplaceButton.addEventListener('click', handleToolReplace);
+  toolEyedropperButton.addEventListener('click', handleToolEyedropper);
   toolSelectButton.addEventListener('click', handleToolSelect);
   clearButton.addEventListener('click', handleClear);
   panelToggleButton.addEventListener('click', handlePanelToggle);
@@ -1225,6 +1244,7 @@ export function mountEditorView(appState, hooks) {
       updatePasteControls();
       scheduleRedraw();
     },
+    onColorPicked: handleColorPicked,
   });
 
   // Reflect the bead type/rows/cols the opened design already carries, and sync
