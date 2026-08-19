@@ -10,3 +10,6 @@ To do:
 - switch between bead types without losing work
 - make thumbnails clickable
 - Crop to design
+- bug: last updated date changes even if just opening a file. Also even if just tapping a file to move it. Should only change if colors or beads have changed. Even title change should not trigger an update.
+- Add a filter to library. Filter by bead type.
+- Add ability to move items in to folders or tag them
