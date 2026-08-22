@@ -77,14 +77,14 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
   const topLeftMm = screenToWorld(0, 0, viewport);
   const bottomRightMm = screenToWorld(cssWidth, cssHeight, viewport);
 
-  const rowRange = visibleIndexRange(topLeftMm.xMm, bottomRightMm.xMm, beadHeightMm, rows);
-  const colRange = visibleIndexRange(topLeftMm.yMm, bottomRightMm.yMm, beadWidthMm, cols);
+  const colRange = visibleIndexRange(topLeftMm.xMm, bottomRightMm.xMm, beadHeightMm, cols);
+  const rowRange = visibleIndexRange(topLeftMm.yMm, bottomRightMm.yMm, beadWidthMm, rows);
 
   ctx.strokeStyle = CELL_STROKE_STYLE;
 
   for (let row = rowRange.start; row <= rowRange.end; row++) {
     for (let col = colRange.start; col <= colRange.end; col++) {
-      const originMm = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, rows);
+      const originMm = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols);
       const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
       const bottomRight = worldToScreen(
         originMm.xMm + beadHeightMm,

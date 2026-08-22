@@ -32,7 +32,7 @@ function buildHeader(appState, designName) {
   title.textContent = designName;
 
   const specLine = document.createElement('p');
-  specLine.textContent = `${bead.name} — ${appState.rows} cols × ${appState.cols} rows`;
+  specLine.textContent = `${bead.name} — ${appState.rows} rows × ${appState.cols} cols`;
 
   const sizeLine = document.createElement('p');
   sizeLine.textContent = `Finished size: ${formatLength(widthMm, 'mm')} × ${formatLength(heightMm, 'mm')} (${formatLength(widthMm, 'in')} × ${formatLength(heightMm, 'in')})`;

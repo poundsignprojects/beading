@@ -10,7 +10,7 @@ import { pushBackupToDriveTracked, restoreFromDeviceBackup, listDeviceBackups } 
 import { buildSnapshotFromDb, readAllStoreData, applyRestorePlan } from '../sync/dbSnapshot.js';
 import { planRestore } from '../sync/snapshot.js';
 import { downloadSnapshotFile, readSnapshotFile } from '../sync/localBackupFile.js';
-import { getDriveSyncMeta } from '../storage/driveSyncStore.js';
+import { getDriveSyncMeta, saveDriveSyncMeta } from '../storage/driveSyncStore.js';
 import { getStoredDeviceName, setStoredDeviceName, ensureDeviceName } from '../sync/deviceName.js';
 import { promptDeviceBackupPicker } from './deviceBackupPickerDialog.js';
 import { hideReconnectBanner } from './driveReconnectBanner.js';
@@ -116,6 +116,17 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     const deviceName = ensureDeviceName();
     if (!deviceName) return; // user cancelled the name prompt
     refreshDeviceRow();
+    // An explicit Back Up Now click is the one thing that resolves a pending
+    // axis-migration review (see .work/refactor-row-col-axis-naming-plan.md's
+    // Backup Safety section) — cleared here, at the moment of the click
+    // itself, not gated on the push actually succeeding: the whole point was
+    // to make sure a human looked and chose to proceed, which clicking this
+    // button already means.
+    const meta = await getDriveSyncMeta(appState.db);
+    if (meta.pendingAxisMigrationReview) {
+      await saveDriveSyncMeta(appState.db, { ...meta, pendingAxisMigrationReview: false });
+    }
+    hideReconnectBanner(); // in case either banner variant was showing
     setMessage('Backing up…');
     backupNowButton.disabled = true;
     try {

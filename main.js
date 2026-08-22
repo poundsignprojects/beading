@@ -4,7 +4,7 @@
 // the design list lives in src/ui/libraryView.js — this file only coordinates them.
 
 import { openDatabase, openExistingDatabase, CURRENT_DB_VERSION } from './src/storage/db.js';
-import { listDesignsSorted, createDesign, saveDesign, deleteDesign, duplicateDesign, createConvertedDesign } from './src/storage/designStore.js';
+import { listDesignsSorted, listDesignsSortedWithMigrationInfo, createDesign, saveDesign, deleteDesign, duplicateDesign, createConvertedDesign } from './src/storage/designStore.js';
 import { getPreferences, savePreferences } from './src/storage/preferencesStore.js';
 import { getPhotoTrace, savePhotoTrace, deletePhotoTrace } from './src/storage/photoTraceStore.js';
 import { listCustomColorsSorted, createCustomColor, saveCustomColor, deleteCustomColor } from './src/storage/customColorStore.js';
@@ -18,7 +18,7 @@ import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
 import { mountBackupDialog, DRIVE_CONNECTED_BEFORE_KEY } from './src/ui/backupDialog.js';
-import { showReconnectBanner, hideReconnectBanner } from './src/ui/driveReconnectBanner.js';
+import { showReconnectBanner, showAxisMigrationReviewBanner, hideReconnectBanner } from './src/ui/driveReconnectBanner.js';
 import { getStoredDeviceName } from './src/sync/deviceName.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
 import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
@@ -28,7 +28,7 @@ import { findBeadType } from './src/palette/beadSpecs.js';
 import { generatePeyoteGrid } from './src/grid/peyote.js';
 import { createGoogleDriveClient } from './src/sync/googleDriveClient.js';
 import { pushBackupToDriveTracked, recordDesignDeletedLocally, recordCustomColorDeletedLocally, recordBeadTypeDeletedLocally, runPreMigrationBackup } from './src/sync/backupSync.js';
-import { getDriveSyncMeta } from './src/storage/driveSyncStore.js';
+import { getDriveSyncMeta, saveDriveSyncMeta } from './src/storage/driveSyncStore.js';
 
 const AUTOSAVE_DEBOUNCE_MS = 800;
 // Rendered once at a size that stays crisp scaled down into either the small list
@@ -416,9 +416,20 @@ async function reconnectDrive() {
 // isn't connected right now (token expired mid-session, browser lost the
 // Google session, etc.), that's a real missed backup worth surfacing — shows
 // the same reconnect banner boot uses, rather than failing invisibly.
-function pushBackupIfConnected() {
+async function pushBackupIfConnected() {
   const deviceName = getStoredDeviceName();
   if (!deviceName) return;
+  // Checked before the connection state — a pending axis-migration review
+  // blocks the silent push regardless of whether Drive is reachable right now,
+  // since the whole point is to stop freshly-migrated data from overwriting
+  // the live backup before a human has looked (see .work/refactor-row-col-
+  // axis-naming-plan.md's Backup Safety section). Resolved only by an
+  // explicit manual Back Up Now in backupDialog.js, never automatically here.
+  const meta = await getDriveSyncMeta(appState.db);
+  if (meta.pendingAxisMigrationReview) {
+    showAxisMigrationReviewBanner(async () => backupController.open());
+    return;
+  }
   if (!driveClient.isConnected()) {
     showReconnectBanner(reconnectDrive);
     return;
@@ -610,7 +621,12 @@ async function boot() {
 
   appState.db = await openDatabase();
   appState.preferences = await getPreferences(appState.db);
-  appState.designs = await listDesignsSorted(appState.db);
+  const { designs, ranAxisMigration } = await listDesignsSortedWithMigrationInfo(appState.db);
+  appState.designs = designs;
+  if (ranAxisMigration) {
+    const meta = await getDriveSyncMeta(appState.db);
+    await saveDriveSyncMeta(appState.db, { ...meta, pendingAxisMigrationReview: true });
+  }
   await seedDefaultBeadCatalog(appState.db);
   appState.beadCatalog = await listBeadCatalogSorted(appState.db);
 

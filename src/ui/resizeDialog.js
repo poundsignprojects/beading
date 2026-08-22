@@ -7,16 +7,11 @@
 import { countCellsLost } from '../state/resizeGrid.js';
 
 // UI radios express which SIDE gets the new/removed cells (matches how rows/cols
-// are actually laid out on screen — rows run left-right, cols run top-bottom, see
+// are actually laid out on screen — rows run top-bottom, cols run left-right, see
 // peyote.js). resizeCells/countCellsLost only know 'start'|'end'|'both', where
 // 'start' = existing content anchored at index 0 (change happens at the far end).
-// Legend text below reads "columns" for the row-anchor fieldset and "rows" for the
-// col-anchor fieldset — display-layer-only label swap (2026-08-10) so on-screen
-// wording matches conventional rows=vertical/cols=horizontal expectation; the
-// Right/Left vs. Top/Bottom side options, the fieldset ids, and everything below
-// this comment still refer to the original (unswapped) row/col axes.
-const ROW_SIDE_TO_ANCHOR = { right: 'start', left: 'end', both: 'both' };
-const COL_SIDE_TO_ANCHOR = { bottom: 'start', top: 'end', both: 'both' };
+const ROW_SIDE_TO_ANCHOR = { bottom: 'start', top: 'end', both: 'both' };
+const COL_SIDE_TO_ANCHOR = { right: 'start', left: 'end', both: 'both' };
 
 function selectedRadioValue(form, name) {
   return form.querySelector(`input[name="${name}"]:checked`).value;

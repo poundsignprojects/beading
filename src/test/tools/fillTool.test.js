@@ -52,18 +52,18 @@ test('applyFill: filling with the seed color is a no-op', () => {
 });
 
 test('applyFill: follows true peyote 6-connectivity, not naive 4-connectivity', () => {
-  // rows=2, cols=3. row0 (even): col0/col2 occupied (walls), col1 absent (seed).
-  // row1: col1 occupied (blocks the naive same-column path), col0/col2 absent —
-  // only col2 is reachable via the row0/row1 stagger (peyoteNeighbors' row-even
-  // parity, see peyote.js), not same-column, and not col0.
+  // rows=3, cols=2. col0 (even): row0/row2 occupied (walls), row1 absent (seed).
+  // col1: row1 occupied (blocks the naive same-row path), row0/row2 absent —
+  // only row2 is reachable via the col0/col1 stagger (peyoteNeighbors' col-odd
+  // parity, see peyote.js), not same-row, and not row0.
   const cells = new Map();
   setCell(cells, 0, 0, 'wall');
-  setCell(cells, 0, 2, 'wall');
+  setCell(cells, 2, 0, 'wall');
   setCell(cells, 1, 1, 'wall');
 
-  const patch = applyFill(cells, 0, 1, 'fill', 2, 3);
+  const patch = applyFill(cells, 1, 0, 'fill', 3, 2);
   const changedKeys = patch.map((p) => `${p.row},${p.col}`).sort();
-  assert.deepEqual(changedKeys, ['0,1', '1,2']);
+  assert.deepEqual(changedKeys, ['1,0', '2,1']);
 });
 
 test('applyFill: a dense 300x200 grid fills in well under 100ms', () => {

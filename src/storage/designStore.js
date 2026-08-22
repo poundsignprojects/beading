@@ -9,19 +9,27 @@ import { migrateDesign } from './migrateDesign.js';
 
 const STORE = 'designs';
 
-// Migrates any pre-Phase-6 record (flat cellEntries, no colorways) the first time
-// it's read, and opportunistically re-saves whatever changed so the migration only
-// has to run once per design, system-wide — not on every boot indefinitely.
-export async function listDesignsSorted(db) {
+// Migrates any pre-Phase-6 record (flat cellEntries, no colorways) and any
+// pre-row/col-axis-refactor record (see .work/refactor-row-col-axis-naming-
+// plan.md) the first time each is read, and opportunistically re-saves whatever
+// changed so each migration only has to run once per design, system-wide — not
+// on every boot indefinitely.
+export async function listDesignsSortedWithMigrationInfo(db) {
   const designs = await getAll(db, STORE);
+  let ranAxisMigration = false;
   const migrated = await Promise.all(
     designs.map(async (design) => {
+      if (design.axisVersion !== 2) ranAxisMigration = true;
       const result = migrateDesign(design);
       if (result !== design) await put(db, STORE, result);
       return result;
     })
   );
-  return migrated.sort((a, b) => a.order - b.order);
+  return { designs: migrated.sort((a, b) => a.order - b.order), ranAxisMigration };
+}
+
+export async function listDesignsSorted(db) {
+  return (await listDesignsSortedWithMigrationInfo(db)).designs;
 }
 
 export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
@@ -42,6 +50,7 @@ export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
     order: existing.length === 0 ? 0 : maxOrder + 1,
     createdAt: now,
     updatedAt: now,
+    axisVersion: 2,
   };
   await put(db, STORE, design);
   return design;
@@ -72,6 +81,7 @@ export async function createConvertedDesign(db, { name, beadTypeKey, rows, cols,
     order: existing.length === 0 ? 0 : maxOrder + 1,
     createdAt: now,
     updatedAt: now,
+    axisVersion: 2,
   };
   await put(db, STORE, design);
   return design;

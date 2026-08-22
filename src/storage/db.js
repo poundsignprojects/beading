@@ -2,7 +2,13 @@
 // designStore.js/preferencesStore.js are the shape-specific layers on top.
 
 const DB_NAME = 'bead-pattern-designer';
-const DB_VERSION = 6;
+// Bumped 6 -> 7 for the row/col-axis rename (see
+// .work/refactor-row-col-axis-naming-plan.md) — no new object store is needed
+// for this migration (it's a record-shape change, handled entirely by
+// migrateDesign.js/preferencesStore.js on read), but the version bump alone
+// still trips main.js's attemptPreMigrationDriveBackup() pre-migration warning,
+// the same safety net every prior schema version bump has gotten.
+const DB_VERSION = 7;
 
 export function openDatabase() {
   return new Promise((resolve, reject) => {

@@ -4,7 +4,7 @@
 // gets turned into a printout.
 
 import { getCell } from '../state/cellStore.js';
-import { peyoteRowCount, peyoteRowCells, isRaised } from '../grid/peyote.js';
+import { isRaised } from '../grid/peyote.js';
 
 // Distinguishes "cell absent" (a genuinely blank run — colorId: null, unchanged
 // meaning since Phase 5) from "cell present with colorId: null" (Phase 6: occupied
@@ -14,34 +14,35 @@ import { peyoteRowCount, peyoteRowCells, isRaised } from '../grid/peyote.js';
 // follow literally.
 export const UNASSIGNED = Symbol('unassigned-color');
 
-// A physical row (one full finished band, per peyoteRowCells) holds every bead in
-// that band — the right level of abstraction for drawing — but single-drop peyote
-// can only actually populate a band that way via two alternating-position thread
-// passes once past the foundation: the beads sit alternately at two real,
-// half-bead-apart stitching levels within the band (peyoteCellOriginMm's `isRaised`
-// rule — the same rule the canvas renderer uses to offset a cell), and each pass
-// only ever touches one of those two levels. Physical row 0 (the foundation ladder)
-// is the exception — it's worked as one pass on its own, not split — so it prints
-// as a single line.
+// A physical row holds every bead at that row index, across every col position
+// (see peyoteCellOriginMm — row/col now mean what the UI's Rows/Cols labels
+// already say, see .work/refactor-row-col-axis-naming-plan.md) — the right level
+// of abstraction for drawing — but single-drop peyote can only actually populate
+// a row that way via two alternating-position thread passes once past the
+// foundation: the beads sit alternately at two real, half-bead-apart stitching
+// levels within the row (peyoteCellOriginMm's `isRaised` rule — the same rule the
+// canvas renderer uses to offset a cell), and each pass only ever touches one of
+// those two levels. Row 0 (the foundation ladder) is the exception — it's worked
+// as one pass on its own, not split — so it prints as a single line.
 //
 // Every row after that splits into its raised-level beads as one printed line and
-// its non-raised-level beads as the next — raised first, since a band's raised
-// level sits immediately atop the previous band's non-raised level in real
-// stitching order (levels run 0, 0.5, 1, 1.5, 2, 2.5, ... — band N contributes
+// its non-raised-level beads as the next — raised first, since a row's raised
+// level sits immediately atop the previous row's non-raised level in real
+// stitching order (levels run 0, 0.5, 1, 1.5, 2, 2.5, ... — row N contributes
 // level N as its raised beads and N+0.5 as its non-raised beads), so raised is
 // always the physically-earlier of the two passes.
 //
-// Deliberately NOT bucketed by raw position (row-index) parity — whether
+// Deliberately NOT bucketed by raw position (col-index) parity — whether
 // even-numbered or odd-numbered positions are the "raised" ones flips depending on
-// whether `rows` itself is odd or even (see isRaised's own derivation), so a
+// whether `cols` itself is odd or even (see isRaised's own derivation), so a
 // position-parity split silently swaps which printed line is physically first
-// whenever `rows` is even, producing a chart that's unstitchable in either
+// whenever `cols` is even, producing a chart that's unstitchable in either
 // direction. isRaised is the actual physical-level test and must be used directly.
-function splitByPosition(rowCells, rows) {
+function splitByPosition(rowCells, cols) {
   const raised = [];
   const notRaised = [];
   for (const cell of rowCells) {
-    (isRaised(cell.row, rows) ? raised : notRaised).push(cell);
+    (isRaised(cell.col, cols) ? raised : notRaised).push(cell);
   }
   return { raised, notRaised };
 }
@@ -85,17 +86,21 @@ export function buildWordChart(cells, rows, cols) {
     chartRows.push({ entryIndex: chartRows.length, runs });
   }
 
-  const rowCount = peyoteRowCount(cols);
-
-  // Physical row 0 is the foundation ladder — worked as one pass, not split.
-  if (rowCount >= 1) {
-    pushEntry(peyoteRowCells(rows, 0));
+  function rowCellsAt(row) {
+    const cellList = [];
+    for (let col = 0; col < cols; col++) cellList.push({ row, col });
+    return cellList;
   }
 
-  // Every band after the foundation splits into its two alternating thread
+  // Row 0 is the foundation ladder — worked as one pass, not split.
+  if (rows >= 1) {
+    pushEntry(rowCellsAt(0));
+  }
+
+  // Every row after the foundation splits into its two alternating thread
   // passes — see splitByPosition above.
-  for (let physicalRowIndex = 1; physicalRowIndex < rowCount; physicalRowIndex++) {
-    const { raised, notRaised } = splitByPosition(peyoteRowCells(rows, physicalRowIndex), rows);
+  for (let row = 1; row < rows; row++) {
+    const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols);
     pushEntry(raised);
     pushEntry(notRaised);
   }

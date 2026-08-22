@@ -7,11 +7,14 @@ function flippedCoord(row, col, selection, axis) {
     : { row: rowStart + rowEnd - row, col };
 }
 
-// axis: 'horizontal' | 'vertical'. Caller must not invoke 'vertical' on an
-// even-height selection (see the parity constraint in the Phase 7 plan) —
-// enforced at the UI layer by disabling the button, not re-checked here, since
-// this function has no way to produce a *correct* result for that case, only a
-// silently wrong one.
+// axis: 'horizontal' | 'vertical'. Caller must not invoke 'horizontal' on an
+// even-width selection — reversing col order changes which cells land on which
+// side of isRaised's col-parity stagger rule (see peyote.js), so an even-width
+// flip lands content at the wrong physical stagger. 'vertical' has no such
+// constraint: isRaised depends only on col, never on row, so reversing row order
+// never changes any cell's stagger. Enforced at the UI layer by disabling the
+// button, not re-checked here, since this function has no way to produce a
+// *correct* result for an even-width horizontal flip, only a silently wrong one.
 export function applyMirror(cells, selection, axis) {
   const { rowStart, rowEnd, colStart, colEnd } = selection;
   // Read every cell's current value before writing any of them — a swap, not a

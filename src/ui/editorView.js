@@ -383,11 +383,12 @@ export function mountEditorView(appState, hooks) {
     colorwayDeleteButton.disabled = appState.colorways.length <= 1;
   }
 
-  // Copy/Cut/Mirror-H need only a selection; Mirror-V additionally needs an odd
-  // selection height (see the Phase 7 plan's mirror-vertical parity constraint —
-  // reversing row order on an even-height selection would land content on the
-  // wrong physical stagger, not fixable at integer column resolution); Paste
-  // needs a clipboard, independent of any current selection.
+  // Copy/Cut/Mirror-V need only a selection; Mirror-H additionally needs an odd
+  // selection width (see mirrorTool.js's parity constraint — reversing col order
+  // on an even-width selection would land content on the wrong physical stagger,
+  // not fixable at integer bead resolution, since isRaised's stagger rule depends
+  // on col, not row — see peyote.js). Paste needs a clipboard, independent of any
+  // current selection.
   function updateSelectionButtons() {
     // The whole group only makes sense while the Select tool is active —
     // previously it stayed permanently visible (just disabled), matching
@@ -395,14 +396,14 @@ export function mountEditorView(appState, hooks) {
     selectionControlsEl.hidden = appState.tool !== 'select';
     const selection = appState.selection;
     const hasSelection = !!selection;
-    const heightEven = hasSelection && (selection.rowEnd - selection.rowStart + 1) % 2 === 0;
+    const widthEven = hasSelection && (selection.colEnd - selection.colStart + 1) % 2 === 0;
     selectionCopyButton.disabled = !hasSelection;
     selectionCutButton.disabled = !hasSelection;
-    selectionMirrorHButton.disabled = !hasSelection;
-    selectionMirrorVButton.disabled = !hasSelection || heightEven;
-    selectionMirrorVButton.title = heightEven
-      ? 'Mirror Vertical needs an odd-height selection (even heights would land content on the wrong bead stagger)'
+    selectionMirrorHButton.disabled = !hasSelection || widthEven;
+    selectionMirrorHButton.title = widthEven
+      ? 'Mirror Horizontal needs an odd-width selection (even widths would land content on the wrong bead stagger)'
       : '';
+    selectionMirrorVButton.disabled = !hasSelection;
     selectionPasteButton.disabled = !appState.clipboard;
     selectionDeselectButton.disabled = !hasSelection;
   }

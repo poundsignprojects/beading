@@ -23,6 +23,14 @@ const DEFAULT_META = {
   pendingBackup: false, // a push started but never confirmed complete (e.g. backgrounded mid-upload) — retried on next boot
   lastBackupAt: null,
   lastError: null,
+  // Set by boot() when listDesignsSortedWithMigrationInfo() reports it actually
+  // ran the row/col-axis migration on at least one design (see
+  // .work/refactor-row-col-axis-naming-plan.md's Backup Safety section) — holds
+  // the automatic "push on design close" behind a review banner until an
+  // explicit manual Back Up Now, so a bad migration can't silently overwrite the
+  // live Drive backup before anyone's looked. Never set for a fresh install or a
+  // library already fully on axisVersion: 2.
+  pendingAxisMigrationReview: false,
 };
 
 // Merges over DEFAULT_META rather than returning a stored row verbatim — this

@@ -6,7 +6,7 @@ const designWithColorways = {
   id: 'd1', name: 'Already migrated', beadTypeKey: 'delica11', rows: 2, cols: 2,
   shapeEntries: ['0,0'],
   colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
-  activeColorwayId: 'cw1', order: 0,
+  activeColorwayId: 'cw1', order: 0, axisVersion: 2,
 };
 
 const legacyDesign = {
@@ -42,6 +42,30 @@ test('planRestore: a design whose id already exists locally is skipped, never ov
   assert.deepEqual(plan.designsToCreate, []);
   assert.equal(plan.designsSkipped.length, 1);
   assert.equal(plan.designsSkipped[0].id, 'd1');
+});
+
+// Confirms the row/col-axis migration (see .work/refactor-row-col-axis-naming-
+// plan.md) applies through the restore path exactly like the local-boot path
+// does — a pre-refactor-shaped design (already has colorways, but no
+// axisVersion) pulled from a Drive/local-file backup must come back with its
+// rows/cols and cell keys swapped, not just its legacy-colorway shape fixed.
+test('planRestore: a pre-axis-refactor design in the snapshot gets its rows/cols and cell keys swapped before being queued', () => {
+  const preRefactorDesign = {
+    id: 'd9', name: 'From another device', beadTypeKey: 'delica11', rows: 5, cols: 12,
+    shapeEntries: ['0,0', '2,7'],
+    colorways: [{ id: 'cw9', name: 'Colorway 1', colorEntries: [['0,0', 'red'], ['2,7', 'blue']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw9', order: 0,
+  };
+  const snapshot = assembleSnapshot({ designs: [preRefactorDesign], preferences: null, customColors: [], beadCatalog: [] });
+  const plan = planRestore(snapshot, { designs: [], customColors: [], beadCatalog: [] });
+
+  assert.equal(plan.designsToCreate.length, 1);
+  const migrated = plan.designsToCreate[0];
+  assert.equal(migrated.rows, 12);
+  assert.equal(migrated.cols, 5);
+  assert.deepEqual(migrated.shapeEntries, ['0,0', '7,2']);
+  assert.deepEqual(migrated.colorways[0].colorEntries, [['0,0', 'red'], ['7,2', 'blue']]);
+  assert.equal(migrated.axisVersion, 2);
 });
 
 test('planRestore: a legacy (pre-colorways) design in the snapshot is migrated before being queued', () => {
