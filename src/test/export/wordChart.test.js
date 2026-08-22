@@ -156,7 +156,8 @@ test('buildWordChart: raised/non-raised split order is correct for an even `rows
 
 test('buildWordChart: raised/non-raised split order is correct for an odd `rows` value', () => {
   const cells = new Map();
-  // rows=5 (odd): isRaised(row,5) is true for row indices 0,2,4.
+  // rows=5 (odd): isRaised(row) is true for row indices 1,3 — same rule as the even
+  // case above, since isRaised no longer depends on rows at all (see peyote.js).
   setCell(cells, 0, 1, 'P');
   setCell(cells, 1, 1, 'Q');
   setCell(cells, 2, 1, 'R');
@@ -164,13 +165,13 @@ test('buildWordChart: raised/non-raised split order is correct for an odd `rows`
   setCell(cells, 4, 1, 'T');
   const chart = buildWordChart(cells, 5, 2);
   assert.deepEqual(chart.rows[1].runs, [
+    { colorId: 'Q', count: 1 },
+    { colorId: 'S', count: 1 },
+  ]);
+  assert.deepEqual(chart.rows[2].runs, [
     { colorId: 'P', count: 1 },
     { colorId: 'R', count: 1 },
     { colorId: 'T', count: 1 },
-  ]);
-  assert.deepEqual(chart.rows[2].runs, [
-    { colorId: 'Q', count: 1 },
-    { colorId: 'S', count: 1 },
   ]);
 });
 

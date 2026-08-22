@@ -8,29 +8,35 @@ function positiveMod2(n) {
 
 // Which parity is "raised" (offset 0) vs "recessed" (offset +half) is otherwise an
 // arbitrary rendering choice — it has no effect on which cell holds which color,
-// only on the on-screen zigzag silhouette — but it needed to be pinned to SOME
-// external reference to be checkable at all. Originally pinned to row's own
-// absolute parity (row odd = raised, independent of rows) to match Loomerly's
-// "Starting bead: Top Right" convention found via a real Loomerly PDF import — but
-// that import happened to be an even Width (20), where row=rows-1 (the Top Right
-// position) is always odd, so "row odd = raised" and "row = rows-1 is raised" were
-// indistinguishable from that one sample alone. A second real Loomerly import, this
-// one an *odd* Width (55), exposed the difference: the user directly compared the
-// app's rendered background dot-grid against Loomerly's own picture in the same
-// corner and found the stagger direction flipped — "the Loomerly one top right is
-// up, while the app top right is down" — even in completely empty (dot-only) area,
-// which rules out an import/data bug (the dot grid doesn't read cell data at all)
-// and points squarely at this parity rule. The true invariant is relative to the
-// grid's own width, not an absolute row parity: raised iff row has the same parity
-// as (rows - 1), i.e. the "Top Right" position (row = rows-1) is *always* raised,
-// regardless of whether rows itself is odd or even. This reduces to the exact same
-// "row odd = raised" rule for even rows (the only case previously verified), so it's
-// backward-compatible there, and only changes behavior for odd rows (newly covered).
-// peyoteCellAtPoint/peyoteCellAtPointClamped/peyoteCellAtPointUnbounded and
-// peyoteNeighbors (below) all encode the same parity via this same helper and must
-// stay in lockstep with it if it ever moves again.
+// only on the on-screen zigzag silhouette — but it needs to be pinned to SOME rule
+// to be well-defined at all. This used to be pinned relative to the grid's own
+// width (raised iff row has the same parity as rows-1, so the "Top Right" position
+// was always raised) specifically to match a real Loomerly PDF import's rendered
+// picture chart. That importer has since been removed entirely (see CLAUDE.md's
+// Phase Status) — Loomerly's convention no longer has to be matched by anything.
+//
+// Pinning to `rows` turned out to have a real cost the Loomerly-matching didn't
+// justify once it was the only reason left: a design's `rows` count changes on
+// every resize (CLAUDE.md's Decision-adjacent resize-preserves-existing-design
+// feature keeps existing cells at their same row/col coordinates), so a resize
+// that changes `rows`' own parity was silently re-flipping the raised/recessed
+// rendering for every cell already on the grid — including ones that never moved —
+// reported by the user as columns that were "up" flipping to "down" purely from
+// changing the column count. Reverting to row's own absolute parity (independent
+// of `rows`) fixes that: a cell whose row index doesn't change during a resize now
+// renders identically before and after, regardless of how the total row count's
+// parity happens to shift. This is a one-time visual flip for any existing design
+// whose `rows` is odd (an even `rows` reduces to the exact same "row odd = raised"
+// result either way, so those are unaffected) — an acceptable, unavoidable
+// trade-off once resize-stability matters more than matching a since-removed
+// importer's convention. `rows` is kept as a parameter purely so every existing
+// caller (which already needs it for other reasons, e.g. bounds-checking) doesn't
+// have to change. peyoteCellAtPoint/peyoteCellAtPointClamped/
+// peyoteCellAtPointUnbounded and peyoteNeighbors (below) all encode the same
+// parity via this same helper and must stay in lockstep with it if it ever moves
+// again.
 export function isRaised(row, rows) {
-  return positiveMod2(row - rows + 1) === 0;
+  return positiveMod2(row) === 1;
 }
 
 // Rows run across the grid horizontally (each row is a single flat thread pass —

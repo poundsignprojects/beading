@@ -5,13 +5,11 @@ import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint, peyoteCellAt
 const BEAD_W = 1.6;
 const BEAD_H = 1.3;
 
-// Most of these tests use an even ROWS (10) — for an even row count, the parity rule
-// (see peyoteCellOriginMm's header comment) reduces to exactly the old, already-verified
-// "row odd = raised" rule, so an even ROWS is the natural default for cases that aren't
-// specifically about the rows-dependent behavior itself. The odd-ROWS cases below are the
-// new coverage: a real Loomerly import with an odd Width (55) exposed that the parity is
-// relative to (rows - 1), not row's own absolute parity, which an even-only test suite
-// could never have caught.
+// Most of these tests use an even ROWS (10), but isRaised no longer depends on ROWS at
+// all (see peyote.js's isRaised comment — resize-stability now matters more than
+// matching the since-removed Loomerly importer's convention) — raised is simply "row is
+// odd," for any ROWS, even or odd. The odd-ROWS cases below exist to confirm the rule
+// really is ROWS-independent, not to cover separate rows-relative behavior.
 const ROWS = 10;
 
 test('peyoteCellOriginMm: first cell (row 0, col 0) is offset by half a bead width (row 0 is recessed for an even ROWS)', () => {
@@ -48,34 +46,30 @@ test('peyoteCellOriginMm: negative odd row has no offset, same as a positive odd
   assert.equal(origin.yMm, 0);
 });
 
-// Regression for a real bug found from a second live Loomerly import (a real 55-wide
-// shaped sample) after the first parity fix shipped: the user directly compared the app's
-// rendered background dot-grid against Loomerly's own picture chart in the same corner
-// and found the stagger direction flipped — visible even in totally empty (dot-only) area,
-// ruling out a data bug and pointing at this parity formula specifically. Root cause: the
-// first fix pinned "raised" to row's own absolute parity (row odd = raised), derived from
-// a sample whose Width (20) was even, where row = rows-1 (the "Starting bead: Top Right"
-// position) is always odd — indistinguishable, from that one sample, between "row odd is
-// raised" and "row = rows-1 is raised". An odd-Width sample (55, where rows-1 = 54 is
-// even) told them apart: row 54 needs to be raised to match Loomerly's own picture, which
-// only holds under the second (rows-relative) rule.
-test('peyoteCellOriginMm: for an odd ROWS, the last row (rows-1) is raised, not recessed', () => {
+// Regression for the resize-stability bug found via real user reports: growing/shrinking
+// columns (which changes the internal ROWS count) was silently re-flipping the
+// raised/recessed rendering for every cell, including ones that never moved, whenever the
+// resize changed ROWS' own parity — because isRaised used to be pinned relative to
+// (rows - 1). These cases confirm isRaised for an odd ROWS is identical to what a plain
+// row-parity rule gives regardless of ROWS, so a cell's rendering can no longer depend on
+// the total row count.
+test('peyoteCellOriginMm: for an odd ROWS, the last row (rows-1) is recessed (row parity alone, independent of ROWS)', () => {
   const oddRows = 55;
-  const lastRow = oddRows - 1; // 54, even -- would be recessed under the old row-parity-only rule
+  const lastRow = oddRows - 1; // 54, even -- recessed under the row-parity-only rule
   const origin = peyoteCellOriginMm(lastRow, 0, BEAD_W, BEAD_H, oddRows);
-  assert.equal(origin.yMm, 0); // raised: no half-width offset
+  assert.equal(origin.yMm, BEAD_W / 2); // recessed: even row
 });
 
-test('peyoteCellOriginMm: for an odd ROWS, row 0 is also raised (same parity as rows-1)', () => {
+test('peyoteCellOriginMm: for an odd ROWS, row 0 is recessed, same as it is for an even ROWS', () => {
   const oddRows = 55;
   const origin = peyoteCellOriginMm(0, 0, BEAD_W, BEAD_H, oddRows);
-  assert.equal(origin.yMm, 0); // raised: row 0 and row 54 (rows-1) are both even
+  assert.equal(origin.yMm, BEAD_W / 2); // recessed: even row
 });
 
-test('peyoteCellOriginMm: for an odd ROWS, row 1 is recessed', () => {
+test('peyoteCellOriginMm: for an odd ROWS, row 1 is raised (row parity alone, independent of ROWS)', () => {
   const oddRows = 55;
   const origin = peyoteCellOriginMm(1, 0, BEAD_W, BEAD_H, oddRows);
-  assert.equal(origin.yMm, BEAD_W / 2); // recessed: odd row, different parity from rows-1 (54, even)
+  assert.equal(origin.yMm, 0); // raised: odd row, no half-width offset
 });
 
 test('peyoteCellOriginMm: for an odd ROWS, raised/recessed still strictly alternates row to row', () => {
@@ -214,18 +208,18 @@ test('peyoteNeighbors: raised row uses col-1/col in adjacent rows', () => {
   );
 });
 
-// Regression for the same odd-ROWS parity bug as peyoteCellOriginMm's dedicated tests
-// above: peyoteNeighbors must resolve raised/recessed the same rows-relative way, or
-// flood fill (fillTool.js) would compute adjacency against stale/wrong geometry for any
-// odd-Width imported or hand-resized design.
-test('peyoteNeighbors: for an odd ROWS, the last row (rows-1) is treated as raised, not recessed', () => {
+// Regression confirming peyoteNeighbors' raised/recessed resolution is ROWS-independent
+// (row parity alone) just like peyoteCellOriginMm's dedicated tests above, or flood fill
+// (fillTool.js) would compute adjacency against stale/wrong geometry for any hand-resized
+// design with an odd ROWS.
+test('peyoteNeighbors: for an odd ROWS, the last row (rows-1) is treated as recessed, not raised', () => {
   const oddRows = 55;
-  const lastRow = oddRows - 1; // 54, even -- would be "recessed" under the old row-parity-only rule
+  const lastRow = oddRows - 1; // 54, even -- recessed under the row-parity-only rule
   const neighbors = peyoteNeighbors(lastRow, 3, oddRows);
-  // raised uses col-1/col in adjacent rows (same mapping as the ROWS=10 "raised row" case above)
+  // recessed uses col/col+1 in adjacent rows (same mapping as the ROWS=10 "recessed row" case above)
   assert.deepEqual(
     neighbors.map(String).sort(),
-    [[lastRow, 2], [lastRow, 4], [lastRow - 1, 2], [lastRow - 1, 3], [lastRow + 1, 2], [lastRow + 1, 3]].map(String).sort()
+    [[lastRow, 2], [lastRow, 4], [lastRow - 1, 3], [lastRow - 1, 4], [lastRow + 1, 3], [lastRow + 1, 4]].map(String).sort()
   );
 });
 
