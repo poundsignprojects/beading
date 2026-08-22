@@ -38,11 +38,11 @@ export const UNASSIGNED = Symbol('unassigned-color');
 // position-parity split silently swaps which printed line is physically first
 // whenever `cols` is even, producing a chart that's unstitchable in either
 // direction. isRaised is the actual physical-level test and must be used directly.
-function splitByPosition(rowCells, cols) {
+function splitByPosition(rowCells, cols, flipped) {
   const raised = [];
   const notRaised = [];
   for (const cell of rowCells) {
-    (isRaised(cell.col, cols) ? raised : notRaised).push(cell);
+    (isRaised(cell.col, cols, flipped) ? raised : notRaised).push(cell);
   }
   return { raised, notRaised };
 }
@@ -75,7 +75,7 @@ function buildRuns(cells, cellList, colorCounts, tallyUnassigned) {
   return runs;
 }
 
-export function buildWordChart(cells, rows, cols) {
+export function buildWordChart(cells, rows, cols, flipped = false) {
   const chartRows = [];
   const colorCounts = new Map(); // colorId -> running total, insertion = first appearance
   let unassignedCount = 0;
@@ -100,7 +100,7 @@ export function buildWordChart(cells, rows, cols) {
   // Every row after the foundation splits into its two alternating thread
   // passes — see splitByPosition above.
   for (let row = 1; row < rows; row++) {
-    const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols);
+    const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols, flipped);
     pushEntry(raised);
     pushEntry(notRaised);
   }

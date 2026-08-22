@@ -6,7 +6,7 @@ const designWithColorways = {
   id: 'd1', name: 'Already migrated', beadTypeKey: 'delica11', rows: 2, cols: 2,
   shapeEntries: ['0,0'],
   colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
-  activeColorwayId: 'cw1', order: 0, axisVersion: 2,
+  activeColorwayId: 'cw1', order: 0, axisVersion: 2, staggerFlipped: false,
 };
 
 const legacyDesign = {

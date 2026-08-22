@@ -274,3 +274,21 @@ test('displayRuns: startsReversed true flips both the even and odd cases', () =>
   assert.deepEqual(displayRuns({ entryIndex: 0, runs }, true), [...runs].reverse());
   assert.deepEqual(displayRuns({ entryIndex: 1, runs }, true), runs);
 });
+
+// flipped — a per-design constant restoring an earlier stagger convention for
+// odd-cols designs (see peyote.js's isRaised / migrateDesign.js's
+// migrateStaggerFlip). Confirms buildWordChart's raised/non-raised split
+// genuinely inverts under flipped=true, using the same fixture shape as the
+// unflipped "raised/non-raised split order" cases above.
+test('buildWordChart: flipped=true inverts which half-pass prints first, for the same cells', () => {
+  const cells = new Map();
+  setCell(cells, 1, 0, 'P');
+  setCell(cells, 1, 1, 'Q');
+  setCell(cells, 1, 2, 'R');
+  setCell(cells, 1, 3, 'S');
+  const unflipped = buildWordChart(cells, 2, 4, false);
+  const flipped = buildWordChart(cells, 2, 4, true);
+  assert.deepEqual(unflipped.rows[1].runs, [{ colorId: 'Q', count: 1 }, { colorId: 'S', count: 1 }]);
+  assert.deepEqual(flipped.rows[1].runs, [{ colorId: 'P', count: 1 }, { colorId: 'R', count: 1 }]);
+  assert.deepEqual(flipped.rows[2].runs, unflipped.rows[1].runs);
+});

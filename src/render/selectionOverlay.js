@@ -12,10 +12,10 @@ const SELECTION_DASH = [6, 4];
 // are just two ordinary cell origins plus one cell's extent.
 export function drawSelectionOverlay(ctx, viewport, gridParams, selection) {
   if (!selection) return;
-  const { cols, beadWidthMm, beadHeightMm } = gridParams;
+  const { cols, beadWidthMm, beadHeightMm, staggerFlipped = false } = gridParams;
   const { rowStart, rowEnd, colStart, colEnd } = selection;
-  const topLeftMm = peyoteCellOriginMm(rowStart, colStart, beadWidthMm, beadHeightMm, cols);
-  const bottomRightMm = peyoteCellOriginMm(rowEnd, colEnd, beadWidthMm, beadHeightMm, cols);
+  const topLeftMm = peyoteCellOriginMm(rowStart, colStart, beadWidthMm, beadHeightMm, cols, staggerFlipped);
+  const bottomRightMm = peyoteCellOriginMm(rowEnd, colEnd, beadWidthMm, beadHeightMm, cols, staggerFlipped);
   const topLeft = worldToScreen(topLeftMm.xMm, topLeftMm.yMm, viewport);
   // bottomRight uses the *far* corner of the end cell, not its origin — add one full
   // cell's extent so the box encloses the last row/col rather than stopping at its start.

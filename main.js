@@ -101,6 +101,7 @@ async function persistCurrentDesign() {
     beadTypeKey: appState.beadTypeKey,
     rows: appState.rows,
     cols: appState.cols,
+    staggerFlipped: appState.staggerFlipped,
     shapeEntries,
     colorways: appState.colorways,
     activeColorwayId: appState.activeColorwayId,
@@ -230,6 +231,10 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
     beadTypeKey: targetBeadTypeKey,
     rows: appState.rows,
     cols: appState.cols,
+    // Same shape as the source (only bead type/colors changed) — keep the
+    // same stagger convention so the converted copy renders identically to
+    // the design it came from, not the default for a "brand new" design.
+    staggerFlipped: appState.staggerFlipped,
     shapeEntries,
     colorways: newColorways,
     activeColorwayId: newActiveColorwayId,
@@ -327,6 +332,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   appState.beadTypeKey = design.beadTypeKey;
   appState.rows = design.rows;
   appState.cols = design.cols;
+  appState.staggerFlipped = design.staggerFlipped ?? false;
   appState.colorways = design.colorways;
   appState.activeColorwayId = colorwayId;
   const activeColorway = design.colorways.find((cw) => cw.id === colorwayId);
@@ -467,6 +473,7 @@ async function handleRequestColorwayPreviews(designId) {
     beadWidthMm: bead.widthMm,
     beadHeightMm: bead.heightMm,
   });
+  gridParams.staggerFlipped = design.staggerFlipped ?? false;
   const customColors = await listCustomColorsSorted(appState.db, design.beadTypeKey);
   return design.colorways.map((cw) => ({
     id: cw.id,

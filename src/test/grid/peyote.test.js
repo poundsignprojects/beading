@@ -260,3 +260,71 @@ test('peyoteNeighbors: adjacency is symmetric across a sample grid (odd COLS)', 
     }
   }
 });
+
+// `flipped` — a per-design constant (see appState.staggerFlipped /
+// design.staggerFlipped) restoring the exact stagger a design had under an
+// even earlier convention (pinned to the grid's own width, not col's own
+// parity — see git history and migrateDesign.js's migrateStaggerFlip). Default
+// (flipped omitted/false) must reproduce every existing test above unchanged
+// — already confirmed by this file's other tests all still passing — these
+// cases cover flipped=true specifically.
+
+test('isRaised: flipped=true inverts every parity, independent of cols', () => {
+  for (let col = 0; col < 8; col++) {
+    assert.equal(isRaised(col, 8, true), !isRaised(col, 8, false));
+  }
+});
+
+test('peyoteCellOriginMm: flipped=true inverts the raised/recessed offset for the same cell', () => {
+  const normal = peyoteCellOriginMm(0, 2, BEAD_W, BEAD_H, COLS);
+  const flipped = peyoteCellOriginMm(0, 2, BEAD_W, BEAD_H, COLS, true);
+  assert.notEqual(normal.yMm, flipped.yMm);
+  assert.equal(normal.xMm, flipped.xMm); // col-driven xMm is unaffected by stagger parity
+});
+
+test('peyoteCellAtPoint: round-trips against peyoteCellOriginMm with flipped=true, same as the unflipped round-trip test', () => {
+  const rows = 6, cols = 7; // odd cols, the case flipped actually matters for
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const origin = peyoteCellOriginMm(row, col, BEAD_W, BEAD_H, cols, true);
+      const point = { xMm: origin.xMm + BEAD_H / 2, yMm: origin.yMm + BEAD_W / 2 };
+      const hit = peyoteCellAtPoint(point.xMm, point.yMm, BEAD_W, BEAD_H, rows, cols, true);
+      assert.deepEqual(hit, { row, col }, `mismatch at row ${row}, col ${col}`);
+    }
+  }
+});
+
+test('peyoteCellAtPointClamped: flipped=true round-trips like the unflipped version', () => {
+  const origin = peyoteCellOriginMm(2, 3, BEAD_W, BEAD_H, 7, true);
+  const point = { xMm: origin.xMm + BEAD_H / 2, yMm: origin.yMm + BEAD_W / 2 };
+  assert.deepEqual(
+    peyoteCellAtPointClamped(point.xMm, point.yMm, BEAD_W, BEAD_H, 6, 7, true),
+    { row: 2, col: 3 }
+  );
+});
+
+test('peyoteCellAtPointUnbounded: flipped=true round-trips like the unflipped version, including negative cells', () => {
+  const origin = peyoteCellOriginMm(-1, -1, BEAD_W, BEAD_H, 7, true);
+  const point = { xMm: origin.xMm + BEAD_H / 2, yMm: origin.yMm + BEAD_W / 2 };
+  assert.deepEqual(peyoteCellAtPointUnbounded(point.xMm, point.yMm, BEAD_W, BEAD_H, 7, true), { row: -1, col: -1 });
+});
+
+test('peyoteNeighbors: flipped=true still returns six geometrically-consistent, symmetric neighbors', () => {
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < 6; col++) {
+      const neighbors = peyoteNeighbors(row, col, 6, true);
+      assert.equal(neighbors.length, 6);
+      assert.equal(new Set(neighbors.map(String)).size, 6);
+      for (const [nRow, nCol] of neighbors) {
+        const back = peyoteNeighbors(nRow, nCol, 6, true).map(String);
+        assert.ok(back.includes(String([row, col])), `(${nRow},${nCol})'s neighbors should include (${row},${col})`);
+      }
+    }
+  }
+});
+
+test('peyoteNeighbors: flipped=true produces a genuinely different adjacency set than flipped=false for the same cell', () => {
+  const unflipped = peyoteNeighbors(3, 2, 7, false).map(String).sort();
+  const flipped = peyoteNeighbors(3, 2, 7, true).map(String).sort();
+  assert.notDeepEqual(flipped, unflipped);
+});

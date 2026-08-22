@@ -148,7 +148,8 @@ export function attachPointerRouter(canvas, viewport, {
       gridParams.beadWidthMm,
       gridParams.beadHeightMm,
       gridParams.rows,
-      gridParams.cols
+      gridParams.cols,
+      gridParams.staggerFlipped
     );
     if (!hit) return false; // stroke exited the grid bounds — no-op, not an error
     const cells = getCells();
@@ -183,14 +184,15 @@ export function attachPointerRouter(canvas, viewport, {
       gridParams.beadWidthMm,
       gridParams.beadHeightMm,
       gridParams.rows,
-      gridParams.cols
+      gridParams.cols,
+      gridParams.staggerFlipped
     );
     if (!hit) return;
     const cells = getCells();
     const tool = getTool();
     let patch;
     if (tool === 'fill') {
-      patch = applyFill(cells, hit.row, hit.col, getColorId(), gridParams.rows, gridParams.cols);
+      patch = applyFill(cells, hit.row, hit.col, getColorId(), gridParams.rows, gridParams.cols, gridParams.staggerFlipped);
     } else if (tool === 'replace') {
       const source = cells.get(cellKey(hit.row, hit.col));
       if (!source) return; // tapped an empty cell — nothing to replace
@@ -217,7 +219,8 @@ export function attachPointerRouter(canvas, viewport, {
       gridParams.beadWidthMm,
       gridParams.beadHeightMm,
       gridParams.rows,
-      gridParams.cols
+      gridParams.cols,
+      gridParams.staggerFlipped
     );
     if (!hit) return;
     const cell = getCells().get(cellKey(hit.row, hit.col));
@@ -235,7 +238,8 @@ export function attachPointerRouter(canvas, viewport, {
       gridParams.beadWidthMm,
       gridParams.beadHeightMm,
       gridParams.rows,
-      gridParams.cols
+      gridParams.cols,
+      gridParams.staggerFlipped
     );
   }
 
@@ -253,7 +257,8 @@ export function attachPointerRouter(canvas, viewport, {
       worldPoint.yMm,
       gridParams.beadWidthMm,
       gridParams.beadHeightMm,
-      gridParams.cols
+      gridParams.cols,
+      gridParams.staggerFlipped
     );
   }
 

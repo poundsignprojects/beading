@@ -69,7 +69,7 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 // false, the fill is drawn edge-to-edge with no inset/stroke, so neighboring
 // beads' colors touch directly rather than leaving a visible line between them.
 export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0, showBeadOutlines = true) {
-  const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
+  const { rows, cols, beadWidthMm, beadHeightMm, staggerFlipped = false } = gridParams;
 
   ctx.fillStyle = BACKGROUND_STYLE;
   ctx.fillRect(0, 0, cssWidth, cssHeight);
@@ -84,7 +84,7 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
 
   for (let row = rowRange.start; row <= rowRange.end; row++) {
     for (let col = colRange.start; col <= colRange.end; col++) {
-      const originMm = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols);
+      const originMm = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols, staggerFlipped);
       const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
       const bottomRight = worldToScreen(
         originMm.xMm + beadHeightMm,

@@ -24,11 +24,21 @@ function positiveMod2(n) {
 // bug (see CLAUDE.md's Phase Status). `cols` is kept as a parameter purely so
 // every existing caller (which already needs it for other reasons, e.g.
 // bounds-checking) doesn't have to change if this rule ever moves again.
-// peyoteCellAtPoint/peyoteCellAtPointClamped/peyoteCellAtPointUnbounded and
-// peyoteNeighbors (below) all encode the same parity via this same helper and
-// must stay in lockstep with it.
-export function isRaised(col, cols) {
-  return positiveMod2(col) === 1;
+//
+// `flipped` inverts which parity counts as raised — a per-design constant (see
+// appState.staggerFlipped/design.staggerFlipped), never recomputed from a
+// design's current col count, so it can't reintroduce the exact resize-flip bug
+// this parity rule was written to fix. It exists because an even earlier
+// convention (pinned to the grid's own width — see git history) produced a
+// different stagger for any design with an odd col count than this one does;
+// migrateDesign.js stamps `flipped: true` once, at migration time, for any
+// pre-existing design whose col count is odd, so it keeps rendering exactly as
+// it always did instead of silently changing the moment this file's rule
+// changed out from under it. peyoteCellAtPoint/peyoteCellAtPointClamped/
+// peyoteCellAtPointUnbounded and peyoteNeighbors (below) all encode the same
+// parity via this same helper and must stay in lockstep with it.
+export function isRaised(col, cols, flipped = false) {
+  return positiveMod2(col) === (flipped ? 0 : 1);
 }
 
 // Passes are staggered from their neighbors by half a bead-width — peyote's
@@ -45,8 +55,8 @@ export function isRaised(col, cols) {
 // is the grid's own total beads-per-pass count, needed only to resolve which
 // parity is raised (see isRaised above) — it does not bound col the way
 // peyoteCellAtPoint's `cols` does.
-export function peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols) {
-  const rowOffsetMm = isRaised(col, cols) ? 0 : beadWidthMm / 2;
+export function peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols, flipped = false) {
+  const rowOffsetMm = isRaised(col, cols, flipped) ? 0 : beadWidthMm / 2;
   return {
     xMm: col * beadHeightMm,
     yMm: row * beadWidthMm + rowOffsetMm,
@@ -67,10 +77,10 @@ export function generatePeyoteGrid({ rows, cols, beadWidthMm, beadHeightMm }) {
 // so col must be resolved before row can be. Returns null outside the grid's
 // row/col bounds so callers (draw/erase) can no-op instead of writing an
 // out-of-range cell.
-export function peyoteCellAtPoint(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols) {
+export function peyoteCellAtPoint(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols, flipped = false) {
   const col = Math.floor(xMm / beadHeightMm);
   if (col < 0 || col >= cols) return null;
-  const rowOffsetMm = isRaised(col, cols) ? 0 : beadWidthMm / 2;
+  const rowOffsetMm = isRaised(col, cols, flipped) ? 0 : beadWidthMm / 2;
   const row = Math.floor((yMm - rowOffsetMm) / beadWidthMm);
   if (row < 0 || row >= rows) return null;
   return { row, col };
@@ -80,9 +90,9 @@ export function peyoteCellAtPoint(xMm, yMm, beadWidthMm, beadHeightMm, rows, col
 // returning null outside those bounds — used by marquee-selection dragging, where
 // the pointer briefly leaving the canvas/grid edge should still track the nearest
 // in-bounds cell rather than freezing the selection.
-export function peyoteCellAtPointClamped(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols) {
+export function peyoteCellAtPointClamped(xMm, yMm, beadWidthMm, beadHeightMm, rows, cols, flipped = false) {
   const col = Math.max(0, Math.min(cols - 1, Math.floor(xMm / beadHeightMm)));
-  const rowOffsetMm = isRaised(col, cols) ? 0 : beadWidthMm / 2;
+  const rowOffsetMm = isRaised(col, cols, flipped) ? 0 : beadWidthMm / 2;
   const row = Math.max(0, Math.min(rows - 1, Math.floor((yMm - rowOffsetMm) / beadWidthMm)));
   return { row, col };
 }
@@ -96,9 +106,9 @@ export function peyoteCellAtPointClamped(xMm, yMm, beadWidthMm, beadHeightMm, ro
 // time, so the hit-test itself has nothing to protect by clamping. `cols` is still
 // needed here (despite there being no bounds check) purely to resolve which parity
 // is raised — see isRaised above.
-export function peyoteCellAtPointUnbounded(xMm, yMm, beadWidthMm, beadHeightMm, cols) {
+export function peyoteCellAtPointUnbounded(xMm, yMm, beadWidthMm, beadHeightMm, cols, flipped = false) {
   const col = Math.floor(xMm / beadHeightMm);
-  const rowOffsetMm = isRaised(col, cols) ? 0 : beadWidthMm / 2;
+  const rowOffsetMm = isRaised(col, cols, flipped) ? 0 : beadWidthMm / 2;
   const row = Math.floor((yMm - rowOffsetMm) / beadWidthMm);
   return { row, col };
 }
@@ -115,8 +125,8 @@ export function peyoteCellAtPointUnbounded(xMm, yMm, beadWidthMm, beadHeightMm, 
 // resolving which parity is raised. Does not clamp to grid bounds — callers
 // filter out-of-range results themselves (flood fill already needs a bounds
 // check per neighbor to stop the search).
-export function peyoteNeighbors(row, col, cols) {
-  const [a, b] = isRaised(col, cols) ? [row - 1, row] : [row, row + 1];
+export function peyoteNeighbors(row, col, cols, flipped = false) {
+  const [a, b] = isRaised(col, cols, flipped) ? [row - 1, row] : [row, row + 1];
   return [
     [row - 1, col], [row + 1, col],
     [a, col - 1], [b, col - 1],

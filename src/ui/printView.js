@@ -181,7 +181,7 @@ export function mountPrintView(appState, hooks) {
   const referenceImageToggleButton = document.getElementById('print-reference-image-toggle');
 
   const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? 'Untitled Pattern';
-  const chart = buildWordChart(appState.cells, appState.rows, appState.cols);
+  const chart = buildWordChart(appState.cells, appState.rows, appState.cols, appState.staggerFlipped);
   const codes = assignColorCodes(chart.colorCounts);
 
   // Rendered once at mount, not per renderContent() call — appState.cells can't

@@ -25,6 +25,14 @@ export function createAppState() {
     beadTypeKey: 'delica11',
     rows: 20,
     cols: 20,
+    // Per-design constant deciding which parity of column renders "raised" vs
+    // "recessed" (see src/grid/peyote.js's isRaised) — set once, at migration
+    // or creation time, and never recomputed from a design's current column
+    // count, so it can't reintroduce the resize-stagger-flip bug that rule was
+    // written to fix. false reproduces this file's own default stagger; true
+    // restores the exact look a pre-existing odd-column design always had,
+    // before this constant existed (see migrateDesign.js's migrateStaggerFlip).
+    staggerFlipped: false,
     units: 'mm',
     showBeadOutlines: true, // whether drawPeyoteGrid strokes a bead outline or fills edge-to-edge; mirrors `units`' preference-backed-default-then-session-toggle pattern
     gridParams: null,

@@ -51,6 +51,10 @@ export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
     createdAt: now,
     updatedAt: now,
     axisVersion: 2,
+    // No legacy convention to match — a brand-new design has never rendered
+    // under any other stagger rule (see src/grid/peyote.js's isRaised /
+    // migrateDesign.js's migrateStaggerFlip).
+    staggerFlipped: false,
   };
   await put(db, STORE, design);
   return design;
@@ -63,8 +67,10 @@ export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
 // leaving the source design completely untouched). Same shape/defaults as
 // createDesign/duplicateDesign (fresh id, order = maxOrder + 1, thumbnailDataUrl:
 // null) but takes shapeEntries/colorways/activeColorwayId directly rather than
-// starting empty or copying another record verbatim.
-export async function createConvertedDesign(db, { name, beadTypeKey, rows, cols, shapeEntries, colorways, activeColorwayId }) {
+// starting empty or copying another record verbatim. staggerFlipped is passed
+// through from the source design (same shape, so it must render with the same
+// stagger convention as what's being converted), not defaulted to false.
+export async function createConvertedDesign(db, { name, beadTypeKey, rows, cols, staggerFlipped = false, shapeEntries, colorways, activeColorwayId }) {
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
@@ -74,6 +80,7 @@ export async function createConvertedDesign(db, { name, beadTypeKey, rows, cols,
     beadTypeKey,
     rows,
     cols,
+    staggerFlipped,
     shapeEntries,
     colorways,
     activeColorwayId,

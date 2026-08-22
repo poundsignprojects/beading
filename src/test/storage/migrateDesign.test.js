@@ -58,13 +58,15 @@ test('migrateDesign: a pre-refactor record (no axisVersion, already has colorway
   assert.deepEqual(migrated.shapeEntries, ['0,0', '5,2', '19,6']);
   assert.deepEqual(migrated.colorways[0].colorEntries, [['0,0', 'red'], ['5,2', 'blue']]);
   assert.equal(migrated.axisVersion, 2);
+  assert.equal(migrated.staggerFlipped, true); // post-swap cols is 7, odd
 });
 
-test('migrateDesign: a record already at axisVersion 2 passes through with rows/cols/keys untouched', () => {
+test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlipped set) passes through with rows/cols/keys/flip untouched', () => {
   const record = {
     id: 'd5',
     rows: 20,
     cols: 7,
+    staggerFlipped: true,
     shapeEntries: ['0,0', '5,2'],
     colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
     activeColorwayId: 'cw1',
@@ -74,7 +76,7 @@ test('migrateDesign: a record already at axisVersion 2 passes through with rows/
   assert.deepEqual(migrated, record);
 });
 
-test('migrateDesign: running the migration twice on the same pre-refactor record is idempotent (no double-swap)', () => {
+test('migrateDesign: running the migration twice on the same pre-refactor record is idempotent (no double-swap, no re-flip)', () => {
   const record = {
     id: 'd6',
     rows: 7,
@@ -89,9 +91,10 @@ test('migrateDesign: running the migration twice on the same pre-refactor record
   assert.equal(twice.rows, 20);
   assert.equal(twice.cols, 7);
   assert.deepEqual(twice.shapeEntries, ['4,3']);
+  assert.equal(twice.staggerFlipped, true); // post-swap cols is 7, odd
 });
 
-test('migrateDesign: a legacy cellEntries record (no colorways at all) gets both the colorway wrap and the axis swap applied, in that order', () => {
+test('migrateDesign: a legacy cellEntries record (no colorways at all) gets the colorway wrap, axis swap, and stagger flip all applied, in that order', () => {
   const record = {
     id: 'd7',
     name: 'Legacy asymmetric',
@@ -104,11 +107,65 @@ test('migrateDesign: a legacy cellEntries record (no colorways at all) gets both
   const migrated = migrateDesign(record);
 
   // Legacy-wrap runs first (shapeEntries/colorways now exist), then the axis
-  // swap operates on the now-current shapeEntries/colorways shape.
+  // swap operates on the now-current shapeEntries/colorways shape, then the
+  // stagger flip is computed from the post-swap cols value.
   assert.equal(migrated.rows, 20);
   assert.equal(migrated.cols, 7);
   assert.deepEqual(migrated.shapeEntries, ['0,0', '5,2']);
   assert.deepEqual(migrated.colorways[0].colorEntries, [['0,0', 'red'], ['5,2', 'blue']]);
   assert.equal(migrated.axisVersion, 2);
   assert.equal(migrated.cellEntries, undefined);
+  assert.equal(migrated.staggerFlipped, true); // post-swap cols is 7, odd
+});
+
+// migrateStaggerFlip specifically: gated on staggerFlipped's own presence, not
+// axisVersion — a record can already be axisVersion: 2 (migrated by a session
+// before this step existed) with no staggerFlipped value at all. Value is
+// derived from the post-axis-swap cols count: odd needs the flip (to match
+// the pre-existing rendering), even needs none.
+
+test('migrateDesign: a record already at axisVersion 2 but missing staggerFlipped gets it computed from the (unswapped, already-correct) cols value — even cols, no flip', () => {
+  const record = {
+    id: 'd8',
+    rows: 5,
+    cols: 8, // even — no flip needed
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.rows, 5); // axisVersion already 2 — untouched
+  assert.equal(migrated.cols, 8);
+  assert.equal(migrated.staggerFlipped, false);
+});
+
+test('migrateDesign: a record already at axisVersion 2 but missing staggerFlipped gets it computed — odd cols, flip needed', () => {
+  const record = {
+    id: 'd9',
+    rows: 5,
+    cols: 9, // odd — flip needed
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.staggerFlipped, true);
+});
+
+test('migrateDesign: staggerFlipped explicitly false is left alone, not recomputed', () => {
+  const record = {
+    id: 'd10',
+    rows: 5,
+    cols: 9, // odd, but staggerFlipped is already explicitly set — must not be overridden
+    staggerFlipped: false,
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.staggerFlipped, false);
+  assert.deepEqual(migrated, record); // fully migrated already — passes through untouched
 });

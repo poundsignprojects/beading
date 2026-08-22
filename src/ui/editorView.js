@@ -462,6 +462,11 @@ export function mountEditorView(appState, hooks) {
       beadWidthMm: bead.widthMm,
       beadHeightMm: bead.heightMm,
     });
+    // Not part of generatePeyoteGrid's own signature (it only computes the
+    // bounding box, which doesn't depend on stagger parity) — stashed onto
+    // gridParams here purely so every renderer/hit-tester that already reads
+    // gridParams can pick it up without a separate parameter of its own.
+    appState.gridParams.staggerFlipped = appState.staggerFlipped;
   }
 
   // Draws the grid for the design as currently loaded into appState (rows/cols/
