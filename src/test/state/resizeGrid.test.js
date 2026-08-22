@@ -1,6 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resizeCells, countCellsLost, resizeKeyList, resizeColorEntries } from '../../state/resizeGrid.js';
+import {
+  resizeCells, countCellsLost, resizeKeyList, resizeColorEntries,
+  boundingBoxForCells, cropCells, cropColorEntries,
+} from '../../state/resizeGrid.js';
 
 function makeCells(entries) {
   return new Map(entries.map(([row, col, colorId]) => [`${row},${col}`, { colorId }]));
@@ -105,4 +108,49 @@ test('resizeColorEntries: drops entries that fall outside the new bounds, same c
     5, 5, 3, 3, 'start', 'start'
   );
   assert.equal(colorEntries.length, resized.size);
+});
+
+test('boundingBoxForCells: returns null for an empty design', () => {
+  assert.equal(boundingBoxForCells(new Map()), null);
+  assert.equal(boundingBoxForCells([]), null);
+});
+
+test('boundingBoxForCells: a single cell is its own 1x1 box', () => {
+  const box = boundingBoxForCells(makeCells([[3, 4, 'a']]));
+  assert.deepEqual(box, { minRow: 3, maxRow: 3, minCol: 4, maxCol: 4, rows: 1, cols: 1 });
+});
+
+test('boundingBoxForCells: spans the min/max of every occupied cell, ignoring gaps between them', () => {
+  const box = boundingBoxForCells(makeCells([[2, 5, 'a'], [7, 1, 'b'], [4, 9, 'c']]));
+  assert.deepEqual(box, { minRow: 2, maxRow: 7, minCol: 1, maxCol: 9, rows: 6, cols: 9 });
+});
+
+test('boundingBoxForCells: accepts a plain key array (not just a Map)', () => {
+  const box = boundingBoxForCells(['1,1', '3,3']);
+  assert.deepEqual(box, { minRow: 1, maxRow: 3, minCol: 1, maxCol: 3, rows: 3, cols: 3 });
+});
+
+test('cropCells: shifts the box origin to (0,0) and never drops a cell', () => {
+  const cells = makeCells([[2, 5, 'a'], [7, 1, 'b'], [4, 9, 'c']]);
+  const box = boundingBoxForCells(cells);
+  const cropped = cropCells(cells, box);
+  assert.equal(cropped.size, cells.size);
+  assert.deepEqual(keysOf(cropped), ['0,4', '2,8', '5,0']);
+  assert.equal(cropped.get('0,4').colorId, 'a');
+});
+
+test('cropCells: a design already touching every edge is unchanged by cropping', () => {
+  const cells = makeCells([[0, 0, 'a'], [0, 4, 'b'], [4, 0, 'c'], [4, 4, 'd'], [2, 2, 'e']]);
+  const box = boundingBoxForCells(cells);
+  assert.deepEqual(box, { minRow: 0, maxRow: 4, minCol: 0, maxCol: 4, rows: 5, cols: 5 });
+  const cropped = cropCells(cells, box);
+  assert.deepEqual(keysOf(cropped), keysOf(cells));
+});
+
+test('cropColorEntries: mirrors cropCells for the equivalent colorId pairs', () => {
+  const cells = makeCells([[2, 5, 'a'], [7, 1, 'b'], [4, 9, 'c']]);
+  const box = boundingBoxForCells(cells);
+  const cropped = cropCells(cells, box);
+  const colorEntries = cropColorEntries([['2,5', 'a'], ['7,1', 'b'], ['4,9', 'c']], box);
+  assert.deepEqual(colorEntries.sort(), [...cropped.entries()].map(([key, value]) => [key, value.colorId]).sort());
 });

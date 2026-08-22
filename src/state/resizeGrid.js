@@ -19,6 +19,21 @@ function remapKey(key, rowOffset, colOffset) {
   return { row: row + rowOffset, col: col + colOffset };
 }
 
+// Remaps [key, value] pairs by an explicit row/col offset, dropping any pair whose
+// remapped key lands outside the new [0,newRows)x[0,newCols) bounds. The shared
+// primitive underneath both the anchor-based remap (below) and the bounding-box
+// crop (further below) — the only difference between them is how the offset is
+// derived.
+function remapEntriesByOffset(entries, rowOffset, colOffset, newRows, newCols) {
+  const result = [];
+  for (const [key, value] of entries) {
+    const { row, col } = remapKey(key, rowOffset, colOffset);
+    if (row < 0 || row >= newRows || col < 0 || col >= newCols) continue;
+    result.push([`${row},${col}`, value]);
+  }
+  return result;
+}
+
 // Generic remap over [key, value] pairs — shared by resizeCells (a Map, iterated as
 // entries), resizeKeyList (a plain key array, value ignored), and resizeColorEntries
 // (a design record's persisted [cellKey, colorId] pairs). Drops any pair whose
@@ -27,13 +42,7 @@ function remapKey(key, rowOffset, colOffset) {
 function remapEntries(entries, oldRows, oldCols, newRows, newCols, rowAnchor, colAnchor) {
   const rowOffset = axisOffset(oldRows, newRows, rowAnchor);
   const colOffset = axisOffset(oldCols, newCols, colAnchor);
-  const result = [];
-  for (const [key, value] of entries) {
-    const { row, col } = remapKey(key, rowOffset, colOffset);
-    if (row < 0 || row >= newRows || col < 0 || col >= newCols) continue;
-    result.push([`${row},${col}`, value]);
-  }
-  return result;
+  return remapEntriesByOffset(entries, rowOffset, colOffset, newRows, newCols);
 }
 
 export function resizeCells(cells, oldRows, oldCols, newRows, newCols, rowAnchor, colAnchor) {
@@ -60,4 +69,38 @@ export function resizeKeyList(keys, oldRows, oldCols, newRows, newCols, rowAncho
 // its cells would have, whether or not it's the currently active one.
 export function resizeColorEntries(colorEntries, oldRows, oldCols, newRows, newCols, rowAnchor, colAnchor) {
   return remapEntries(colorEntries, oldRows, oldCols, newRows, newCols, rowAnchor, colAnchor);
+}
+
+// The smallest bounding box containing every occupied cell — the basis for "Crop
+// to Design". `cells` is anything iterable as "row,col" keys (a Map's .keys(), or
+// a plain key array). Returns null for an empty design — there's nothing to crop
+// to, distinct from a design that's already cropped as tight as it can be.
+export function boundingBoxForCells(cells) {
+  let minRow = Infinity;
+  let maxRow = -Infinity;
+  let minCol = Infinity;
+  let maxCol = -Infinity;
+  const keys = cells instanceof Map ? cells.keys() : cells;
+  for (const key of keys) {
+    const [row, col] = key.split(',').map(Number);
+    if (row < minRow) minRow = row;
+    if (row > maxRow) maxRow = row;
+    if (col < minCol) minCol = col;
+    if (col > maxCol) maxCol = col;
+  }
+  if (minRow === Infinity) return null;
+  return { minRow, maxRow, minCol, maxCol, rows: maxRow - minRow + 1, cols: maxCol - minCol + 1 };
+}
+
+// Crops a cells Map to a bounding box from boundingBoxForCells. Unlike a manual
+// resize, this never drops a cell — the box is derived from the cells themselves,
+// so every one of them is guaranteed to land inside [0,box.rows)x[0,box.cols).
+export function cropCells(cells, box) {
+  return new Map(remapEntriesByOffset(cells, -box.minRow, -box.minCol, box.rows, box.cols));
+}
+
+// Crops one colorway's persisted [cellKey, colorId] pairs to the same bounding box
+// applied to appState.cells — mirrors resizeColorEntries' relationship to resizeCells.
+export function cropColorEntries(colorEntries, box) {
+  return remapEntriesByOffset(colorEntries, -box.minRow, -box.minCol, box.rows, box.cols);
 }

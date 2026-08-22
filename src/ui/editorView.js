@@ -70,7 +70,7 @@ import { screenToWorld } from '../render/viewport.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
 import { pushPatch, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
-import { resizeCells, resizeColorEntries } from '../state/resizeGrid.js';
+import { resizeCells, resizeColorEntries, boundingBoxForCells, cropCells, cropColorEntries } from '../state/resizeGrid.js';
 import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from '../state/colorwaySync.js';
 import { defaultPhotoPlacement } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
@@ -101,6 +101,7 @@ export function mountEditorView(appState, hooks) {
   const rowsInput = document.getElementById('rows');
   const colsInput = document.getElementById('cols');
   const generateButton = document.getElementById('generate');
+  const cropToDesignButton = document.getElementById('crop-to-design');
   const unitToggleButton = document.getElementById('unit-toggle');
   const outlineToggleButton = document.getElementById('outline-toggle');
   const sizeReadout = document.getElementById('size-readout');
@@ -600,6 +601,50 @@ export function mountEditorView(appState, hooks) {
       return;
     }
     applyResize(newRows, newCols, result.rowAnchor, result.colAnchor);
+  }
+
+  // Shrinks the grid to the smallest bounding box containing every placed bead,
+  // trimming only genuinely empty border rows/cols. Unlike a manual resize this
+  // never loses a bead — the box is derived from the beads themselves — so there's
+  // nothing to confirm, no anchor to choose, and no resize dialog.
+  function applyCrop() {
+    const box = boundingBoxForCells(appState.cells);
+    if (!box) {
+      window.alert('No beads placed yet — nothing to crop to.');
+      return;
+    }
+    if (box.minRow === 0 && box.minCol === 0 && box.rows === appState.rows && box.cols === appState.cols) {
+      window.alert('Already cropped tightly to the design.');
+      return;
+    }
+    appState.cells = cropCells(appState.cells, box);
+    // Every colorway's stored colors get the identical crop offset applied, not
+    // just the active cells Map — same reasoning as applyResize above.
+    appState.colorways = appState.colorways.map((cw) => ({
+      ...cw,
+      colorEntries: cropColorEntries(cw.colorEntries, box),
+    }));
+    appState.rows = box.rows;
+    appState.cols = box.cols;
+    appState.selection = null; // coordinates are meaningless against the new geometry
+    appState.pastePreview = null; // coordinates meaningless against the new geometry
+    if (appState.tool === 'paste') setTool('draw');
+    rebuildGridParams();
+    clearHistory(appState.history); // old patches reference now-invalid coordinates
+    updateHistoryButtons();
+    updateSelectionButtons();
+    updatePasteControls();
+    fitViewportToGrid();
+    updateSizeReadout();
+    renderColorPalette();
+    rowsInput.value = String(appState.rows);
+    colsInput.value = String(appState.cols);
+    scheduleRedraw();
+    // Deliberately not written back as the new defaultRows/defaultCols preference
+    // (unlike applyResize/regenerateGrid) — a crop's size is a byproduct of this
+    // one design's content, not a deliberate choice worth seeding future designs
+    // with.
+    hooks.onImmediateSave();
   }
 
   // Fold whatever's currently drawn back into the colorway list before leaving it,
@@ -1219,6 +1264,7 @@ export function mountEditorView(appState, hooks) {
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   stitchTypeSelect.addEventListener('change', handleStitchTypeChange);
   generateButton.addEventListener('click', handleResizeClick);
+  cropToDesignButton.addEventListener('click', applyCrop);
   resetViewButton.addEventListener('click', handleResetView);
   unitToggleButton.addEventListener('click', handleUnitToggle);
   outlineToggleButton.addEventListener('click', handleOutlineToggle);
@@ -1330,6 +1376,7 @@ export function mountEditorView(appState, hooks) {
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     stitchTypeSelect.removeEventListener('change', handleStitchTypeChange);
     generateButton.removeEventListener('click', handleResizeClick);
+    cropToDesignButton.removeEventListener('click', applyCrop);
     resetViewButton.removeEventListener('click', handleResetView);
     unitToggleButton.removeEventListener('click', handleUnitToggle);
     outlineToggleButton.removeEventListener('click', handleOutlineToggle);
