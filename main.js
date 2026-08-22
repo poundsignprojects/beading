@@ -575,6 +575,23 @@ async function attemptPreMigrationDriveBackup() {
   );
 }
 
+// Shows the axis-migration-review banner immediately at boot if it's still
+// pending — independent of Drive connection state or whether this device has
+// ever backed up at all. The underlying concern ("go check your patterns
+// still look right") applies to every user whose data just got migrated, not
+// just ones with a Drive backup to protect — a device with no Drive
+// relationship has nothing pushBackupIfConnected() would ever protect, so
+// without this it would never see the notice at all. Drive-specific
+// protection (holding the automatic design-close push) still lives in
+// pushBackupIfConnected() and stays gated on deviceName there, since that
+// part genuinely has nothing to do until a Drive push would otherwise happen.
+async function showAxisMigrationReviewBannerIfNeeded() {
+  const meta = await getDriveSyncMeta(appState.db);
+  if (meta.pendingAxisMigrationReview) {
+    showAxisMigrationReviewBanner(async () => backupController.open());
+  }
+}
+
 // Shows the reconnect banner immediately if this device has backed up before
 // but isn't connected right now — no silent reconnect attempt first (see
 // attemptPreMigrationDriveBackup's comment on why: a failed silent attempt
@@ -650,6 +667,10 @@ async function boot() {
   showLibraryView();
   libraryController.renderList(appState.designs);
 
+  // Axis-migration review takes priority — driveReconnectBanner.js only ever
+  // shows one banner at a time, so if this one shows, the reconnect banner
+  // below correctly no-ops instead of replacing it.
+  await showAxisMigrationReviewBannerIfNeeded();
   showReconnectBannerIfNeeded();
   retryPendingBackupIfAny();
 }
