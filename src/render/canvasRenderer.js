@@ -1,4 +1,4 @@
-import { peyoteCellOriginMm } from '../grid/peyote.js';
+import { resolveGridEngine } from '../grid/gridEngine.js';
 import { worldToScreen, screenToWorld } from './viewport.js';
 
 const CELL_STROKE_STYLE = '#000';
@@ -68,8 +68,12 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 // showBeadOutlines toggles the stroked outline around each occupied cell — when
 // false, the fill is drawn edge-to-edge with no inset/stroke, so neighboring
 // beads' colors touch directly rather than leaving a visible line between them.
-export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0, showBeadOutlines = true) {
-  const { rows, cols, beadWidthMm, beadHeightMm, staggerFlipped = false } = gridParams;
+// The grid engine (peyote vs. square — see gridEngine.js) is resolved once from
+// gridParams.stitchType; this module stays ignorant of what distinguishes them
+// beyond that one lookup.
+export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0, showBeadOutlines = true) {
+  const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
+  const engine = resolveGridEngine(gridParams.stitchType);
 
   ctx.fillStyle = BACKGROUND_STYLE;
   ctx.fillRect(0, 0, cssWidth, cssHeight);
@@ -84,7 +88,7 @@ export function drawPeyoteGrid(ctx, cssWidth, cssHeight, gridParams, viewport, c
 
   for (let row = rowRange.start; row <= rowRange.end; row++) {
     for (let col = colRange.start; col <= colRange.end; col++) {
-      const originMm = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols, staggerFlipped);
+      const originMm = engine.cellOrigin(row, col, gridParams);
       const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
       const bottomRight = worldToScreen(
         originMm.xMm + beadHeightMm,

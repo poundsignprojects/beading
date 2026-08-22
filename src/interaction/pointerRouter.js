@@ -1,5 +1,5 @@
 import { screenToWorld } from '../render/viewport.js';
-import { peyoteCellAtPoint, peyoteCellAtPointClamped, peyoteCellAtPointUnbounded } from '../grid/peyote.js';
+import { resolveGridEngine } from '../grid/gridEngine.js';
 import { cellKey } from '../state/cellStore.js';
 import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
@@ -142,15 +142,8 @@ export function attachPointerRouter(canvas, viewport, {
   function applyToolAtWorld(worldPoint, strokePatch) {
     const gridParams = getGridParams();
     if (!gridParams) return false;
-    const hit = peyoteCellAtPoint(
-      worldPoint.xMm,
-      worldPoint.yMm,
-      gridParams.beadWidthMm,
-      gridParams.beadHeightMm,
-      gridParams.rows,
-      gridParams.cols,
-      gridParams.staggerFlipped
-    );
+    const engine = resolveGridEngine(gridParams.stitchType);
+    const hit = engine.cellAtPoint(worldPoint.xMm, worldPoint.yMm, gridParams);
     if (!hit) return false; // stroke exited the grid bounds — no-op, not an error
     const cells = getCells();
     const result = getTool() === 'erase'
@@ -178,21 +171,14 @@ export function attachPointerRouter(canvas, viewport, {
     const worldPoint = screenToWorld(point.x, point.y, viewport);
     const gridParams = getGridParams();
     if (!gridParams) return;
-    const hit = peyoteCellAtPoint(
-      worldPoint.xMm,
-      worldPoint.yMm,
-      gridParams.beadWidthMm,
-      gridParams.beadHeightMm,
-      gridParams.rows,
-      gridParams.cols,
-      gridParams.staggerFlipped
-    );
+    const engine = resolveGridEngine(gridParams.stitchType);
+    const hit = engine.cellAtPoint(worldPoint.xMm, worldPoint.yMm, gridParams);
     if (!hit) return;
     const cells = getCells();
     const tool = getTool();
     let patch;
     if (tool === 'fill') {
-      patch = applyFill(cells, hit.row, hit.col, getColorId(), gridParams.rows, gridParams.cols, gridParams.staggerFlipped);
+      patch = applyFill(cells, hit.row, hit.col, getColorId(), gridParams.rows, gridParams.cols, (r, c) => engine.neighbors(r, c, gridParams));
     } else if (tool === 'replace') {
       const source = cells.get(cellKey(hit.row, hit.col));
       if (!source) return; // tapped an empty cell — nothing to replace
@@ -213,15 +199,8 @@ export function attachPointerRouter(canvas, viewport, {
     const worldPoint = screenToWorld(point.x, point.y, viewport);
     const gridParams = getGridParams();
     if (!gridParams) return;
-    const hit = peyoteCellAtPoint(
-      worldPoint.xMm,
-      worldPoint.yMm,
-      gridParams.beadWidthMm,
-      gridParams.beadHeightMm,
-      gridParams.rows,
-      gridParams.cols,
-      gridParams.staggerFlipped
-    );
+    const engine = resolveGridEngine(gridParams.stitchType);
+    const hit = engine.cellAtPoint(worldPoint.xMm, worldPoint.yMm, gridParams);
     if (!hit) return;
     const cell = getCells().get(cellKey(hit.row, hit.col));
     if (!cell || cell.colorId == null) return;
@@ -232,15 +211,8 @@ export function attachPointerRouter(canvas, viewport, {
     const gridParams = getGridParams();
     if (!gridParams) return null;
     const worldPoint = screenToWorld(point.x, point.y, viewport);
-    return peyoteCellAtPointClamped(
-      worldPoint.xMm,
-      worldPoint.yMm,
-      gridParams.beadWidthMm,
-      gridParams.beadHeightMm,
-      gridParams.rows,
-      gridParams.cols,
-      gridParams.staggerFlipped
-    );
+    const engine = resolveGridEngine(gridParams.stitchType);
+    return engine.cellAtPointClamped(worldPoint.xMm, worldPoint.yMm, gridParams);
   }
 
   // Unlike clampedHit (used for selection, which only ever marks cells that
@@ -252,14 +224,8 @@ export function attachPointerRouter(canvas, viewport, {
     const gridParams = getGridParams();
     if (!gridParams) return null;
     const worldPoint = screenToWorld(point.x, point.y, viewport);
-    return peyoteCellAtPointUnbounded(
-      worldPoint.xMm,
-      worldPoint.yMm,
-      gridParams.beadWidthMm,
-      gridParams.beadHeightMm,
-      gridParams.cols,
-      gridParams.staggerFlipped
-    );
+    const engine = resolveGridEngine(gridParams.stitchType);
+    return engine.cellAtPointUnbounded(worldPoint.xMm, worldPoint.yMm, gridParams);
   }
 
   // A plain tap (pointerdown -> pointerup with no movement) that lands outside the

@@ -112,6 +112,7 @@ test('buildWordChart: row 0 (the foundation) prints as its own single, unsplit l
   assert.deepEqual(chart.rows[0], {
     entryIndex: 0,
     runs: [{ colorId: 'red', count: 3 }],
+    rowLabel: 'Row 1 & 2',
   });
 });
 
@@ -136,10 +137,12 @@ test('buildWordChart: a row past the foundation splits into a raised-level half-
   assert.deepEqual(chart.rows[1], {
     entryIndex: 1,
     runs: [{ colorId: 'B', count: 2 }],
+    rowLabel: 'Row 3',
   });
   assert.deepEqual(chart.rows[2], {
     entryIndex: 2,
     runs: [{ colorId: 'A', count: 2 }],
+    rowLabel: 'Row 4',
   });
 });
 
@@ -187,7 +190,7 @@ test('buildWordChart: a single-physical-row design (rows: 1) produces exactly on
   setCell(cells, 0, 0, 'red');
   const chart = buildWordChart(cells, 1, 1);
   assert.equal(chart.rows.length, 1);
-  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 1 }] });
+  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 1 }], rowLabel: 'Row 1 & 2' });
 });
 
 test('buildWordChart: 10-tall x 4-wide regression fixture — foundation alone, then each later row split raised/non-raised', () => {
@@ -217,13 +220,14 @@ test('buildWordChart: 10-tall x 4-wide regression fixture — foundation alone, 
       { colorId: 'A', count: 1 },
       { colorId: 'B', count: 1 },
     ],
+    rowLabel: 'Row 1 & 2',
   });
   // Row 1 (chart.rows[1] & [2]): raised (col 1,3) is B,B; non-raised (col 0,2) is A,A.
-  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'B', count: 2 }] });
-  assert.deepEqual(chart.rows[2], { entryIndex: 2, runs: [{ colorId: 'A', count: 2 }] });
+  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'B', count: 2 }], rowLabel: 'Row 3' });
+  assert.deepEqual(chart.rows[2], { entryIndex: 2, runs: [{ colorId: 'A', count: 2 }], rowLabel: 'Row 4' });
   // Row 9, the last one (chart.rows[17] & [18]), follows the identical pattern.
-  assert.deepEqual(chart.rows[17], { entryIndex: 17, runs: [{ colorId: 'B', count: 2 }] });
-  assert.deepEqual(chart.rows[18], { entryIndex: 18, runs: [{ colorId: 'A', count: 2 }] });
+  assert.deepEqual(chart.rows[17], { entryIndex: 17, runs: [{ colorId: 'B', count: 2 }], rowLabel: 'Row 19' });
+  assert.deepEqual(chart.rows[18], { entryIndex: 18, runs: [{ colorId: 'A', count: 2 }], rowLabel: 'Row 20' });
 });
 
 test('isRowReversed: default (startsReversed omitted) matches entryIndex parity — even not reversed, odd reversed', () => {
@@ -286,9 +290,60 @@ test('buildWordChart: flipped=true inverts which half-pass prints first, for the
   setCell(cells, 1, 1, 'Q');
   setCell(cells, 1, 2, 'R');
   setCell(cells, 1, 3, 'S');
-  const unflipped = buildWordChart(cells, 2, 4, false);
-  const flipped = buildWordChart(cells, 2, 4, true);
+  const unflipped = buildWordChart(cells, 2, 4, 'peyote', false);
+  const flipped = buildWordChart(cells, 2, 4, 'peyote', true);
   assert.deepEqual(unflipped.rows[1].runs, [{ colorId: 'Q', count: 1 }, { colorId: 'S', count: 1 }]);
   assert.deepEqual(flipped.rows[1].runs, [{ colorId: 'P', count: 1 }, { colorId: 'R', count: 1 }]);
   assert.deepEqual(flipped.rows[2].runs, unflipped.rows[1].runs);
+});
+
+// Square stitch has no foundation-combining/raised-non-raised splitting
+// structure at all — each physical row is one straight thread pass, so it
+// gets its own dedicated branch inside buildWordChart (see the file's own
+// comment). These fixtures deliberately reuse row/col counts and cell layouts
+// from the peyote tests above where useful, so the difference in output shape
+// is directly attributable to stitchType, not a different fixture.
+
+test('buildWordChart: stitchType "square" produces one line per physical row, not combined/split like peyote', () => {
+  const cells = new Map();
+  for (let col = 0; col < 3; col++) {
+    setCell(cells, 0, col, 'red');
+    setCell(cells, 1, col, 'blue');
+  }
+  const chart = buildWordChart(cells, 2, 3, 'square');
+
+  assert.equal(chart.rows.length, 2); // one line per row, not 1 + 2*(rows-1) like peyote
+  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 3 }], rowLabel: 'Row 1' });
+  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'blue', count: 3 }], rowLabel: 'Row 2' });
+});
+
+test('buildWordChart: stitchType "square" total line count equals rows, unlike peyote\'s 1 + 2*(rows-1)', () => {
+  const cells = new Map();
+  const chart = buildWordChart(cells, 10, 4, 'square');
+  assert.equal(chart.rows.length, 10);
+});
+
+test('buildWordChart: stitchType "square" ignores the flipped param entirely (no raised/non-raised concept to flip)', () => {
+  const cells = new Map();
+  setCell(cells, 1, 0, 'P');
+  setCell(cells, 1, 1, 'Q');
+  setCell(cells, 1, 2, 'R');
+  setCell(cells, 1, 3, 'S');
+  const unflipped = buildWordChart(cells, 2, 4, 'square', false);
+  const flipped = buildWordChart(cells, 2, 4, 'square', true);
+  assert.deepEqual(unflipped, flipped);
+  assert.deepEqual(unflipped.rows[1].runs, [
+    { colorId: 'P', count: 1 },
+    { colorId: 'Q', count: 1 },
+    { colorId: 'R', count: 1 },
+    { colorId: 'S', count: 1 },
+  ]);
+});
+
+test('buildWordChart: stitchType defaults to "peyote" when omitted, matching every pre-square-stitch test above', () => {
+  const cells = new Map();
+  for (let col = 0; col < 3; col++) setCell(cells, 0, col, 'red');
+  const withDefault = buildWordChart(cells, 1, 3);
+  const withExplicit = buildWordChart(cells, 1, 3, 'peyote');
+  assert.deepEqual(withDefault, withExplicit);
 });

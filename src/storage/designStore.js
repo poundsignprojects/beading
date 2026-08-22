@@ -32,7 +32,7 @@ export async function listDesignsSorted(db) {
   return (await listDesignsSortedWithMigrationInfo(db)).designs;
 }
 
-export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
+export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote', rows, cols }) {
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
@@ -41,6 +41,7 @@ export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
     id: generateId(),
     name,
     beadTypeKey,
+    stitchType,
     rows,
     cols,
     shapeEntries: [],
@@ -67,10 +68,13 @@ export async function createDesign(db, { name, beadTypeKey, rows, cols }) {
 // leaving the source design completely untouched). Same shape/defaults as
 // createDesign/duplicateDesign (fresh id, order = maxOrder + 1, thumbnailDataUrl:
 // null) but takes shapeEntries/colorways/activeColorwayId directly rather than
-// starting empty or copying another record verbatim. staggerFlipped is passed
-// through from the source design (same shape, so it must render with the same
-// stagger convention as what's being converted), not defaulted to false.
-export async function createConvertedDesign(db, { name, beadTypeKey, rows, cols, staggerFlipped = false, shapeEntries, colorways, activeColorwayId }) {
+// starting empty or copying another record verbatim. staggerFlipped/stitchType
+// are passed through from the source design by default (same shape, so it must
+// render under the same stagger/stitch convention as what's being converted) —
+// a stitch-type conversion (see .work/feature-square-stitch-plan.md) is the one
+// caller that overrides stitchType explicitly, since that's the one field the
+// conversion is actually changing.
+export async function createConvertedDesign(db, { name, beadTypeKey, stitchType = 'peyote', rows, cols, staggerFlipped = false, shapeEntries, colorways, activeColorwayId }) {
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
@@ -78,6 +82,7 @@ export async function createConvertedDesign(db, { name, beadTypeKey, rows, cols,
     id: generateId(),
     name,
     beadTypeKey,
+    stitchType,
     rows,
     cols,
     staggerFlipped,

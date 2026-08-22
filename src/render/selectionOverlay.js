@@ -1,4 +1,4 @@
-import { peyoteCellOriginMm } from '../grid/peyote.js';
+import { resolveGridEngine } from '../grid/gridEngine.js';
 import { worldToScreen } from './viewport.js';
 
 const SELECTION_STROKE_STYLE = '#2c7be5';
@@ -7,15 +7,16 @@ const SELECTION_LINE_WIDTH_PX = 2;
 const SELECTION_DASH = [6, 4];
 
 // Draws the marquee selection rectangle over the grid, in world-mm space via the
-// same viewport transform as the grid itself — reuses peyoteCellOriginMm directly
-// rather than needing a new grid-math helper, since the box's world-space corners
-// are just two ordinary cell origins plus one cell's extent.
+// same viewport transform as the grid itself — reuses the resolved grid engine's
+// cellOrigin directly rather than needing a new grid-math helper, since the box's
+// world-space corners are just two ordinary cell origins plus one cell's extent.
 export function drawSelectionOverlay(ctx, viewport, gridParams, selection) {
   if (!selection) return;
-  const { cols, beadWidthMm, beadHeightMm, staggerFlipped = false } = gridParams;
+  const { beadWidthMm, beadHeightMm } = gridParams;
+  const engine = resolveGridEngine(gridParams.stitchType);
   const { rowStart, rowEnd, colStart, colEnd } = selection;
-  const topLeftMm = peyoteCellOriginMm(rowStart, colStart, beadWidthMm, beadHeightMm, cols, staggerFlipped);
-  const bottomRightMm = peyoteCellOriginMm(rowEnd, colEnd, beadWidthMm, beadHeightMm, cols, staggerFlipped);
+  const topLeftMm = engine.cellOrigin(rowStart, colStart, gridParams);
+  const bottomRightMm = engine.cellOrigin(rowEnd, colEnd, gridParams);
   const topLeft = worldToScreen(topLeftMm.xMm, topLeftMm.yMm, viewport);
   // bottomRight uses the *far* corner of the end cell, not its origin — add one full
   // cell's extent so the box encloses the last row/col rather than stopping at its start.

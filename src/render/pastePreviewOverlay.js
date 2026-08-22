@@ -1,4 +1,4 @@
-import { peyoteCellOriginMm } from '../grid/peyote.js';
+import { resolveGridEngine } from '../grid/gridEngine.js';
 import { worldToScreen } from './viewport.js';
 import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
 
@@ -13,13 +13,14 @@ const PASTE_PREVIEW_DASH = [4, 3];
 // same corner math selectionOverlay.js already uses for a selection rectangle.
 export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pastePreview, resolveColor) {
   if (!clipboard || !pastePreview) return;
-  const { cols, beadWidthMm, beadHeightMm, staggerFlipped = false } = gridParams;
+  const { beadWidthMm, beadHeightMm } = gridParams;
+  const engine = resolveGridEngine(gridParams.stitchType);
   const { anchorRow, anchorCol } = pastePreview;
 
   ctx.save();
   ctx.globalAlpha = PASTE_PREVIEW_ALPHA;
   for (const [relRow, relCol, colorId] of clipboard.cells) {
-    const originMm = peyoteCellOriginMm(anchorRow + relRow, anchorCol + relCol, beadWidthMm, beadHeightMm, cols, staggerFlipped);
+    const originMm = engine.cellOrigin(anchorRow + relRow, anchorCol + relCol, gridParams);
     const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
     const bottomRight = worldToScreen(originMm.xMm + beadHeightMm, originMm.yMm + beadWidthMm, viewport);
     ctx.fillStyle = resolveColor(colorId) ?? MISSING_COLOR_FALLBACK_HEX;
@@ -27,8 +28,8 @@ export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pa
   }
   ctx.restore();
 
-  const topLeftMm = peyoteCellOriginMm(anchorRow, anchorCol, beadWidthMm, beadHeightMm, cols, staggerFlipped);
-  const bottomRightMm = peyoteCellOriginMm(anchorRow + clipboard.rows - 1, anchorCol + clipboard.cols - 1, beadWidthMm, beadHeightMm, cols, staggerFlipped);
+  const topLeftMm = engine.cellOrigin(anchorRow, anchorCol, gridParams);
+  const bottomRightMm = engine.cellOrigin(anchorRow + clipboard.rows - 1, anchorCol + clipboard.cols - 1, gridParams);
   const topLeft = worldToScreen(topLeftMm.xMm, topLeftMm.yMm, viewport);
   const bottomRight = worldToScreen(bottomRightMm.xMm + beadHeightMm, bottomRightMm.yMm + beadWidthMm, viewport);
   ctx.save();

@@ -61,12 +61,13 @@ test('migrateDesign: a pre-refactor record (no axisVersion, already has colorway
   assert.equal(migrated.staggerFlipped, true); // post-swap cols is 7, odd
 });
 
-test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlipped set) passes through with rows/cols/keys/flip untouched', () => {
+test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlipped set, stitchType set) passes through with rows/cols/keys/flip/stitchType untouched', () => {
   const record = {
     id: 'd5',
     rows: 20,
     cols: 7,
     staggerFlipped: true,
+    stitchType: 'square',
     shapeEntries: ['0,0', '5,2'],
     colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
     activeColorwayId: 'cw1',
@@ -160,6 +161,7 @@ test('migrateDesign: staggerFlipped explicitly false is left alone, not recomput
     rows: 5,
     cols: 9, // odd, but staggerFlipped is already explicitly set — must not be overridden
     staggerFlipped: false,
+    stitchType: 'peyote',
     shapeEntries: ['0,0'],
     colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
     activeColorwayId: 'cw1',
@@ -168,4 +170,54 @@ test('migrateDesign: staggerFlipped explicitly false is left alone, not recomput
   const migrated = migrateDesign(record);
   assert.equal(migrated.staggerFlipped, false);
   assert.deepEqual(migrated, record); // fully migrated already — passes through untouched
+});
+
+// migrateStitchType specifically: gated on stitchType's own presence,
+// independent of every other step's own gate — a record can already be fully
+// migrated on every earlier axis/every earlier gate before this step existed.
+
+test('migrateDesign: a record with no stitchType field gets stamped "peyote" (every design before square stitch existed was implicitly peyote)', () => {
+  const record = {
+    id: 'd11',
+    rows: 5,
+    cols: 8,
+    staggerFlipped: false,
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.stitchType, 'peyote');
+});
+
+test('migrateDesign: an explicit stitchType of "square" is left alone, not overridden to "peyote"', () => {
+  const record = {
+    id: 'd12',
+    rows: 5,
+    cols: 8,
+    staggerFlipped: false,
+    stitchType: 'square',
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.stitchType, 'square');
+});
+
+test('migrateDesign: running the migration twice is idempotent for stitchType too', () => {
+  const record = {
+    id: 'd13',
+    rows: 7,
+    cols: 20,
+    shapeEntries: ['3,4'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['3,4', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+  };
+  const once = migrateDesign(record);
+  const twice = migrateDesign(once);
+  assert.equal(once.stitchType, 'peyote');
+  assert.deepEqual(twice, once);
 });

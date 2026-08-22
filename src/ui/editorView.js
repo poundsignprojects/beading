@@ -37,6 +37,14 @@
 //                            the target bead type and switches the editor into
 //                            it. This module's own mount is torn down by
 //                            main.js right after — nothing more happens here.
+//   onStitchTypeConvertConfirmed(targetStitchType) — fired once the user
+//                            confirms switching a non-empty design's stitch
+//                            type; main.js clones the pattern (same bead type/
+//                            colors/shape, only geometry changes — no color-
+//                            mapping step needed, unlike bead-type conversion)
+//                            into a brand-new design under the target stitch
+//                            type and switches the editor into it. Same
+//                            teardown as onBeadTypeConvertConfirmed above.
 //   onCustomColorAdded({name, hex}) — fired from the palette's "+" tile;
 //                            main.js persists and pushes onto appState.customColors.
 //   onCustomColorRenamed(id, name) — Manage Colors list rename.
@@ -54,8 +62,8 @@ import { createIcon } from './icons.js';
 import { findBeadType } from '../palette/beadSpecs.js';
 import { resolveSwatchHex } from '../palette/colorLibrary.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
-import { generatePeyoteGrid, peyoteCellAtPointClamped } from '../grid/peyote.js';
-import { resizeCanvasForDisplay, drawPeyoteGrid } from '../render/canvasRenderer.js';
+import { resolveGridEngine, stitchTypeLabel } from '../grid/gridEngine.js';
+import { resizeCanvasForDisplay, drawGrid } from '../render/canvasRenderer.js';
 import { drawSelectionOverlay } from '../render/selectionOverlay.js';
 import { drawPastePreviewOverlay } from '../render/pastePreviewOverlay.js';
 import { screenToWorld } from '../render/viewport.js';
@@ -89,6 +97,7 @@ export function mountEditorView(appState, hooks) {
   const settingsCloseButton = document.getElementById('settings-close');
   const beadTypeSelect = document.getElementById('bead-type');
   const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
+  const stitchTypeSelect = document.getElementById('stitch-type');
   const rowsInput = document.getElementById('rows');
   const colsInput = document.getElementById('cols');
   const generateButton = document.getElementById('generate');
@@ -166,7 +175,7 @@ export function mountEditorView(appState, hooks) {
   function render() {
     lastCssSize = resizeCanvasForDisplay(canvas, ctx);
     const bead = findBeadType(appState.beadCatalog, appState.beadTypeKey);
-    drawPeyoteGrid(
+    drawGrid(
       ctx,
       lastCssSize.cssWidth,
       lastCssSize.cssHeight,
@@ -384,11 +393,13 @@ export function mountEditorView(appState, hooks) {
   }
 
   // Copy/Cut/Mirror-V need only a selection; Mirror-H additionally needs an odd
-  // selection width (see mirrorTool.js's parity constraint — reversing col order
-  // on an even-width selection would land content on the wrong physical stagger,
-  // not fixable at integer bead resolution, since isRaised's stagger rule depends
-  // on col, not row — see peyote.js). Paste needs a clipboard, independent of any
-  // current selection.
+  // selection width on a peyote design (see mirrorTool.js's parity constraint —
+  // reversing col order on an even-width selection would land content on the
+  // wrong physical stagger, not fixable at integer bead resolution, since
+  // isRaised's stagger rule depends on col, not row — see peyote.js). Square
+  // stitch has no stagger at all, so this restriction doesn't apply there — see
+  // .work/feature-square-stitch-plan.md's "Mirror tool constraint". Paste needs
+  // a clipboard, independent of any current selection.
   function updateSelectionButtons() {
     // The whole group only makes sense while the Select tool is active —
     // previously it stayed permanently visible (just disabled), matching
@@ -397,10 +408,11 @@ export function mountEditorView(appState, hooks) {
     const selection = appState.selection;
     const hasSelection = !!selection;
     const widthEven = hasSelection && (selection.colEnd - selection.colStart + 1) % 2 === 0;
+    const blocksEvenWidthMirror = appState.stitchType === 'peyote' && widthEven;
     selectionCopyButton.disabled = !hasSelection;
     selectionCutButton.disabled = !hasSelection;
-    selectionMirrorHButton.disabled = !hasSelection || widthEven;
-    selectionMirrorHButton.title = widthEven
+    selectionMirrorHButton.disabled = !hasSelection || blocksEvenWidthMirror;
+    selectionMirrorHButton.title = blocksEvenWidthMirror
       ? 'Mirror Horizontal needs an odd-width selection (even widths would land content on the wrong bead stagger)'
       : '';
     selectionMirrorVButton.disabled = !hasSelection;
@@ -428,11 +440,8 @@ export function mountEditorView(appState, hooks) {
       return { anchorRow: appState.selection.rowStart, anchorCol: appState.selection.colStart };
     }
     const centerWorld = screenToWorld(lastCssSize.cssWidth / 2, lastCssSize.cssHeight / 2, appState.viewport);
-    const hit = peyoteCellAtPointClamped(
-      centerWorld.xMm, centerWorld.yMm,
-      appState.gridParams.beadWidthMm, appState.gridParams.beadHeightMm,
-      appState.gridParams.rows, appState.gridParams.cols
-    );
+    const engine = resolveGridEngine(appState.stitchType);
+    const hit = engine.cellAtPointClamped(centerWorld.xMm, centerWorld.yMm, appState.gridParams);
     return { anchorRow: hit.row, anchorCol: hit.col };
   }
 
@@ -456,17 +465,19 @@ export function mountEditorView(appState, hooks) {
 
   function rebuildGridParams() {
     const bead = findBeadType(appState.beadCatalog, appState.beadTypeKey);
-    appState.gridParams = generatePeyoteGrid({
+    const engine = resolveGridEngine(appState.stitchType);
+    appState.gridParams = engine.generateGrid({
       rows: appState.rows,
       cols: appState.cols,
       beadWidthMm: bead.widthMm,
       beadHeightMm: bead.heightMm,
     });
-    // Not part of generatePeyoteGrid's own signature (it only computes the
-    // bounding box, which doesn't depend on stagger parity) — stashed onto
-    // gridParams here purely so every renderer/hit-tester that already reads
-    // gridParams can pick it up without a separate parameter of its own.
+    // Neither is part of generateGrid's own signature (it only computes the
+    // bounding box) — stashed onto gridParams here purely so every renderer/
+    // hit-tester that already reads gridParams can pick them up without a
+    // separate parameter of its own.
     appState.gridParams.staggerFlipped = appState.staggerFlipped;
+    appState.gridParams.stitchType = appState.stitchType;
   }
 
   // Draws the grid for the design as currently loaded into appState (rows/cols/
@@ -722,6 +733,40 @@ export function mountEditorView(appState, hooks) {
       mappings = result.mappings;
     }
     await hooks.onBeadTypeConvertConfirmed(targetBeadTypeKey, mappings);
+    // main.js unmounts this editor instance and opens the newly created design
+    // right after the promise above resolves — nothing left to do here.
+  }
+
+  // A design's stitch type is chosen once and is fixed, same "no in-place
+  // geometry mutation" rule as bead type (see handleBeadTypeChange above) — but
+  // simpler: unlike a bead-type change, the color palette itself never changes
+  // (same bead type, same colors, just different geometry), so shapeEntries/
+  // colorways carry over completely unchanged and there's no mapping dialog to
+  // show, only a plain confirm naming what's about to happen.
+  async function handleStitchTypeChange() {
+    const targetStitchType = stitchTypeSelect.value;
+    if (targetStitchType === appState.stitchType) return;
+
+    if (appState.cells.size === 0) {
+      appState.stitchType = targetStitchType;
+      rebuildGridParams();
+      fitViewportToGrid();
+      updateSizeReadout();
+      scheduleRedraw();
+      hooks.onPreferencesChanged({ defaultStitchType: appState.stitchType });
+      hooks.onImmediateSave();
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `This will create a new pattern using ${stitchTypeLabel(targetStitchType)} instead of ${stitchTypeLabel(appState.stitchType)} — ` +
+      'the two use different bead geometry, so a new pattern is created and the original is left untouched.'
+    );
+    if (!confirmed) {
+      stitchTypeSelect.value = appState.stitchType; // revert the displayed selection
+      return;
+    }
+    await hooks.onStitchTypeConvertConfirmed(targetStitchType);
     // main.js unmounts this editor instance and opens the newly created design
     // right after the promise above resolves — nothing left to do here.
   }
@@ -1172,6 +1217,7 @@ export function mountEditorView(appState, hooks) {
   settingsCloseButton.addEventListener('click', handleSettingsClose);
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
+  stitchTypeSelect.addEventListener('change', handleStitchTypeChange);
   generateButton.addEventListener('click', handleResizeClick);
   resetViewButton.addEventListener('click', handleResetView);
   unitToggleButton.addEventListener('click', handleUnitToggle);
@@ -1257,6 +1303,7 @@ export function mountEditorView(appState, hooks) {
   // the units toggle's readout — these controls don't fire their own change
   // events just from being set programmatically.
   renderBeadTypeSelect();
+  stitchTypeSelect.value = appState.stitchType;
   rowsInput.value = String(appState.rows);
   colsInput.value = String(appState.cols);
 
@@ -1281,6 +1328,7 @@ export function mountEditorView(appState, hooks) {
     settingsCloseButton.removeEventListener('click', handleSettingsClose);
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
+    stitchTypeSelect.removeEventListener('change', handleStitchTypeChange);
     generateButton.removeEventListener('click', handleResizeClick);
     resetViewButton.removeEventListener('click', handleResetView);
     unitToggleButton.removeEventListener('click', handleUnitToggle);

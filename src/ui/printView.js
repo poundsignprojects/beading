@@ -4,6 +4,7 @@
 // closing it just hides the overlay again, no re-mount of the editor.
 
 import { findBeadType } from '../palette/beadSpecs.js';
+import { stitchTypeLabel } from '../grid/gridEngine.js';
 import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
@@ -32,7 +33,7 @@ function buildHeader(appState, designName) {
   title.textContent = designName;
 
   const specLine = document.createElement('p');
-  specLine.textContent = `${bead.name} — ${appState.rows} rows × ${appState.cols} cols`;
+  specLine.textContent = `${bead.name}, ${stitchTypeLabel(appState.stitchType)} — ${appState.rows} rows × ${appState.cols} cols`;
 
   const sizeLine = document.createElement('p');
   sizeLine.textContent = `Finished size: ${formatLength(widthMm, 'mm')} × ${formatLength(heightMm, 'mm')} (${formatLength(widthMm, 'in')} × ${formatLength(heightMm, 'in')})`;
@@ -109,19 +110,6 @@ function formatRun(run, codes) {
   return `${run.count}${codes.get(run.colorId)}`;
 }
 
-// The first printed line is the foundation — physical rows 1 & 2, strung
-// together (see wordChart.js's buildWordChart) — so it's labeled "Row 1 & 2"
-// rather than "Row 1", matching how a stitcher actually counts real peyote
-// rows. Every printed line after that is its own single real row, so once the
-// foundation's two rows are accounted for, they number sequentially starting
-// at 3 (entryIndex 1 -> Row 3, entryIndex 2 -> Row 4, ...) rather than restarting
-// from the printed line's own sequential position — matching Loomerly's
-// convention of numbering by real stitching row, not by printed line.
-function formatRowLabel(chartRow) {
-  if (chartRow.entryIndex === 0) return 'Row 1 & 2';
-  return `Row ${chartRow.entryIndex + 2}`;
-}
-
 function buildChart(chart, codes, startsReversed) {
   const section = document.createElement('section');
   section.id = 'print-chart';
@@ -137,7 +125,7 @@ function buildChart(chart, codes, startsReversed) {
     const runText = displayRuns(chartRow, startsReversed).map((run) => formatRun(run, codes)).join(' ');
     const line = document.createElement('div');
     line.className = 'word-chart-row';
-    line.textContent = `${formatRowLabel(chartRow)} ${direction}: ${runText}`;
+    line.textContent = `${chartRow.rowLabel} ${direction}: ${runText}`;
     section.append(line);
   }
 
@@ -181,7 +169,7 @@ export function mountPrintView(appState, hooks) {
   const referenceImageToggleButton = document.getElementById('print-reference-image-toggle');
 
   const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? 'Untitled Pattern';
-  const chart = buildWordChart(appState.cells, appState.rows, appState.cols, appState.staggerFlipped);
+  const chart = buildWordChart(appState.cells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped);
   const codes = assignColorCodes(chart.colorCounts);
 
   // Rendered once at mount, not per renderContent() call — appState.cells can't

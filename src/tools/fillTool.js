@@ -1,5 +1,4 @@
 import { cellKey, setCell } from '../state/cellStore.js';
-import { peyoteNeighbors } from '../grid/peyote.js';
 
 // Flood fill from (startRow, startCol): every physically-connected cell matching
 // the seed's state (same colorId, including "absent" as its own matchable state)
@@ -8,7 +7,12 @@ import { peyoteNeighbors } from '../grid/peyote.js';
 // a region — so it needs no special handling anywhere else in the pipeline (not
 // even colorwaySync.js: appState.cells is still just an ordinary Map being mutated).
 // Iterative (not recursive) to avoid stack depth issues on a large contiguous region.
-export function applyFill(cells, startRow, startCol, colorId, rows, cols, flipped = false) {
+//
+// neighborsFn(row, col) => [[row,col], ...] is injected rather than imported
+// directly, so this file stays grid-engine-agnostic (peyote's 6-connectivity vs.
+// square's plain 4-connectivity — see src/grid/gridEngine.js) — the caller
+// resolves the right one from the design's own stitchType.
+export function applyFill(cells, startRow, startCol, colorId, rows, cols, neighborsFn) {
   const seed = cells.get(cellKey(startRow, startCol));
   const seedColorId = seed ? seed.colorId : undefined;
   if (seed && seed.colorId === colorId) return [];
@@ -29,7 +33,7 @@ export function applyFill(cells, startRow, startCol, colorId, rows, cols, flippe
     patch.push({ row, col, before: cell, after: { colorId } });
     setCell(cells, row, col, colorId);
 
-    for (const [nRow, nCol] of peyoteNeighbors(row, col, cols, flipped)) {
+    for (const [nRow, nCol] of neighborsFn(row, col)) {
       if (nRow < 0 || nRow >= rows || nCol < 0 || nCol >= cols) continue;
       if (!visited.has(cellKey(nRow, nCol))) queue.push([nRow, nCol]);
     }

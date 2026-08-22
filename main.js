@@ -25,7 +25,7 @@ import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchHex } from './src/palette/colorLibrary.js';
 import { findBeadType } from './src/palette/beadSpecs.js';
-import { generatePeyoteGrid } from './src/grid/peyote.js';
+import { resolveGridEngine, stitchTypeLabel } from './src/grid/gridEngine.js';
 import { createGoogleDriveClient } from './src/sync/googleDriveClient.js';
 import { pushBackupToDriveTracked, recordDesignDeletedLocally, recordCustomColorDeletedLocally, recordBeadTypeDeletedLocally, runPreMigrationBackup } from './src/sync/backupSync.js';
 import { getDriveSyncMeta, saveDriveSyncMeta } from './src/storage/driveSyncStore.js';
@@ -99,6 +99,7 @@ async function persistCurrentDesign() {
   const saved = await saveDesign(appState.db, {
     ...existing,
     beadTypeKey: appState.beadTypeKey,
+    stitchType: appState.stitchType,
     rows: appState.rows,
     cols: appState.cols,
     staggerFlipped: appState.staggerFlipped,
@@ -229,11 +230,64 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
   const newDesign = await createConvertedDesign(appState.db, {
     name: originalDesign.name,
     beadTypeKey: targetBeadTypeKey,
+    // Same shape/stitch structure as the source (only bead type/colors
+    // changed) — keep the same stagger convention and stitch type so the
+    // converted copy renders identically to the design it came from, not the
+    // default for a "brand new" design.
+    stitchType: appState.stitchType,
     rows: appState.rows,
     cols: appState.cols,
-    // Same shape as the source (only bead type/colors changed) — keep the
-    // same stagger convention so the converted copy renders identically to
-    // the design it came from, not the default for a "brand new" design.
+    staggerFlipped: appState.staggerFlipped,
+    shapeEntries,
+    colorways: newColorways,
+    activeColorwayId: newActiveColorwayId,
+  });
+  appState.designs.push(newDesign);
+  appState.designs.sort((a, b) => a.order - b.order);
+
+  editorController.unmount();
+  editorController = null;
+  debouncedSave = null;
+  debouncedPhotoSave = null;
+  appState.currentDesignId = null;
+
+  await openDesign(newDesign);
+}
+
+// Stitch-type conversion (.work/feature-square-stitch-plan.md) — a trimmed copy
+// of handleBeadTypeConvertConfirmed above (same flush-then-clone-then-reopen
+// sequence) minus the color-mapping step: the palette itself never changes
+// (same bead type, same colors), only geometry does, so shapeEntries/colorways
+// carry over completely unchanged into the new design under the target
+// stitchType. The source design's own record is left completely untouched.
+async function handleStitchTypeConvertConfirmed(targetStitchType) {
+  const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
+  const sourceColorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
+    cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+  );
+  const idMap = new Map(sourceColorways.map((cw) => [cw.id, generateId()]));
+  const newColorways = sourceColorways.map((cw) => ({ ...cw, id: idMap.get(cw.id) }));
+  const newActiveColorwayId = idMap.get(appState.activeColorwayId);
+
+  const originalDesign = appState.designs.find((d) => d.id === appState.currentDesignId);
+
+  // Flush the still-open original design's own record first, so it's exactly
+  // what's on screen right now before we leave it — same as backToLibrary().
+  await persistCurrentDesign();
+  await persistPhotoTrace();
+  debouncedSave?.flush();
+  debouncedPhotoSave?.flush();
+
+  const newDesign = await createConvertedDesign(appState.db, {
+    name: originalDesign.name,
+    beadTypeKey: appState.beadTypeKey,
+    stitchType: targetStitchType,
+    rows: appState.rows,
+    cols: appState.cols,
+    // The stagger convention only means anything for peyote — carried through
+    // unchanged either way since createConvertedDesign's own default (false)
+    // is correct for a design switching to/staying at square stitch, and this
+    // is exactly what the source design already has for peyote either way.
     staggerFlipped: appState.staggerFlipped,
     shapeEntries,
     colorways: newColorways,
@@ -330,6 +384,7 @@ async function loadPhotoTraceForDesign(designId) {
 async function openDesign(design, colorwayId = design.activeColorwayId) {
   appState.currentDesignId = design.id;
   appState.beadTypeKey = design.beadTypeKey;
+  appState.stitchType = design.stitchType ?? 'peyote';
   appState.rows = design.rows;
   appState.cols = design.cols;
   appState.staggerFlipped = design.staggerFlipped ?? false;
@@ -370,6 +425,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
     onBeadTypeReordered: handleBeadTypeReordered,
     onRequestBeadTypeConversionData: handleRequestBeadTypeConversionData,
     onBeadTypeConvertConfirmed: handleBeadTypeConvertConfirmed,
+    onStitchTypeConvertConfirmed: handleStitchTypeConvertConfirmed,
     onCustomColorAdded: handleCustomColorAdded,
     onCustomColorRenamed: handleCustomColorRenamed,
     onCustomColorHexChanged: handleCustomColorHexChanged,
@@ -459,6 +515,10 @@ function resolveBeadTypeName(beadTypeKey) {
   return findBeadType(appState.beadCatalog, beadTypeKey)?.name ?? beadTypeKey;
 }
 
+function resolveStitchTypeLabel(stitchType) {
+  return stitchTypeLabel(stitchType);
+}
+
 // Renders a small preview thumbnail per colorway of a (closed) design, for the
 // library's colorway picker (see colorwayPickerDialog.js) — libraryView.js has
 // no business reading customColors/beadCatalog itself, so this is the one place
@@ -467,13 +527,15 @@ async function handleRequestColorwayPreviews(designId) {
   const design = appState.designs.find((d) => d.id === designId);
   if (!design) return [];
   const bead = findBeadType(appState.beadCatalog, design.beadTypeKey);
-  const gridParams = generatePeyoteGrid({
+  const stitchType = design.stitchType ?? 'peyote';
+  const gridParams = resolveGridEngine(stitchType).generateGrid({
     rows: design.rows,
     cols: design.cols,
     beadWidthMm: bead.widthMm,
     beadHeightMm: bead.heightMm,
   });
   gridParams.staggerFlipped = design.staggerFlipped ?? false;
+  gridParams.stitchType = stitchType;
   const customColors = await listCustomColorsSorted(appState.db, design.beadTypeKey);
   return design.colorways.map((cw) => ({
     id: cw.id,
@@ -493,6 +555,7 @@ async function handleCreate() {
   const design = await createDesign(appState.db, {
     name: 'Untitled Pattern',
     beadTypeKey: prefs.defaultBeadTypeKey,
+    stitchType: prefs.defaultStitchType,
     rows: prefs.defaultRows,
     cols: prefs.defaultCols,
   });
@@ -665,6 +728,7 @@ async function boot() {
     onOpenColorway: handleOpenColorway,
     onRequestColorwayPreviews: handleRequestColorwayPreviews,
     resolveBeadTypeName,
+    resolveStitchTypeLabel,
   });
 
   backupController = mountBackupDialog(appState, { driveClient, onDataRestored: handleDataRestored });

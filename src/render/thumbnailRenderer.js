@@ -1,4 +1,4 @@
-import { peyoteCellOriginMm } from '../grid/peyote.js';
+import { resolveGridEngine } from '../grid/gridEngine.js';
 import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
 
 const THUMBNAIL_BACKGROUND_STYLE = '#fff';
@@ -10,7 +10,8 @@ const THUMBNAIL_BACKGROUND_STYLE = '#fff';
 // cornerRadiusFraction is the bead type's own corner-roundness (see
 // beadSpecs.js's findBeadType) — 0/undefined draws sharp corners.
 export function renderThumbnailDataUrl(gridParams, cells, resolveColor, maxSizePx, cornerRadiusFraction = 0) {
-  const { cols, beadWidthMm, beadHeightMm, boundingBoxMm, staggerFlipped = false } = gridParams;
+  const { beadWidthMm, beadHeightMm, boundingBoxMm } = gridParams;
+  const engine = resolveGridEngine(gridParams.stitchType);
   const scale = maxSizePx / Math.max(boundingBoxMm.widthMm, boundingBoxMm.heightMm);
   const canvasWidth = Math.max(1, Math.round(boundingBoxMm.widthMm * scale));
   const canvasHeight = Math.max(1, Math.round(boundingBoxMm.heightMm * scale));
@@ -24,7 +25,7 @@ export function renderThumbnailDataUrl(gridParams, cells, resolveColor, maxSizeP
 
   for (const [key, cell] of cells) {
     const [row, col] = key.split(',').map(Number);
-    const origin = peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols, staggerFlipped);
+    const origin = engine.cellOrigin(row, col, gridParams);
     const x = origin.xMm * scale;
     const y = origin.yMm * scale;
     const w = beadHeightMm * scale;

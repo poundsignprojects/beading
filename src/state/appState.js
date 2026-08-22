@@ -23,6 +23,10 @@ export function createAppState() {
 
     // Per-design/editor fields (Phase 1–3, unchanged in shape)
     beadTypeKey: 'delica11',
+    // A design's stitch type is chosen once and is fixed (same "no in-place
+    // geometry mutation" rule as bead type) — see src/grid/gridEngine.js and
+    // .work/feature-square-stitch-plan.md.
+    stitchType: 'peyote',
     rows: 20,
     cols: 20,
     // Per-design constant deciding which parity of column renders "raised" vs
@@ -34,7 +38,7 @@ export function createAppState() {
     // before this constant existed (see migrateDesign.js's migrateStaggerFlip).
     staggerFlipped: false,
     units: 'mm',
-    showBeadOutlines: true, // whether drawPeyoteGrid strokes a bead outline or fills edge-to-edge; mirrors `units`' preference-backed-default-then-session-toggle pattern
+    showBeadOutlines: true, // whether drawGrid strokes a bead outline or fills edge-to-edge; mirrors `units`' preference-backed-default-then-session-toggle pattern
     gridParams: null,
     viewport: { originXmm: 0, originYmm: 0, scalePxPerMm: 10 },
     tool: 'draw',

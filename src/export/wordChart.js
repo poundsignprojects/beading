@@ -75,15 +75,21 @@ function buildRuns(cells, cellList, colorCounts, tallyUnassigned) {
   return runs;
 }
 
-export function buildWordChart(cells, rows, cols, flipped = false) {
+// stitchType branches the row-grouping algorithm itself, not just the geometry
+// underneath it — square stitch has no foundation-combining/raised-non-raised
+// splitting structure at all (each physical row is one straight thread pass),
+// unlike peyote's real stitching structure (see the file-level comment above).
+// This can't be handled by the grid-engine abstraction (gridEngine.js) since
+// it's specific to how a stitch type is actually worked, not its geometry.
+export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped = false) {
   const chartRows = [];
   const colorCounts = new Map(); // colorId -> running total, insertion = first appearance
   let unassignedCount = 0;
   const tallyUnassigned = () => { unassignedCount++; };
 
-  function pushEntry(cellList) {
+  function pushEntry(cellList, rowLabel) {
     const runs = buildRuns(cells, cellList, colorCounts, tallyUnassigned);
-    chartRows.push({ entryIndex: chartRows.length, runs });
+    chartRows.push({ entryIndex: chartRows.length, runs, rowLabel });
   }
 
   function rowCellsAt(row) {
@@ -92,17 +98,29 @@ export function buildWordChart(cells, rows, cols, flipped = false) {
     return cellList;
   }
 
-  // Row 0 is the foundation ladder — worked as one pass, not split.
-  if (rows >= 1) {
-    pushEntry(rowCellsAt(0));
-  }
+  if (stitchType === 'square') {
+    // Each physical row is worked as one straight pass — no foundation
+    // combining, no raised/non-raised split, one printed line per row.
+    for (let row = 0; row < rows; row++) {
+      pushEntry(rowCellsAt(row), `Row ${row + 1}`);
+    }
+  } else {
+    // Row 0 is the foundation ladder — worked as one pass, not split.
+    if (rows >= 1) {
+      pushEntry(rowCellsAt(0), 'Row 1 & 2');
+    }
 
-  // Every row after the foundation splits into its two alternating thread
-  // passes — see splitByPosition above.
-  for (let row = 1; row < rows; row++) {
-    const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols, flipped);
-    pushEntry(raised);
-    pushEntry(notRaised);
+    // Every row after the foundation splits into its two alternating thread
+    // passes — see splitByPosition above. Numbered sequentially starting at 3
+    // (physical rows 1 & 2 are already accounted for by the foundation line
+    // above), matching how a stitcher actually counts real peyote rows: grid
+    // row r (r>=1) contributes physical rows 2r+1 (raised, printed first) and
+    // 2r+2 (non-raised, printed second).
+    for (let row = 1; row < rows; row++) {
+      const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols, flipped);
+      pushEntry(raised, `Row ${row * 2 + 1}`);
+      pushEntry(notRaised, `Row ${row * 2 + 2}`);
+    }
   }
 
   const colorCountList = Array.from(colorCounts.entries()).map(([colorId, count]) => ({ colorId, count }));

@@ -11,6 +11,7 @@ const DEFAULT_PREFERENCES = {
   id: PREFERENCES_ID,
   units: 'mm',
   defaultBeadTypeKey: 'delica11',
+  defaultStitchType: 'peyote',
   defaultRows: 20,
   defaultCols: 20,
   panelCollapsed: false,
