@@ -7,7 +7,7 @@
 //             at the start (top row index / left col index).
 //   'both'  — split across both ends; an odd unit (growing or shrinking) goes to
 //             the 'end' side.
-function axisOffset(oldCount, newCount, anchor) {
+export function axisOffset(oldCount, newCount, anchor) {
   const delta = newCount - oldCount;
   if (anchor === 'start') return 0;
   if (anchor === 'end') return delta;
@@ -103,4 +103,23 @@ export function cropCells(cells, box) {
 // applied to appState.cells — mirrors resizeColorEntries' relationship to resizeCells.
 export function cropColorEntries(colorEntries, box) {
   return remapEntriesByOffset(colorEntries, -box.minRow, -box.minCol, box.rows, box.cols);
+}
+
+// peyote.js's isRaised() pins which parity is "raised" (offset 0) vs "recessed"
+// (offset +half a bead-width) to a cell's own absolute col value — deliberately,
+// so a resize/crop that doesn't shift a cell's col at all can't silently re-flip
+// its look (see peyote.js's own comment). But shifting a cell's col by an ODD
+// amount (a resize anchored 'end'/'both' on cols, or a crop whose bounding box
+// doesn't start at col 0) changes that cell's absolute col parity even though
+// its position *relative to its neighbors* hasn't changed at all — every column
+// shifts together, so the shape is preserved, but every column's raised/recessed
+// registration flips as one uniform unit, which reads as a real visual change
+// (every other column jogs by half a bead). Toggling the per-design
+// staggerFlipped constant by the same amount compensates: it cancels the parity
+// flip the shift itself introduces, so shifted content keeps rendering with the
+// exact raised/recessed look it had before the resize/crop. An even col shift
+// needs no compensation (parity unaffected); only the shift's own parity matters,
+// not its sign or magnitude.
+export function compensatedStaggerFlipped(staggerFlipped, colOffset) {
+  return Math.abs(colOffset) % 2 === 1 ? !staggerFlipped : staggerFlipped;
 }

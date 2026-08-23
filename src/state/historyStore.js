@@ -22,6 +22,22 @@ export function pushPatch(history, patch) {
   return true;
 }
 
+// A geometry change (resize/crop) touches more than individual cell colors — grid
+// dimensions, per-design stagger, and every colorway's colors all move together —
+// so it can't be expressed as a cell-patch array the way a stroke can. Pushed onto
+// the SAME stack as ordinary patches (an entry here is a plain object, a patch
+// entry is a plain array — undo/redo below tell them apart by that), so undo/redo
+// replay both kinds of action in one true chronological order rather than treating
+// a resize as a wall that clears everything before it. `before`/`after` are
+// whatever shape the caller's own `apply` function understands (this module has no
+// opinion on it — editorView.js's own snapshot shape lives entirely in main.js's
+// caller, not here); `apply` is called with `before` on undo and `after` on redo.
+export function pushGeometryChange(history, before, after, apply) {
+  history.undoStack.push({ isGeometry: true, before, after, apply });
+  if (history.undoStack.length > MAX_HISTORY_DEPTH) history.undoStack.shift();
+  history.redoStack.length = 0;
+}
+
 export function canUndo(history) {
   return history.undoStack.length > 0;
 }
@@ -39,18 +55,20 @@ function applyPatch(patch, cells, key) {
 }
 
 export function undo(history, cells) {
-  const patch = history.undoStack.pop();
-  if (!patch) return false;
-  applyPatch(patch, cells, 'before');
-  history.redoStack.push(patch);
+  const entry = history.undoStack.pop();
+  if (!entry) return false;
+  if (entry.isGeometry) entry.apply(entry.before);
+  else applyPatch(entry, cells, 'before');
+  history.redoStack.push(entry);
   return true;
 }
 
 export function redo(history, cells) {
-  const patch = history.redoStack.pop();
-  if (!patch) return false;
-  applyPatch(patch, cells, 'after');
-  history.undoStack.push(patch);
+  const entry = history.redoStack.pop();
+  if (!entry) return false;
+  if (entry.isGeometry) entry.apply(entry.after);
+  else applyPatch(entry, cells, 'after');
+  history.undoStack.push(entry);
   return true;
 }
 

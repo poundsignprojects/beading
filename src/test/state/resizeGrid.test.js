@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import {
   resizeCells, countCellsLost, resizeKeyList, resizeColorEntries,
   boundingBoxForCells, cropCells, cropColorEntries,
+  axisOffset, compensatedStaggerFlipped,
 } from '../../state/resizeGrid.js';
+import { isRaised } from '../../grid/peyote.js';
 
 function makeCells(entries) {
   return new Map(entries.map(([row, col, colorId]) => [`${row},${col}`, { colorId }]));
@@ -153,4 +155,54 @@ test('cropColorEntries: mirrors cropCells for the equivalent colorId pairs', () 
   const cropped = cropCells(cells, box);
   const colorEntries = cropColorEntries([['2,5', 'a'], ['7,1', 'b'], ['4,9', 'c']], box);
   assert.deepEqual(colorEntries.sort(), [...cropped.entries()].map(([key, value]) => [key, value.colorId]).sort());
+});
+
+test('axisOffset: "start" is always 0 regardless of delta', () => {
+  assert.equal(axisOffset(5, 8, 'start'), 0);
+  assert.equal(axisOffset(8, 5, 'start'), 0);
+});
+
+test('axisOffset: "end" equals the raw delta', () => {
+  assert.equal(axisOffset(5, 8, 'end'), 3);
+  assert.equal(axisOffset(8, 5, 'end'), -3);
+});
+
+test('axisOffset: "both" floors the delta split in half', () => {
+  assert.equal(axisOffset(5, 8, 'both'), 1); // +3 -> floor(3/2) = 1
+  assert.equal(axisOffset(5, 9, 'both'), 2); // +4 -> floor(4/2) = 2
+});
+
+test('compensatedStaggerFlipped: an even col offset leaves staggerFlipped unchanged', () => {
+  assert.equal(compensatedStaggerFlipped(false, 0), false);
+  assert.equal(compensatedStaggerFlipped(true, 0), true);
+  assert.equal(compensatedStaggerFlipped(false, 4), false);
+  assert.equal(compensatedStaggerFlipped(false, -4), false);
+});
+
+test('compensatedStaggerFlipped: an odd col offset toggles staggerFlipped', () => {
+  assert.equal(compensatedStaggerFlipped(false, 3), true);
+  assert.equal(compensatedStaggerFlipped(true, 3), false);
+  assert.equal(compensatedStaggerFlipped(false, -3), true);
+  assert.equal(compensatedStaggerFlipped(false, 1), true);
+});
+
+// Cross-module regression: proves compensatedStaggerFlipped actually cancels out
+// the isRaised() parity flip a col shift introduces — i.e. that a cropped/resized
+// design's pre-existing beads keep rendering with the exact raised/recessed look
+// they had before, not just that the two functions independently do something
+// reasonable. This is the real bug report ("cropping changes the bead pattern").
+test('compensatedStaggerFlipped: cancels the isRaised() flip a col shift introduces, for every starting col/flip state', () => {
+  for (const colOffset of [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]) {
+    for (const staggerFlipped of [false, true]) {
+      const newStaggerFlipped = compensatedStaggerFlipped(staggerFlipped, colOffset);
+      for (let oldCol = 0; oldCol < 10; oldCol++) {
+        const newCol = oldCol + colOffset;
+        assert.equal(
+          isRaised(newCol, 999 /* unused by isRaised itself */, newStaggerFlipped),
+          isRaised(oldCol, 999, staggerFlipped),
+          `oldCol=${oldCol} colOffset=${colOffset} staggerFlipped=${staggerFlipped}`
+        );
+      }
+    }
+  }
 });

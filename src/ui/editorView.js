@@ -69,8 +69,11 @@ import { drawPastePreviewOverlay } from '../render/pastePreviewOverlay.js';
 import { screenToWorld } from '../render/viewport.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
-import { pushPatch, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
-import { resizeCells, resizeColorEntries, boundingBoxForCells, cropCells, cropColorEntries } from '../state/resizeGrid.js';
+import { pushPatch, pushGeometryChange, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
+import {
+  resizeCells, resizeColorEntries, boundingBoxForCells, cropCells, cropColorEntries,
+  axisOffset, compensatedStaggerFlipped,
+} from '../state/resizeGrid.js';
 import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from '../state/colorwaySync.js';
 import { defaultPhotoPlacement } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
@@ -537,40 +540,96 @@ export function mountEditorView(appState, hooks) {
     hooks.onImmediateSave();
   }
 
-  // Applies a resolved rows/cols change: remaps existing cells per the chosen
-  // anchors (see resizeGrid.js) instead of discarding them, since — unlike a bead
-  // type change — the stitch structure the cells were drawn against still applies,
-  // just with a different row/col count.
-  function applyResize(newRows, newCols, rowAnchor, colAnchor) {
-    appState.cells = resizeCells(appState.cells, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor);
-    // Every colorway's stored colors get the identical anchor offsets applied, not
-    // just the active cells Map — otherwise switching to an untouched colorway
-    // after a resize would show colors at pre-resize coordinates that no longer
-    // line up with the new shape.
-    appState.colorways = appState.colorways.map((cw) => ({
-      ...cw,
-      colorEntries: resizeColorEntries(cw.colorEntries, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor),
-    }));
-    appState.rows = newRows;
-    appState.cols = newCols;
+  // A resize/crop touches more than cell colors (rows, cols, staggerFlipped, every
+  // colorway's colors all move together), so it can't be recorded as a cell-patch
+  // array the way a stroke can — captureGeometrySnapshot/commitGeometrySnapshot
+  // below deal in whole-state snapshots instead, pushed onto the same undo/redo
+  // stack as ordinary strokes via historyStore's pushGeometryChange (see its own
+  // comment) so a resize/crop is a normal, undoable step in one linear history —
+  // not a wall that discards everything before it, which is what this used to do
+  // (clearHistory()) before undo/redo could represent anything but cell patches.
+  function captureGeometrySnapshot() {
+    return {
+      rows: appState.rows,
+      cols: appState.cols,
+      staggerFlipped: appState.staggerFlipped,
+      cellEntries: [...appState.cells.entries()],
+      // setCell always creates a fresh {colorId} value rather than mutating one in
+      // place (see cellStore.js), so a shallow copy of the entries/colorEntries
+      // pairs is enough — no need to also clone each cell's value object.
+      colorways: appState.colorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+    };
+  }
+
+  // Commits a geometry snapshot as the design's current state and refreshes every
+  // dependent piece of UI — called directly by applyResize/applyCrop below for the
+  // "after" state, and later by historyStore's undo/redo (via the apply function
+  // passed to pushGeometryChange) to replay either side of the change. Never
+  // touches history itself — only the two call sites that decide whether a push is
+  // warranted (applyResize/applyCrop) do that.
+  function commitGeometrySnapshot(snapshot) {
+    appState.rows = snapshot.rows;
+    appState.cols = snapshot.cols;
+    appState.staggerFlipped = snapshot.staggerFlipped;
+    appState.cells = new Map(snapshot.cellEntries);
+    appState.colorways = snapshot.colorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] }));
     appState.selection = null; // coordinates are meaningless against the new geometry
     appState.pastePreview = null; // coordinates meaningless against the new geometry
     if (appState.tool === 'paste') setTool('draw');
     rebuildGridParams();
-    clearHistory(appState.history); // old patches reference now-invalid coordinates
-    updateHistoryButtons();
     updateSelectionButtons();
     updatePasteControls();
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
+    rowsInput.value = String(appState.rows);
+    colsInput.value = String(appState.cols);
     scheduleRedraw();
+    hooks.onImmediateSave();
+  }
+
+  // Applies a resolved rows/cols change: remaps existing cells per the chosen
+  // anchors (see resizeGrid.js) instead of discarding them, since — unlike a bead
+  // type change — the stitch structure the cells were drawn against still applies,
+  // just with a different row/col count.
+  function applyResize(newRows, newCols, rowAnchor, colAnchor) {
+    const before = captureGeometrySnapshot();
+
+    const newCells = resizeCells(appState.cells, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor);
+    // Every colorway's stored colors get the identical anchor offsets applied, not
+    // just the active cells Map — otherwise switching to an untouched colorway
+    // after a resize would show colors at pre-resize coordinates that no longer
+    // line up with the new shape.
+    const newColorways = appState.colorways.map((cw) => ({
+      ...cw,
+      colorEntries: resizeColorEntries(cw.colorEntries, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor),
+    }));
+    // A col anchor other than 'start' shifts every existing cell's col index —
+    // see resizeGrid.js's compensatedStaggerFlipped for why an odd shift needs
+    // staggerFlipped toggled to keep pre-existing content's raised/recessed look
+    // unchanged. Square stitch has no stagger concept at all, so this is a no-op
+    // there regardless.
+    const colOffset = axisOffset(appState.cols, newCols, colAnchor);
+    const newStaggerFlipped = appState.stitchType === 'peyote'
+      ? compensatedStaggerFlipped(appState.staggerFlipped, colOffset)
+      : appState.staggerFlipped;
+
+    const after = {
+      rows: newRows,
+      cols: newCols,
+      staggerFlipped: newStaggerFlipped,
+      cellEntries: [...newCells.entries()],
+      colorways: newColorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+    };
+
+    commitGeometrySnapshot(after);
+    pushGeometryChange(appState.history, before, after, commitGeometrySnapshot);
+    updateHistoryButtons();
     hooks.onPreferencesChanged({
       defaultBeadTypeKey: appState.beadTypeKey,
       defaultRows: appState.rows,
       defaultCols: appState.cols,
     });
-    hooks.onImmediateSave();
   }
 
   // Rows/Cols field changes go through here (not regenerateGrid) so existing
@@ -617,34 +676,38 @@ export function mountEditorView(appState, hooks) {
       window.alert('Already cropped tightly to the design.');
       return;
     }
-    appState.cells = cropCells(appState.cells, box);
+
+    const before = captureGeometrySnapshot();
+
+    const newCells = cropCells(appState.cells, box);
     // Every colorway's stored colors get the identical crop offset applied, not
     // just the active cells Map — same reasoning as applyResize above.
-    appState.colorways = appState.colorways.map((cw) => ({
+    const newColorways = appState.colorways.map((cw) => ({
       ...cw,
       colorEntries: cropColorEntries(cw.colorEntries, box),
     }));
-    appState.rows = box.rows;
-    appState.cols = box.cols;
-    appState.selection = null; // coordinates are meaningless against the new geometry
-    appState.pastePreview = null; // coordinates meaningless against the new geometry
-    if (appState.tool === 'paste') setTool('draw');
-    rebuildGridParams();
-    clearHistory(appState.history); // old patches reference now-invalid coordinates
+    // The crop's own col shift (-box.minCol) is exactly as capable of flipping
+    // pre-existing content's raised/recessed look as a resize's col anchor is —
+    // see resizeGrid.js's compensatedStaggerFlipped and applyResize above.
+    const newStaggerFlipped = appState.stitchType === 'peyote'
+      ? compensatedStaggerFlipped(appState.staggerFlipped, box.minCol)
+      : appState.staggerFlipped;
+
+    const after = {
+      rows: box.rows,
+      cols: box.cols,
+      staggerFlipped: newStaggerFlipped,
+      cellEntries: [...newCells.entries()],
+      colorways: newColorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+    };
+
+    commitGeometrySnapshot(after);
+    pushGeometryChange(appState.history, before, after, commitGeometrySnapshot);
     updateHistoryButtons();
-    updateSelectionButtons();
-    updatePasteControls();
-    fitViewportToGrid();
-    updateSizeReadout();
-    renderColorPalette();
-    rowsInput.value = String(appState.rows);
-    colsInput.value = String(appState.cols);
-    scheduleRedraw();
     // Deliberately not written back as the new defaultRows/defaultCols preference
     // (unlike applyResize/regenerateGrid) — a crop's size is a byproduct of this
     // one design's content, not a deliberate choice worth seeding future designs
     // with.
-    hooks.onImmediateSave();
   }
 
   // Fold whatever's currently drawn back into the colorway list before leaving it,
