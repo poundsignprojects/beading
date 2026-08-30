@@ -138,8 +138,6 @@ export function mountEditorView(appState, hooks) {
   const sizeReadout = document.getElementById('size-readout');
   const resetViewButton = document.getElementById('reset-view');
   const rotateCwButton = document.getElementById('rotate-cw');
-  const rotateCcwButton = document.getElementById('rotate-ccw');
-  const rotate180Button = document.getElementById('rotate-180');
   const toolDrawButton = document.getElementById('tool-draw');
   const toolEraseButton = document.getElementById('tool-erase');
   const toolFillButton = document.getElementById('tool-fill');
@@ -759,14 +757,12 @@ export function mountEditorView(appState, hooks) {
     pushGeometryChange(appState.history, before, after, commitGeometrySnapshot);
     updateHistoryButtons();
   }
+  // Whole-canvas rotation is a single "Rotate 90° CW" button, tapped as many
+  // times as needed for 180°/270° — deliberately not three separate buttons
+  // (CW/CCW/180°), per direct user feedback that the extra buttons weren't
+  // worth the top-bar space next to Reset View for a repeatable action.
   function handleRotateCw() {
     applyRotate('cw');
-  }
-  function handleRotateCcw() {
-    applyRotate('ccw');
-  }
-  function handleRotate180() {
-    applyRotate('180');
   }
 
   // Rows/Cols field changes go through here (not regenerateGrid) so existing
@@ -1608,8 +1604,6 @@ export function mountEditorView(appState, hooks) {
   cropToDesignButton.addEventListener('click', applyCrop);
   resetViewButton.addEventListener('click', handleResetView);
   rotateCwButton.addEventListener('click', handleRotateCw);
-  rotateCcwButton.addEventListener('click', handleRotateCcw);
-  rotate180Button.addEventListener('click', handleRotate180);
   preferencesUnitToggleButton.addEventListener('click', handleUnitToggle);
   rulerToggleButton.addEventListener('click', handleRulerToggle);
   outlineToggleButton.addEventListener('click', handleOutlineToggle);
@@ -1738,8 +1732,6 @@ export function mountEditorView(appState, hooks) {
     cropToDesignButton.removeEventListener('click', applyCrop);
     resetViewButton.removeEventListener('click', handleResetView);
     rotateCwButton.removeEventListener('click', handleRotateCw);
-    rotateCcwButton.removeEventListener('click', handleRotateCcw);
-    rotate180Button.removeEventListener('click', handleRotate180);
     preferencesUnitToggleButton.removeEventListener('click', handleUnitToggle);
     rulerToggleButton.removeEventListener('click', handleRulerToggle);
     outlineToggleButton.removeEventListener('click', handleOutlineToggle);
