@@ -410,6 +410,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   // default), not "off".
   appState.showBeadOutlines = appState.preferences.showBeadOutlines !== false;
   appState.tool = 'draw';
+  appState.viewMode = 'fit'; // every design opens at Fit, regardless of what the previous design was left at
   appState.gridParams = null;
   appState.history = createHistory();
   appState.selection = null; // coordinates from a previous design's grid don't apply here

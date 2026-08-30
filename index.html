@@ -33,10 +33,11 @@
       <div id="top-bar-left">
         <button id="back-to-library" class="icon-text-btn" data-icon="chevron-left" title="Back to Library"><span>Library</span></button>
         <button id="settings-open" type="button" class="icon-btn" data-icon="settings" title="Pattern Settings" aria-label="Pattern Settings"></button>
+        <button id="preferences-open" type="button" class="icon-btn" data-icon="sliders-horizontal" title="Preferences" aria-label="Preferences"></button>
         <span id="size-readout"></span>
         <button id="outline-toggle" type="button" class="icon-btn" data-icon="square" aria-pressed="true" title="Toggle bead outlines" aria-label="Toggle bead outlines"></button>
         <button id="unit-toggle" type="button" class="icon-btn" data-icon="ruler" title="Toggle mm / in" aria-label="Toggle units"></button>
-        <button id="reset-view" type="button" class="icon-btn" data-icon="crosshair" title="Reset View" aria-label="Reset View"></button>
+        <button id="reset-view" type="button" class="icon-btn" data-icon="crosshair" aria-pressed="false" title="View Actual Size" aria-label="View Actual Size"></button>
         <button id="panel-toggle" type="button" class="icon-btn" data-icon="panel-right" aria-pressed="true" title="Toggle side panel" aria-label="Toggle side panel"></button>
         <button id="print-export" type="button" class="icon-btn" data-icon="printer" title="Print / Export" aria-label="Print / Export"></button>
       </div>
@@ -142,6 +143,27 @@
         <button id="generate">Resize</button>
         <button id="crop-to-design" type="button" title="Shrink the grid to fit the placed beads, trimming empty border rows/cols">Crop to Design</button>
       </div>
+    </div>
+  </dialog>
+
+  <dialog id="preferences-dialog">
+    <div id="preferences-dialog-header">
+      <h2>Preferences</h2>
+      <button type="button" id="preferences-close" class="icon-btn" data-icon="x" title="Close" aria-label="Close"></button>
+    </div>
+    <div id="preferences-dialog-body">
+      <section id="preferences-calibration-section" aria-label="Actual Size calibration">
+        <h3>Actual Size Calibration</h3>
+        <p>Hold a real stitched piece up to the screen and adjust until the on-screen pattern matches its spacing — corrects for how your display's actual pixel density differs from the 96px/inch assumption browsers use. Applies to every pattern on this device, not just the one currently open.</p>
+        <div id="calibration-controls" role="group" aria-label="Calibrate actual size">
+          <input id="calibration-range" type="range" min="50" max="200" step="0.5" value="100" aria-label="Calibration percentage">
+          <span id="calibration-value">100%</span>
+        </div>
+        <div id="calibration-actions">
+          <button id="calibration-reset" type="button">Reset to Default</button>
+          <button id="calibration-save" type="button">Save</button>
+        </div>
+      </section>
     </div>
   </dialog>
 

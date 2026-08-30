@@ -96,6 +96,12 @@ import { promptConvertBeadType } from './convertBeadTypeDialog.js';
 const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
 const REMOVE_PHOTO_CONFIRM_MESSAGE = 'Remove the reference photo?';
 const DEFAULT_PHOTO_OPACITY_PERCENT = 60;
+// CSS spec's fixed 96px/inch reference pixel — the only way to render a physical
+// "actual size" without a native API for real screen DPI (browsers don't expose
+// one). Accurate relative to the pattern's own bead dimensions, not guaranteed
+// laser-precise against a tape measure on every device — see the Actual Size
+// calibration control, which corrects for that gap per-device.
+const CSS_PX_PER_MM = 96 / 25.4;
 
 export function mountEditorView(appState, hooks) {
   const canvas = document.getElementById('pattern-canvas');
@@ -105,6 +111,13 @@ export function mountEditorView(appState, hooks) {
   const settingsDialog = document.getElementById('settings-dialog');
   const settingsOpenButton = document.getElementById('settings-open');
   const settingsCloseButton = document.getElementById('settings-close');
+  const preferencesDialog = document.getElementById('preferences-dialog');
+  const preferencesOpenButton = document.getElementById('preferences-open');
+  const preferencesCloseButton = document.getElementById('preferences-close');
+  const calibrationRangeInput = document.getElementById('calibration-range');
+  const calibrationValueLabel = document.getElementById('calibration-value');
+  const calibrationSaveButton = document.getElementById('calibration-save');
+  const calibrationResetButton = document.getElementById('calibration-reset');
   const beadTypeSelect = document.getElementById('bead-type');
   const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
   const stitchTypeSelect = document.getElementById('stitch-type');
@@ -169,6 +182,9 @@ export function mountEditorView(appState, hooks) {
   let editingColorId = null; // id of the color whose hex the shared #color-picker-input is currently editing, or null when it's in "add a new color" mode
   let editingColorOriginalHex = null; // hex captured once when an edit session starts, so Undo reverts to the true pre-edit value even if iOS fires several `change` events (one per wheel drag) during a single edit
   let lastColorHexEdit = null; // { id, previousHex } for the single most recent hex edit, or null — a one-level undo, not a stack; cleared by using it, by a design/bead-type switch, or superseded by the next hex edit
+  let calibrationFactor = 1; // working value while the Preferences dialog is open — not written to preferences until Save
+  let viewModeBeforePreferencesOpen = 'fit'; // restored on Close-without-Save
+  let calibrationSavedThisOpen = false; // Save sets this so the 'close' handler below knows not to revert
 
   function scheduleRedraw() {
     if (redrawScheduled) return;
@@ -203,7 +219,7 @@ export function mountEditorView(appState, hooks) {
   }
 
   // Centers the grid's bounding box in the canvas at a scale that fits it with
-  // margin — used on design open, on regenerate, and on "Reset View".
+  // margin — used on design open, on regenerate, and on "Reset View" (fit side).
   function fitViewportToGrid() {
     const { widthMm, heightMm } = appState.gridParams.boundingBoxMm;
     const FIT_MARGIN = 0.9;
@@ -217,6 +233,43 @@ export function mountEditorView(appState, hooks) {
       originXmm: -paddingXmm,
       originYmm: -paddingYmm,
     });
+    // Every geometry change (regenerate/resize/crop/undo-redo of either) calls
+    // this directly rather than through handleResetView, so re-sync viewMode/the
+    // button here too — otherwise the button could keep claiming "actual size"
+    // while the view it's actually showing is a fresh fit.
+    appState.viewMode = 'fit';
+    updateResetViewButton();
+  }
+
+  // Same centering math as fitViewportToGrid, but scaled to a fixed physical size
+  // instead of whatever fits the canvas — corrected by the user's own calibration
+  // factor (preferences.actualSizeCalibration, a global multiplier, default 1)
+  // unless a working value is passed in while live-calibrating (see
+  // handleCalibrationInput). If the pattern is larger than the viewport at this
+  // scale, the existing pan/pinch interaction already lets the user scroll
+  // around it — no new interaction needed.
+  function setViewportToActualSize(factorOverride) {
+    const factor = factorOverride ?? appState.preferences.actualSizeCalibration ?? 1;
+    const scale = CSS_PX_PER_MM * factor;
+    const { widthMm, heightMm } = appState.gridParams.boundingBoxMm;
+    const paddingXmm = (lastCssSize.cssWidth / scale - widthMm) / 2;
+    const paddingYmm = (lastCssSize.cssHeight / scale - heightMm) / 2;
+    Object.assign(appState.viewport, {
+      scalePxPerMm: scale,
+      originXmm: -paddingXmm,
+      originYmm: -paddingYmm,
+    });
+  }
+
+  // Reflects appState.viewMode on the Reset View button — title/label swap to
+  // name the *next* state a click will produce (more discoverable than
+  // aria-pressed alone), plus aria-pressed for consistency with this app's other
+  // toggle buttons.
+  function updateResetViewButton() {
+    const isActual = appState.viewMode === 'actual';
+    resetViewButton.setAttribute('aria-pressed', String(isActual));
+    resetViewButton.title = isActual ? 'Fit to View' : 'View Actual Size';
+    resetViewButton.setAttribute('aria-label', resetViewButton.title);
   }
 
   function updateSizeReadout() {
@@ -1081,7 +1134,85 @@ export function mountEditorView(appState, hooks) {
     });
   }
   function handleResetView() {
-    fitViewportToGrid();
+    appState.viewMode = appState.viewMode === 'fit' ? 'actual' : 'fit';
+    if (appState.viewMode === 'fit') {
+      fitViewportToGrid(); // also re-syncs the button — see its own comment
+    } else {
+      setViewportToActualSize();
+      updateResetViewButton();
+    }
+    scheduleRedraw();
+  }
+
+  function updateCalibrationValueLabel() {
+    calibrationValueLabel.textContent = `${calibrationRangeInput.value}%`;
+  }
+
+  // Preferences is app-level, not per-design (CLAUDE.md pain point #1 — global
+  // toggles belong in one place, not scattered per-design controls). Opening it
+  // seeds the calibration slider from whatever's currently saved and, since
+  // calibrating only makes sense against a live Actual Size reference, switches
+  // into that mode for the duration if the design wasn't already showing it —
+  // handlePreferencesDialogClose (below) reverts this on Close-without-Save.
+  function handlePreferencesOpen() {
+    viewModeBeforePreferencesOpen = appState.viewMode;
+    calibrationSavedThisOpen = false;
+    calibrationFactor = appState.preferences.actualSizeCalibration ?? 1;
+    calibrationRangeInput.value = String(calibrationFactor * 100);
+    updateCalibrationValueLabel();
+    appState.viewMode = 'actual';
+    setViewportToActualSize(calibrationFactor);
+    updateResetViewButton();
+    scheduleRedraw();
+    preferencesDialog.showModal();
+  }
+
+  // Live-adjusts as the user drags, so the canvas visibly resizes in real time
+  // against their held-up beadwork — mutates appState.viewport only, exactly
+  // like panning/zooming already does, not preferences.
+  function handleCalibrationInput() {
+    calibrationFactor = Number(calibrationRangeInput.value) / 100;
+    updateCalibrationValueLabel();
+    setViewportToActualSize(calibrationFactor);
+    scheduleRedraw();
+  }
+
+  // Live-previews the uncalibrated assumption without losing the in-progress
+  // adjustment's own working value unless the user separately chooses Save —
+  // a plain click of this button never itself writes to preferences.
+  function handleCalibrationResetDefault() {
+    calibrationFactor = 1;
+    calibrationRangeInput.value = '100';
+    updateCalibrationValueLabel();
+    setViewportToActualSize(calibrationFactor);
+    scheduleRedraw();
+  }
+
+  // Applies immediately and globally: the next time any design (this one or
+  // another) enters Actual Size, it uses the new factor.
+  function handleCalibrationSave() {
+    hooks.onPreferencesChanged({ actualSizeCalibration: calibrationFactor });
+    calibrationSavedThisOpen = true;
+    preferencesDialog.close();
+  }
+
+  function handlePreferencesClose() {
+    preferencesDialog.close();
+  }
+
+  // Fires on every way the dialog can close (X button, Escape, or the
+  // programmatic .close() calls above) — reverts the live view to whatever was
+  // actually on screen/saved before Preferences was opened, unless Save already
+  // committed the in-progress adjustment.
+  function handlePreferencesDialogClose() {
+    if (calibrationSavedThisOpen) return;
+    appState.viewMode = viewModeBeforePreferencesOpen;
+    if (appState.viewMode === 'fit') {
+      fitViewportToGrid(); // also re-syncs the button — see its own comment
+    } else {
+      setViewportToActualSize();
+      updateResetViewButton();
+    }
     scheduleRedraw();
   }
   function handleUnitToggle() {
@@ -1344,6 +1475,12 @@ export function mountEditorView(appState, hooks) {
 
   settingsOpenButton.addEventListener('click', handleSettingsOpen);
   settingsCloseButton.addEventListener('click', handleSettingsClose);
+  preferencesOpenButton.addEventListener('click', handlePreferencesOpen);
+  preferencesCloseButton.addEventListener('click', handlePreferencesClose);
+  preferencesDialog.addEventListener('close', handlePreferencesDialogClose);
+  calibrationRangeInput.addEventListener('input', handleCalibrationInput);
+  calibrationSaveButton.addEventListener('click', handleCalibrationSave);
+  calibrationResetButton.addEventListener('click', handleCalibrationResetDefault);
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   stitchTypeSelect.addEventListener('change', handleStitchTypeChange);
@@ -1456,6 +1593,12 @@ export function mountEditorView(appState, hooks) {
     beadCatalogDialog.unmount();
     settingsOpenButton.removeEventListener('click', handleSettingsOpen);
     settingsCloseButton.removeEventListener('click', handleSettingsClose);
+    preferencesOpenButton.removeEventListener('click', handlePreferencesOpen);
+    preferencesCloseButton.removeEventListener('click', handlePreferencesClose);
+    preferencesDialog.removeEventListener('close', handlePreferencesDialogClose);
+    calibrationRangeInput.removeEventListener('input', handleCalibrationInput);
+    calibrationSaveButton.removeEventListener('click', handleCalibrationSave);
+    calibrationResetButton.removeEventListener('click', handleCalibrationResetDefault);
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     stitchTypeSelect.removeEventListener('change', handleStitchTypeChange);

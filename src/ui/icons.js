@@ -13,7 +13,7 @@ const ICON_NAMES = [
   'ruler', 'square', 'crosshair', 'list', 'layout-grid', 'palette', 'image',
   'move', 'plus', 'check', 'x', 'bring-to-front', 'send-to-back', 'pipette',
   'layers', 'cloud', 'cloud-upload', 'cloud-download', 'log-out', 'download',
-  'upload', 'triangle-alert',
+  'upload', 'triangle-alert', 'sliders-horizontal',
 ];
 
 const templates = new Map(); // name -> parsed <svg> template element

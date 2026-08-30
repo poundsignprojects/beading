@@ -48,6 +48,11 @@ export function createAppState() {
     showBeadOutlines: true, // whether drawGrid strokes a bead outline or fills edge-to-edge; mirrors `units`' preference-backed-default-then-session-toggle pattern
     gridParams: null,
     viewport: { originXmm: 0, originYmm: 0, scalePxPerMm: 10 },
+    // 'fit' | 'actual' — which mode Reset View last produced. Session-only, like
+    // `tool`, not persisted with the design; every design open starts at 'fit'
+    // (see openDesign in main.js). See .work/feature-ruler-rotation-viewmode-
+    // datefix-plan.md §3.
+    viewMode: 'fit',
     tool: 'draw',
     // Phase 8: no static catalog to point to anymore (see src/palette/colorLibrary.js)
     // — resolved once appState.customColors loads for whichever bead type is open.

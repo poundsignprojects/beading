@@ -444,6 +444,22 @@ input[type="number"] {
   margin-left: 0.25rem;
 }
 
+#calibration-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+#calibration-range {
+  width: 8rem;
+}
+
+#calibration-value {
+  min-width: 3.5rem;
+  text-align: right;
+  color: #444;
+}
+
 #top-bar-divider {
   width: 1px;
   align-self: stretch;
@@ -831,6 +847,7 @@ input[type="number"] {
 #device-backup-picker-dialog,
 #resize-dialog,
 #settings-dialog,
+#preferences-dialog,
 #backup-dialog {
   border: none;
   border-radius: 8px;
@@ -846,6 +863,7 @@ input[type="number"] {
 #device-backup-picker-dialog::backdrop,
 #resize-dialog::backdrop,
 #settings-dialog::backdrop,
+#preferences-dialog::backdrop,
 #backup-dialog::backdrop {
   background: rgba(0, 0, 0, 0.35);
 }
@@ -857,6 +875,7 @@ input[type="number"] {
 #device-backup-picker-dialog h2,
 #resize-dialog h2,
 #settings-dialog h2,
+#preferences-dialog h2,
 #backup-dialog h2 {
   margin: 0 0 0.5rem;
   font-size: 1.1rem;
@@ -864,6 +883,7 @@ input[type="number"] {
 
 #bead-catalog-header,
 #settings-dialog-header,
+#preferences-dialog-header,
 #backup-dialog-header {
   display: flex;
   align-items: center;
@@ -872,26 +892,37 @@ input[type="number"] {
   margin-bottom: 0.5rem;
 }
 
+#preferences-dialog section,
 #backup-dialog section {
   margin: 0.75rem 0;
   padding-top: 0.75rem;
   border-top: 1px solid #e8e8e8;
 }
 
+#preferences-dialog section:first-of-type,
 #backup-dialog section:first-of-type {
   border-top: none;
   padding-top: 0;
 }
 
+#preferences-dialog h3,
 #backup-dialog h3 {
   margin: 0 0 0.35rem;
   font-size: 0.95rem;
 }
 
+#preferences-dialog p,
 #backup-dialog p {
   margin: 0 0 0.5rem;
   font-size: 0.85rem;
   color: #555;
+}
+
+#calibration-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 #backup-device-row {

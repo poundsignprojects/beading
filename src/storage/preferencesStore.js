@@ -19,6 +19,11 @@ const DEFAULT_PREFERENCES = {
   printStartDirection: 'right',
   showBeadOutlines: true,
   printIncludeReferenceImage: true,
+  // Global multiplier applied on top of the CSS spec's 96px/inch assumption when
+  // rendering Actual Size (see editorView.js's setViewportToActualSize) — 1 means
+  // "trust the raw assumption completely." Corrects for real screen DPI varying
+  // by device/browser/OS zoom, via the Actual Size calibration control.
+  actualSizeCalibration: 1,
 };
 
 // defaultRows/defaultCols ("last resize becomes the new default size") need the
