@@ -36,7 +36,7 @@
         <button id="preferences-open" type="button" class="icon-btn" data-icon="sliders-horizontal" title="Preferences" aria-label="Preferences"></button>
         <span id="size-readout"></span>
         <button id="outline-toggle" type="button" class="icon-btn" data-icon="square" aria-pressed="true" title="Toggle bead outlines" aria-label="Toggle bead outlines"></button>
-        <button id="unit-toggle" type="button" class="icon-btn" data-icon="ruler" title="Toggle mm / in" aria-label="Toggle units"></button>
+        <button id="ruler-toggle" type="button" class="icon-btn" data-icon="ruler" aria-pressed="false" title="Toggle Ruler" aria-label="Toggle Ruler"></button>
         <button id="reset-view" type="button" class="icon-btn" data-icon="crosshair" aria-pressed="false" title="View Actual Size" aria-label="View Actual Size"></button>
         <button id="panel-toggle" type="button" class="icon-btn" data-icon="panel-right" aria-pressed="true" title="Toggle side panel" aria-label="Toggle side panel"></button>
         <button id="print-export" type="button" class="icon-btn" data-icon="printer" title="Print / Export" aria-label="Print / Export"></button>
@@ -75,7 +75,12 @@
         </div>
         <button id="clear-pattern" type="button" class="icon-btn icon-btn-lg" data-icon="trash-2" title="Clear pattern" aria-label="Clear pattern"></button>
       </div>
-      <canvas id="pattern-canvas"></canvas>
+      <div id="canvas-area" class="ruler-hidden">
+        <div id="ruler-corner"></div>
+        <canvas id="ruler-top"></canvas>
+        <canvas id="ruler-left"></canvas>
+        <canvas id="pattern-canvas"></canvas>
+      </div>
       <div id="side-panel">
         <section id="palette-section" aria-label="Color palette">
           <div id="palette-section-header">
@@ -152,6 +157,11 @@
       <button type="button" id="preferences-close" class="icon-btn" data-icon="x" title="Close" aria-label="Close"></button>
     </div>
     <div id="preferences-dialog-body">
+      <section id="preferences-units-section" aria-label="Units">
+        <h3>Units</h3>
+        <p>Used for size readouts and the ruler.</p>
+        <button id="preferences-unit-toggle" type="button"></button>
+      </section>
       <section id="preferences-calibration-section" aria-label="Actual Size calibration">
         <h3>Actual Size Calibration</h3>
         <p>Hold a real stitched piece up to the screen and adjust until the on-screen pattern matches its spacing — corrects for how your display's actual pixel density differs from the 96px/inch assumption browsers use. Applies to every pattern on this device, not just the one currently open.</p>

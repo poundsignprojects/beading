@@ -546,9 +546,62 @@ input[type="number"] {
   gap: 0.35rem;
 }
 
-#pattern-canvas {
+/* Spreadsheet-style grid: a corner cell + top ruler row + left ruler column +
+   the canvas cell. --ruler-size collapses to 0 when the ruler is toggled off
+   (.ruler-hidden) so the canvas cell silently reclaims the space — no
+   resizeCanvasForDisplay special-casing needed, since #pattern-canvas's own
+   clientWidth/clientHeight already reflect whatever the grid track leaves it.
+   See .work/feature-ruler-rotation-viewmode-datefix-plan.md §1. */
+#canvas-area {
+  --ruler-size: 1.5rem;
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--ruler-size) 1fr;
+  grid-template-rows: var(--ruler-size) 1fr;
+  grid-template-areas:
+    "corner top"
+    "left canvas";
+}
+
+#canvas-area.ruler-hidden {
+  --ruler-size: 0rem;
+}
+
+#ruler-corner {
+  grid-area: corner;
+  background: #f2f2f2;
+  border-right: 1px solid #ccc;
+  border-bottom: 1px solid #ccc;
+}
+
+#ruler-top,
+#ruler-left {
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: #f2f2f2;
+}
+
+#ruler-top {
+  grid-area: top;
+}
+
+#ruler-left {
+  grid-area: left;
+}
+
+#canvas-area.ruler-hidden #ruler-corner,
+#canvas-area.ruler-hidden #ruler-top,
+#canvas-area.ruler-hidden #ruler-left {
+  display: none;
+}
+
+#pattern-canvas {
+  grid-area: canvas;
+  min-width: 0;
+  min-height: 0;
   display: block;
   width: 100%;
   height: 100%;

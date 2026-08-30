@@ -409,6 +409,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   // before this field existed has it as undefined, which should mean "on" (the
   // default), not "off".
   appState.showBeadOutlines = appState.preferences.showBeadOutlines !== false;
+  appState.showRuler = appState.preferences.showRuler === true; // default off, explicit opt-in
   appState.tool = 'draw';
   appState.viewMode = 'fit'; // every design opens at Fit, regardless of what the previous design was left at
   appState.gridParams = null;

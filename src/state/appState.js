@@ -53,6 +53,10 @@ export function createAppState() {
     // (see openDesign in main.js). See .work/feature-ruler-rotation-viewmode-
     // datefix-plan.md §3.
     viewMode: 'fit',
+    // Whether the top/left ruler renders alongside the canvas — preference-backed
+    // like showBeadOutlines (session field mirroring a global default), not
+    // per-design. See .work/feature-ruler-rotation-viewmode-datefix-plan.md §1.
+    showRuler: false,
     tool: 'draw',
     // Phase 8: no static catalog to point to anymore (see src/palette/colorLibrary.js)
     // — resolved once appState.customColors loads for whichever bead type is open.

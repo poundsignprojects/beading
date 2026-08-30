@@ -73,6 +73,7 @@ import { resolveGridEngine, stitchTypeLabel } from '../grid/gridEngine.js';
 import { resizeCanvasForDisplay, drawGrid } from '../render/canvasRenderer.js';
 import { drawSelectionOverlay } from '../render/selectionOverlay.js';
 import { drawPastePreviewOverlay } from '../render/pastePreviewOverlay.js';
+import { drawRulerTop, drawRulerLeft } from '../render/rulerRenderer.js';
 import { screenToWorld } from '../render/viewport.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
@@ -106,6 +107,11 @@ const CSS_PX_PER_MM = 96 / 25.4;
 export function mountEditorView(appState, hooks) {
   const canvas = document.getElementById('pattern-canvas');
   const ctx = canvas.getContext('2d');
+  const canvasArea = document.getElementById('canvas-area');
+  const rulerTopCanvas = document.getElementById('ruler-top');
+  const rulerTopCtx = rulerTopCanvas.getContext('2d');
+  const rulerLeftCanvas = document.getElementById('ruler-left');
+  const rulerLeftCtx = rulerLeftCanvas.getContext('2d');
 
   const backButton = document.getElementById('back-to-library');
   const settingsDialog = document.getElementById('settings-dialog');
@@ -125,7 +131,8 @@ export function mountEditorView(appState, hooks) {
   const colsInput = document.getElementById('cols');
   const generateButton = document.getElementById('generate');
   const cropToDesignButton = document.getElementById('crop-to-design');
-  const unitToggleButton = document.getElementById('unit-toggle');
+  const rulerToggleButton = document.getElementById('ruler-toggle');
+  const preferencesUnitToggleButton = document.getElementById('preferences-unit-toggle');
   const outlineToggleButton = document.getElementById('outline-toggle');
   const sizeReadout = document.getElementById('size-readout');
   const resetViewButton = document.getElementById('reset-view');
@@ -216,6 +223,12 @@ export function mountEditorView(appState, hooks) {
     );
     drawSelectionOverlay(ctx, appState.viewport, appState.gridParams, appState.selection);
     drawPastePreviewOverlay(ctx, appState.viewport, appState.gridParams, appState.clipboard, appState.pastePreview, resolveColor);
+    if (appState.showRuler) {
+      const topSize = resizeCanvasForDisplay(rulerTopCanvas, rulerTopCtx);
+      drawRulerTop(rulerTopCtx, topSize.cssWidth, topSize.cssHeight, appState.viewport, appState.units);
+      const leftSize = resizeCanvasForDisplay(rulerLeftCanvas, rulerLeftCtx);
+      drawRulerLeft(rulerLeftCtx, leftSize.cssWidth, leftSize.cssHeight, appState.viewport, appState.units);
+    }
   }
 
   // Centers the grid's bounding box in the canvas at a scale that fits it with
@@ -1215,10 +1228,28 @@ export function mountEditorView(appState, hooks) {
     }
     scheduleRedraw();
   }
+  // Names the *next* state a click will produce, same convention as Reset
+  // View's title swap — cheaper to read at a glance than a plain on/off label.
+  function updateUnitToggleButton() {
+    preferencesUnitToggleButton.textContent = appState.units === 'mm' ? 'Switch to Inches' : 'Switch to Millimeters';
+  }
   function handleUnitToggle() {
     appState.units = appState.units === 'mm' ? 'in' : 'mm';
     updateSizeReadout();
+    updateUnitToggleButton();
+    scheduleRedraw(); // the ruler's tick spacing/labels depend on the unit too
     hooks.onPreferencesChanged({ units: appState.units });
+  }
+  // Ruler visibility is a preference-backed session toggle, same pattern as
+  // showBeadOutlines — collapsing/expanding its grid track changes the
+  // canvas's available space, so this also needs a redraw (resizeCanvasForDisplay
+  // must re-run), same as handlePanelToggle.
+  function handleRulerToggle() {
+    appState.showRuler = !appState.showRuler;
+    canvasArea.classList.toggle('ruler-hidden', !appState.showRuler);
+    rulerToggleButton.setAttribute('aria-pressed', String(appState.showRuler));
+    scheduleRedraw();
+    hooks.onPreferencesChanged({ showRuler: appState.showRuler });
   }
   function handleOutlineToggle() {
     appState.showBeadOutlines = !appState.showBeadOutlines;
@@ -1487,7 +1518,8 @@ export function mountEditorView(appState, hooks) {
   generateButton.addEventListener('click', handleResizeClick);
   cropToDesignButton.addEventListener('click', applyCrop);
   resetViewButton.addEventListener('click', handleResetView);
-  unitToggleButton.addEventListener('click', handleUnitToggle);
+  preferencesUnitToggleButton.addEventListener('click', handleUnitToggle);
+  rulerToggleButton.addEventListener('click', handleRulerToggle);
   outlineToggleButton.addEventListener('click', handleOutlineToggle);
   toolDrawButton.addEventListener('click', handleToolDraw);
   toolEraseButton.addEventListener('click', handleToolErase);
@@ -1579,6 +1611,11 @@ export function mountEditorView(appState, hooks) {
   sidePanel.hidden = !!appState.preferences.panelCollapsed;
   panelToggleButton.setAttribute('aria-pressed', String(!sidePanel.hidden));
   outlineToggleButton.setAttribute('aria-pressed', String(appState.showBeadOutlines));
+  // Same reasoning as the panel above — the ruler's grid track changes the
+  // canvas's available space, so it must be set before the canvas is measured.
+  canvasArea.classList.toggle('ruler-hidden', !appState.showRuler);
+  rulerToggleButton.setAttribute('aria-pressed', String(appState.showRuler));
+  updateUnitToggleButton();
 
   // Populate lastCssSize before fitViewportToGrid() divides by its dimensions.
   lastCssSize = resizeCanvasForDisplay(canvas, ctx);
@@ -1605,7 +1642,8 @@ export function mountEditorView(appState, hooks) {
     generateButton.removeEventListener('click', handleResizeClick);
     cropToDesignButton.removeEventListener('click', applyCrop);
     resetViewButton.removeEventListener('click', handleResetView);
-    unitToggleButton.removeEventListener('click', handleUnitToggle);
+    preferencesUnitToggleButton.removeEventListener('click', handleUnitToggle);
+    rulerToggleButton.removeEventListener('click', handleRulerToggle);
     outlineToggleButton.removeEventListener('click', handleOutlineToggle);
     toolDrawButton.removeEventListener('click', handleToolDraw);
     toolEraseButton.removeEventListener('click', handleToolErase);

@@ -24,6 +24,10 @@ const DEFAULT_PREFERENCES = {
   // "trust the raw assumption completely." Corrects for real screen DPI varying
   // by device/browser/OS zoom, via the Actual Size calibration control.
   actualSizeCalibration: 1,
+  // Whether the top/left ruler is shown alongside the canvas — off by default
+  // (added screen real estate a new feature shouldn't impose until opted in),
+  // see .work/feature-ruler-rotation-viewmode-datefix-plan.md §1.
+  showRuler: false,
 };
 
 // defaultRows/defaultCols ("last resize becomes the new default size") need the
