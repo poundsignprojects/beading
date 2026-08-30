@@ -96,20 +96,32 @@ async function persistCurrentDesign() {
       )
     : existing.thumbnailDataUrl;
 
-  const saved = await saveDesign(appState.db, {
-    ...existing,
-    beadTypeKey: appState.beadTypeKey,
-    stitchType: appState.stitchType,
-    rows: appState.rows,
-    cols: appState.cols,
-    staggerFlipped: appState.staggerFlipped,
-    shapeEntries,
-    colorways: appState.colorways,
-    activeColorwayId: appState.activeColorwayId,
-    thumbnailDataUrl,
-  });
+  const saved = await saveDesign(
+    appState.db,
+    {
+      ...existing,
+      beadTypeKey: appState.beadTypeKey,
+      stitchType: appState.stitchType,
+      rows: appState.rows,
+      cols: appState.cols,
+      staggerFlipped: appState.staggerFlipped,
+      shapeEntries,
+      colorways: appState.colorways,
+      activeColorwayId: appState.activeColorwayId,
+      thumbnailDataUrl,
+    },
+    { bumpUpdatedAt: appState.designDirty }
+  );
+  appState.designDirty = false;
   const idx = appState.designs.findIndex((d) => d.id === saved.id);
   if (idx !== -1) appState.designs[idx] = saved;
+}
+
+// Marks the currently open design as having a genuine content edit, so the
+// next persistCurrentDesign() bumps updatedAt. See designDirty's own comment
+// in appState.js and .work/feature-ruler-rotation-viewmode-datefix-plan.md §4.
+function handleDesignContentChanged() {
+  appState.designDirty = true;
 }
 
 async function handlePreferencesChanged(patch) {
@@ -406,6 +418,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   // Small/fast rows, unlike a multi-MB photo blob — awaited before mount rather
   // than loaded async afterward like the photo trace below.
   appState.customColors = await listCustomColorsSorted(appState.db, design.beadTypeKey);
+  appState.designDirty = false; // a freshly opened design starts clean
 
   showEditorView();
 
@@ -413,8 +426,9 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   debouncedPhotoSave = debounce(() => { persistPhotoTrace(); }, AUTOSAVE_DEBOUNCE_MS);
 
   editorController = mountEditorView(appState, {
-    onCellsChanged: () => debouncedSave(),
+    onCellsChanged: () => { appState.designDirty = true; debouncedSave(); },
     onImmediateSave: () => { persistCurrentDesign(); },
+    onDesignContentChanged: handleDesignContentChanged,
     onPreferencesChanged: handlePreferencesChanged,
     onPhotoTraceChanged: () => debouncedPhotoSave(),
     onPhotoTraceRemoved: () => { handlePhotoTraceRemoved(); },
@@ -569,7 +583,10 @@ async function handleRename(id) {
   if (!design) return;
   const newName = window.prompt('Rename pattern', design.name);
   if (!newName || !newName.trim()) return;
-  const saved = await saveDesign(appState.db, { ...design, name: newName.trim() });
+  // Explicitly requested in the original bug report — a title change alone
+  // shouldn't count as "content changed" (see .work/feature-ruler-rotation-
+  // viewmode-datefix-plan.md §4, which otherwise left this as an open call).
+  const saved = await saveDesign(appState.db, { ...design, name: newName.trim() }, { bumpUpdatedAt: false });
   const idx = appState.designs.findIndex((d) => d.id === id);
   appState.designs[idx] = saved;
   libraryController.renderList(appState.designs);
@@ -595,7 +612,9 @@ async function handleDelete(id) {
 async function handleReorder(id, newOrder) {
   const design = appState.designs.find((d) => d.id === id);
   if (!design) return;
-  const saved = await saveDesign(appState.db, { ...design, order: newOrder });
+  // A reorder is not a content edit — never bump updatedAt for it (see
+  // .work/feature-ruler-rotation-viewmode-datefix-plan.md §4).
+  const saved = await saveDesign(appState.db, { ...design, order: newOrder }, { bumpUpdatedAt: false });
   const idx = appState.designs.findIndex((d) => d.id === id);
   appState.designs[idx] = saved;
   appState.designs.sort((a, b) => a.order - b.order);

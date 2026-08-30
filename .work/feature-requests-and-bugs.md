@@ -6,6 +6,6 @@ To do:
 - Multiple palettes
 - Global preferences modal — consolidate the scattered preference toggles (units, panel-collapsed, library view mode, and the new print-start-direction) into one modal instead of buttons spread across the top bar/library header/print toolbar. Not scoped/planned yet.
 - Ability to Copy colors between rocaille and delica
-- bug: last updated date changes even if just opening a file. Also even if just tapping a file to move it. Should only change if colors or beads have changed. Even title change should not trigger an update.
 - Add a filter to library. Filter by bead type.
 - Add ability to move items in to folders or tag them
+- In library titles, put bead type on one line, stitch type on another line.

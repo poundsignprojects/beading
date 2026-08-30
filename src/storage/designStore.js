@@ -99,8 +99,14 @@ export async function createConvertedDesign(db, { name, beadTypeKey, stitchType 
   return design;
 }
 
-export async function saveDesign(db, design) {
-  const updated = { ...design, updatedAt: Date.now() };
+// bumpUpdatedAt: false preserves design.updatedAt verbatim instead of stamping
+// Date.now() — used for saves that don't represent a genuine content edit (a
+// library reorder, or a routine flush of an already-clean open design) so the
+// library's "last updated" reading only reflects real changes to beads/geometry/
+// colors, not passive actions like reordering or simply opening/closing a
+// design (see .work/feature-ruler-rotation-viewmode-datefix-plan.md §4).
+export async function saveDesign(db, design, { bumpUpdatedAt = true } = {}) {
+  const updated = bumpUpdatedAt ? { ...design, updatedAt: Date.now() } : { ...design };
   await put(db, STORE, updated);
   return updated;
 }

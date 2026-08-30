@@ -15,6 +15,13 @@ export function createAppState() {
     preferences: null,
     designs: [], // in-memory list, kept sorted by `order`
     currentDesignId: null,
+    // Whether the currently open design has had a genuine content edit (beads,
+    // geometry, colorways) since it was opened or last saved — distinct from
+    // merely having been opened/closed or reordered in the library. Drives
+    // whether persistCurrentDesign's save bumps updatedAt (see
+    // .work/feature-ruler-rotation-viewmode-datefix-plan.md §4). Reset to false
+    // in openDesign() and after every successful save.
+    designDirty: false,
     // User-defined bead type catalog (see src/storage/beadCatalogStore.js,
     // src/palette/beadSpecs.js's findBeadType) — full in-memory list, loaded once
     // at boot (like preferences) and mutated in place, same role

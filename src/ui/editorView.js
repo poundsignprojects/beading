@@ -8,6 +8,13 @@
 //                            main.js debounces the resulting autosave.
 //   onImmediateSave()     — fired after a discrete, already-confirmed action
 //                            (regenerate, Clear) that should save right away.
+//   onDesignContentChanged() — fired at every genuine content-mutation site
+//                            (regenerate, resize/crop/undo-redo-of-either,
+//                            Clear, colorway rename/delete/new) so main.js
+//                            knows the next save should bump the design's
+//                            updatedAt — opening/closing or reordering a
+//                            design never should (see .work/feature-ruler-
+//                            rotation-viewmode-datefix-plan.md §4).
 //   onPreferencesChanged(patch) — fired when regenerate or the units toggle
 //                            should update the global preference defaults.
 //   onPhotoTraceChanged() — fired after a photo trace load/move/scale/opacity
@@ -537,6 +544,7 @@ export function mountEditorView(appState, hooks) {
       defaultRows: appState.rows,
       defaultCols: appState.cols,
     });
+    hooks.onDesignContentChanged();
     hooks.onImmediateSave();
   }
 
@@ -585,6 +593,11 @@ export function mountEditorView(appState, hooks) {
     rowsInput.value = String(appState.rows);
     colsInput.value = String(appState.cols);
     scheduleRedraw();
+    // Covers applyResize/applyCrop's own "after" apply AND undo/redo replaying
+    // either one, since both funnel through this one function — a resize/crop
+    // (or undoing/redoing one) is always a genuine content change relative to
+    // what's on disk.
+    hooks.onDesignContentChanged();
     hooks.onImmediateSave();
   }
 
@@ -755,6 +768,10 @@ export function mountEditorView(appState, hooks) {
       updatedAt: now,
     };
     appState.colorways = [...appState.colorways, newColorway];
+    // Set before switchColorway() below, which itself only fires
+    // onImmediateSave — creating a colorway is a genuine content change, unlike
+    // a plain switch between existing ones.
+    hooks.onDesignContentChanged();
     switchColorway(newColorway.id);
   }
 
@@ -766,6 +783,7 @@ export function mountEditorView(appState, hooks) {
       cw.id === current.id ? { ...cw, name: newName.trim(), updatedAt: Date.now() } : cw
     );
     updateColorwaySelect();
+    hooks.onDesignContentChanged();
     hooks.onImmediateSave();
   }
 
@@ -786,6 +804,7 @@ export function mountEditorView(appState, hooks) {
     updateHistoryButtons();
     updateColorwaySelect();
     scheduleRedraw();
+    hooks.onDesignContentChanged();
     hooks.onImmediateSave();
   }
 
@@ -862,6 +881,7 @@ export function mountEditorView(appState, hooks) {
       updateSizeReadout();
       scheduleRedraw();
       hooks.onPreferencesChanged({ defaultStitchType: appState.stitchType });
+      hooks.onDesignContentChanged();
       hooks.onImmediateSave();
       return;
     }
@@ -1114,6 +1134,7 @@ export function mountEditorView(appState, hooks) {
     clearHistory(appState.history);
     updateHistoryButtons();
     scheduleRedraw();
+    hooks.onDesignContentChanged();
     hooks.onImmediateSave();
   }
   function handleUndo() {
