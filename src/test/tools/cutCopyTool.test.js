@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildClipboard, applyEraseRegion, applyPaste } from '../../tools/cutCopyTool.js';
+import { buildClipboard, applyEraseRegion, applyPaste, rotateClipboard } from '../../tools/cutCopyTool.js';
 import { setCell } from '../../state/cellStore.js';
 
 test('buildClipboard: mixed occupied/absent selection produces relative coords, omits absent', () => {
@@ -77,4 +77,52 @@ test('applyEraseRegion: only touches occupied cells within bounds, patch matches
   assert.equal(cells.has('0,0'), false);
   assert.equal(cells.has('1,1'), false);
   assert.equal(cells.get('9,9').colorId, 'green');
+});
+
+test('rotateClipboard: cw swaps rows/cols dimensions and matches rotateGrid.js\'s hand-derived coordinates', () => {
+  const clipboard = { rows: 2, cols: 3, cells: [[0, 0, 'a'], [1, 2, 'b']] };
+  const rotated = rotateClipboard(clipboard, 'cw');
+  assert.equal(rotated.rows, 3);
+  assert.equal(rotated.cols, 2);
+  const sorted = [...rotated.cells].sort();
+  assert.deepEqual(sorted, [[0, 1, 'a'], [2, 0, 'b']].sort());
+});
+
+test('rotateClipboard: ccw swaps dimensions the other way', () => {
+  const clipboard = { rows: 2, cols: 3, cells: [[0, 0, 'a'], [1, 2, 'b']] };
+  const rotated = rotateClipboard(clipboard, 'ccw');
+  assert.equal(rotated.rows, 3);
+  assert.equal(rotated.cols, 2);
+  const sorted = [...rotated.cells].sort();
+  assert.deepEqual(sorted, [[2, 0, 'a'], [0, 1, 'b']].sort());
+});
+
+test('rotateClipboard: 180 leaves dimensions unchanged and reflects both axes', () => {
+  const clipboard = { rows: 2, cols: 3, cells: [[0, 0, 'a'], [1, 2, 'b']] };
+  const rotated = rotateClipboard(clipboard, '180');
+  assert.equal(rotated.rows, 2);
+  assert.equal(rotated.cols, 3);
+  const sorted = [...rotated.cells].sort();
+  assert.deepEqual(sorted, [[1, 2, 'a'], [0, 0, 'b']].sort());
+});
+
+test('rotateClipboard: cw four times returns to the original clipboard', () => {
+  let clipboard = { rows: 2, cols: 3, cells: [[0, 0, 'a'], [1, 2, 'b']] };
+  for (let i = 0; i < 4; i++) clipboard = rotateClipboard(clipboard, 'cw');
+  assert.equal(clipboard.rows, 2);
+  assert.equal(clipboard.cols, 3);
+  const sorted = [...clipboard.cells].sort();
+  assert.deepEqual(sorted, [[0, 0, 'a'], [1, 2, 'b']].sort());
+});
+
+test('rotateClipboard -> applyPaste: a rotated clipboard still pastes correctly into a fresh grid', () => {
+  const clipboard = { rows: 1, cols: 2, cells: [[0, 0, 'red'], [0, 1, 'blue']] };
+  const rotated = rotateClipboard(clipboard, 'cw'); // becomes 2 rows x 1 col
+  assert.equal(rotated.rows, 2);
+  assert.equal(rotated.cols, 1);
+  const target = new Map();
+  applyPaste(target, rotated, 3, 3, 10, 10);
+  assert.equal(target.get('3,3').colorId, 'red');
+  assert.equal(target.get('4,3').colorId, 'blue');
+  assert.equal(target.size, 2);
 });

@@ -82,11 +82,12 @@ import {
   resizeCells, resizeColorEntries, boundingBoxForCells, cropCells, cropColorEntries,
   axisOffset, compensatedStaggerFlipped,
 } from '../state/resizeGrid.js';
+import { rotatedDimensions, rotateCells, rotateColorEntries, rotateSelection180 } from '../state/rotateGrid.js';
 import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from '../state/colorwaySync.js';
 import { defaultPhotoPlacement } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
-import { buildClipboard, applyEraseRegion, applyPaste } from '../tools/cutCopyTool.js';
+import { buildClipboard, applyEraseRegion, applyPaste, rotateClipboard } from '../tools/cutCopyTool.js';
 import { applyMirror } from '../tools/mirrorTool.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
@@ -136,6 +137,9 @@ export function mountEditorView(appState, hooks) {
   const outlineToggleButton = document.getElementById('outline-toggle');
   const sizeReadout = document.getElementById('size-readout');
   const resetViewButton = document.getElementById('reset-view');
+  const rotateCwButton = document.getElementById('rotate-cw');
+  const rotateCcwButton = document.getElementById('rotate-ccw');
+  const rotate180Button = document.getElementById('rotate-180');
   const toolDrawButton = document.getElementById('tool-draw');
   const toolEraseButton = document.getElementById('tool-erase');
   const toolFillButton = document.getElementById('tool-fill');
@@ -169,6 +173,9 @@ export function mountEditorView(appState, hooks) {
   const selectionPasteButton = document.getElementById('selection-paste');
   const selectionMirrorHButton = document.getElementById('selection-mirror-h');
   const selectionMirrorVButton = document.getElementById('selection-mirror-v');
+  const selectionRotate180Button = document.getElementById('selection-rotate-180');
+  const selectionRotate90CwButton = document.getElementById('selection-rotate-90-cw');
+  const selectionRotate90CcwButton = document.getElementById('selection-rotate-90-ccw');
   const selectionDeselectButton = document.getElementById('selection-deselect');
   const pasteControlsEl = document.getElementById('paste-controls');
   const pasteModeFrontButton = document.getElementById('paste-mode-front');
@@ -493,6 +500,15 @@ export function mountEditorView(appState, hooks) {
       ? 'Mirror Horizontal needs an odd-width selection (even widths would land content on the wrong bead stagger)'
       : '';
     selectionMirrorVButton.disabled = !hasSelection;
+    // Unlike Mirror Horizontal, rotation has no even/odd restriction at all:
+    // 180° swaps content within the same footprint (no dimension change, same
+    // non-issue as whole-canvas 180° — see rotateGrid.js), and 90°/270° never
+    // try to fit rotated content back into the original footprint in the first
+    // place — they go through the copy→rotate→paste flow instead, which can
+    // place an H×W result anywhere regardless of the source selection's shape.
+    selectionRotate180Button.disabled = !hasSelection;
+    selectionRotate90CwButton.disabled = !hasSelection;
+    selectionRotate90CcwButton.disabled = !hasSelection;
     selectionPasteButton.disabled = !appState.clipboard;
     selectionDeselectButton.disabled = !hasSelection;
   }
@@ -709,6 +725,48 @@ export function mountEditorView(appState, hooks) {
       defaultRows: appState.rows,
       defaultCols: appState.cols,
     });
+  }
+
+  // Rotates the whole design 90°/270°/180° — reuses the exact same geometry-
+  // snapshot undo/redo machinery applyResize/applyCrop already established
+  // (rotation is a change of the same *kind*: rows, cols, staggerFlipped, every
+  // colorway's colors all move together), so it slots in with no new undo
+  // infrastructure. Unlike a resize, rotation never drops a cell — it's a pure
+  // bijection over the whole grid (see rotateGrid.js) — so there's no confirm
+  // dialog, the same reasoning applyCrop already uses. staggerFlipped is reset
+  // to false rather than compensated for: a rotation is a wholesale new set of
+  // coordinates, not a shift, so there's no prior stagger registration to stay
+  // continuous with (see rotateGrid.js's header comment).
+  function applyRotate(direction) {
+    const before = captureGeometrySnapshot();
+
+    const { rows: newRows, cols: newCols } = rotatedDimensions(appState.rows, appState.cols, direction);
+    const newCells = rotateCells(appState.cells, appState.rows, appState.cols, direction);
+    const newColorways = appState.colorways.map((cw) => ({
+      ...cw,
+      colorEntries: rotateColorEntries(cw.colorEntries, appState.rows, appState.cols, direction),
+    }));
+
+    const after = {
+      rows: newRows,
+      cols: newCols,
+      staggerFlipped: false,
+      cellEntries: [...newCells.entries()],
+      colorways: newColorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+    };
+
+    commitGeometrySnapshot(after);
+    pushGeometryChange(appState.history, before, after, commitGeometrySnapshot);
+    updateHistoryButtons();
+  }
+  function handleRotateCw() {
+    applyRotate('cw');
+  }
+  function handleRotateCcw() {
+    applyRotate('ccw');
+  }
+  function handleRotate180() {
+    applyRotate('180');
   }
 
   // Rows/Cols field changes go through here (not regenerateGrid) so existing
@@ -1340,6 +1398,37 @@ export function mountEditorView(appState, hooks) {
   function handleMirrorVertical() {
     handleMirror('vertical');
   }
+  // 180° keeps the selection's own W×H footprint (see rotateGrid.js's
+  // rotatedDimensions), so — exactly like Mirror — it's an immediate in-place
+  // swap, no paste flow needed.
+  function handleSelectionRotate180() {
+    if (!appState.selection) return;
+    const patch = rotateSelection180(appState.cells, appState.selection);
+    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    scheduleRedraw();
+    hooks.onCellsChanged();
+  }
+  // 90°/270° rotates the selection's content into an H×W clipboard (via the
+  // existing Copy machinery) and hands it to the existing paste-preview flow
+  // to place — a rotated non-square selection can't be stamped back into its
+  // own footprint the way 180° can. Matches Copy's own semantics: the original
+  // selected beads are not erased automatically; a user who wants the rotated
+  // copy to replace the original cuts first or erases afterward.
+  function handleSelectionRotate90(direction) {
+    if (!appState.selection) return;
+    const clipboard = buildClipboard(appState.cells, appState.selection);
+    appState.clipboard = rotateClipboard(clipboard, direction);
+    appState.pastePreview = defaultPasteAnchor();
+    setTool('paste');
+    updateSelectionButtons();
+    scheduleRedraw();
+  }
+  function handleSelectionRotate90Cw() {
+    handleSelectionRotate90('cw');
+  }
+  function handleSelectionRotate90Ccw() {
+    handleSelectionRotate90('ccw');
+  }
   function handleDeselect() {
     if (!appState.selection) return;
     appState.selection = null;
@@ -1518,6 +1607,9 @@ export function mountEditorView(appState, hooks) {
   generateButton.addEventListener('click', handleResizeClick);
   cropToDesignButton.addEventListener('click', applyCrop);
   resetViewButton.addEventListener('click', handleResetView);
+  rotateCwButton.addEventListener('click', handleRotateCw);
+  rotateCcwButton.addEventListener('click', handleRotateCcw);
+  rotate180Button.addEventListener('click', handleRotate180);
   preferencesUnitToggleButton.addEventListener('click', handleUnitToggle);
   rulerToggleButton.addEventListener('click', handleRulerToggle);
   outlineToggleButton.addEventListener('click', handleOutlineToggle);
@@ -1552,6 +1644,9 @@ export function mountEditorView(appState, hooks) {
   selectionPasteButton.addEventListener('click', handlePasteButtonClick);
   selectionMirrorHButton.addEventListener('click', handleMirrorHorizontal);
   selectionMirrorVButton.addEventListener('click', handleMirrorVertical);
+  selectionRotate180Button.addEventListener('click', handleSelectionRotate180);
+  selectionRotate90CwButton.addEventListener('click', handleSelectionRotate90Cw);
+  selectionRotate90CcwButton.addEventListener('click', handleSelectionRotate90Ccw);
   selectionDeselectButton.addEventListener('click', handleDeselect);
   pasteModeFrontButton.addEventListener('click', handlePasteModeFrontClick);
   pasteModeBehindButton.addEventListener('click', handlePasteModeBehindClick);
@@ -1642,6 +1737,9 @@ export function mountEditorView(appState, hooks) {
     generateButton.removeEventListener('click', handleResizeClick);
     cropToDesignButton.removeEventListener('click', applyCrop);
     resetViewButton.removeEventListener('click', handleResetView);
+    rotateCwButton.removeEventListener('click', handleRotateCw);
+    rotateCcwButton.removeEventListener('click', handleRotateCcw);
+    rotate180Button.removeEventListener('click', handleRotate180);
     preferencesUnitToggleButton.removeEventListener('click', handleUnitToggle);
     rulerToggleButton.removeEventListener('click', handleRulerToggle);
     outlineToggleButton.removeEventListener('click', handleOutlineToggle);
@@ -1675,6 +1773,9 @@ export function mountEditorView(appState, hooks) {
     selectionPasteButton.removeEventListener('click', handlePasteButtonClick);
     selectionMirrorHButton.removeEventListener('click', handleMirrorHorizontal);
     selectionMirrorVButton.removeEventListener('click', handleMirrorVertical);
+    selectionRotate180Button.removeEventListener('click', handleSelectionRotate180);
+    selectionRotate90CwButton.removeEventListener('click', handleSelectionRotate90Cw);
+    selectionRotate90CcwButton.removeEventListener('click', handleSelectionRotate90Ccw);
     selectionDeselectButton.removeEventListener('click', handleDeselect);
     pasteModeFrontButton.removeEventListener('click', handlePasteModeFrontClick);
     pasteModeBehindButton.removeEventListener('click', handlePasteModeBehindClick);

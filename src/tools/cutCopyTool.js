@@ -1,4 +1,5 @@
 import { cellKey, setCell, clearCell } from '../state/cellStore.js';
+import { rotatedDimensions, rotatedCoord } from '../state/rotateGrid.js';
 
 // Reads every occupied cell within `selection`'s bounds into a clipboard object,
 // coordinates relative to the selection's top-left corner. Absent cells inside the
@@ -57,4 +58,23 @@ export function applyPaste(cells, clipboard, anchorRow, anchorCol, rows, cols, m
     setCell(cells, row, col, colorId);
   }
   return patch;
+}
+
+// Rotates a clipboard's own relative-coordinate content by a multiple of 90° —
+// same coordinate transform as rotateGrid.js's rotateCells, but over a
+// clipboard's {rows, cols, cells: [[relRow, relCol, colorId], ...]} triples
+// instead of a full design's Map, since a clipboard's cells aren't keyed
+// strings. Used by selection rotation's 90°/270° path: rotating a non-square
+// selection changes its footprint (H×W instead of W×H), which can't be
+// stamped back in place the way rotateSelection180 can, so it's routed
+// through this + the existing paste-preview flow instead (see
+// .work/feature-ruler-rotation-viewmode-datefix-plan.md §2).
+export function rotateClipboard(clipboard, direction) {
+  const { rows, cols, cells } = clipboard;
+  const rotatedCells = cells.map(([relRow, relCol, colorId]) => {
+    const rotated = rotatedCoord(relRow, relCol, rows, cols, direction);
+    return [rotated.row, rotated.col, colorId];
+  });
+  const { rows: newRows, cols: newCols } = rotatedDimensions(rows, cols, direction);
+  return { rows: newRows, cols: newCols, cells: rotatedCells };
 }
