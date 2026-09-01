@@ -16,6 +16,10 @@ const DEFAULT_PREFERENCES = {
   defaultCols: 20,
   panelCollapsed: false,
   libraryViewMode: 'list',
+  // Whether the library shows each multi-colorway design's colorways inline as
+  // their own (non-draggable) cards, off by default — same "added screen real
+  // estate a user should opt into" reasoning as showRuler below.
+  libraryShowColorways: false,
   printStartDirection: 'right',
   showBeadOutlines: true,
   printIncludeReferenceImage: true,

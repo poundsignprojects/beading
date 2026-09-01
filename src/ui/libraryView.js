@@ -32,15 +32,30 @@ export function mountLibraryView(callbacks) {
   const emptyMessageEl = document.getElementById('library-empty-message');
   const viewListButton = document.getElementById('library-view-list');
   const viewGalleryButton = document.getElementById('library-view-gallery');
+  const colorwaysToggle = document.getElementById('library-colorways-toggle');
 
   let currentDesigns = [];
   let currentViewMode = 'list';
+  let currentShowColorways = false;
   let drag = null; // { pointerId, rowEl, designId } or null
 
   function buildRow(design) {
     const row = document.createElement('li');
     row.className = 'library-row';
     row.dataset.designId = design.id;
+
+    // Everything below used to be direct children of `row` itself; wrapped in
+    // its own flex-row container so List mode can stack an optional colorway
+    // list (see buildColorwayListItem) beneath it within the same <li> —
+    // keeping a design's colorway cards physically attached to it through a
+    // drag-reorder, since a nested child moves with its parent for free.
+    // Gallery mode's own CSS makes this wrapper the column-flex container that
+    // `.library-row` itself used to be (its absolute-positioned children —
+    // the drag handle, the colorway-count badge — still resolve against
+    // `.library-row`'s own position:relative, since this wrapper has no
+    // position of its own to intercept them).
+    const main = document.createElement('div');
+    main.className = 'library-row-main';
 
     const handle = document.createElement('button');
     handle.type = 'button';
@@ -112,10 +127,101 @@ export function mountLibraryView(callbacks) {
     actions.className = 'library-row-actions';
     actions.append(renameButton, duplicateButton, deleteButton);
 
-    row.append(handle, thumb, info);
-    if (design.colorways.length > 1) row.append(buildColorwayBadge(design));
-    row.append(actions);
+    main.append(handle, thumb, info);
+    if (design.colorways.length > 1) main.append(buildColorwayBadge(design));
+    main.append(actions);
+    row.append(main);
+
+    // List mode only: an initially empty container, populated asynchronously
+    // (see attachColorwayCards) when the colorways toggle is on and this
+    // design has more than one — CSS hides it via :empty, so it costs nothing
+    // for the common single-colorway case. Gallery mode ignores this entirely
+    // and instead gets separate sibling <li> tiles, so its cards render as
+    // actual grid cells "next to" this one rather than stacked beneath it.
+    const colorwayList = document.createElement('div');
+    colorwayList.className = 'library-colorway-list';
+    row.append(colorwayList);
+
     return row;
+  }
+
+  // Small, non-draggable preview of one colorway — List mode's version, an
+  // indented row beneath the design's own row. Gallery mode uses
+  // buildColorwayGalleryTile instead (see attachColorwayCards).
+  function buildColorwayListItem(design, colorway) {
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'library-colorway-list-item';
+    item.setAttribute('aria-label', `Open colorway ${colorway.name}`);
+
+    const thumb = document.createElement('div');
+    thumb.className = 'library-colorway-list-item-thumb';
+    if (colorway.thumbnailDataUrl) {
+      const img = document.createElement('img');
+      img.src = colorway.thumbnailDataUrl;
+      img.alt = '';
+      thumb.append(img);
+    }
+
+    const name = document.createElement('span');
+    name.className = 'library-colorway-list-item-name';
+    name.textContent = colorway.name;
+
+    item.append(thumb, name);
+    item.addEventListener('click', () => callbacks.onOpenColorway(design.id, colorway.id));
+    return item;
+  }
+
+  // Gallery mode's version of the same preview — its own grid tile (a sibling
+  // <li>, not nested in the design's own <li>) so it renders as an actual grid
+  // cell next to the design's tile, per the feature's own "next to the main
+  // card" ask. Not `.library-row`, so drag-reorder's sibling queries (which
+  // look for that exact class) never treat it as a draggable row or a valid
+  // drop target.
+  function buildColorwayGalleryTile(design, colorway) {
+    const tile = document.createElement('li');
+    tile.className = 'library-colorway-tile';
+
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'library-colorway-tile-inner';
+    button.setAttribute('aria-label', `Open colorway ${colorway.name}`);
+
+    const thumb = document.createElement('div');
+    thumb.className = 'library-colorway-tile-thumb';
+    if (colorway.thumbnailDataUrl) {
+      const img = document.createElement('img');
+      img.src = colorway.thumbnailDataUrl;
+      img.alt = '';
+      thumb.append(img);
+    }
+
+    const name = document.createElement('span');
+    name.className = 'library-colorway-tile-name';
+    name.textContent = colorway.name;
+
+    button.append(thumb, name);
+    button.addEventListener('click', () => callbacks.onOpenColorway(design.id, colorway.id));
+    tile.append(button);
+    return tile;
+  }
+
+  // Fetches and attaches a design's colorway previews once renderList has
+  // already placed its main row/tile — kept out of renderList's own synchronous
+  // pass since the preview thumbnails need an async DB read (customColors are
+  // scoped per bead type, see handleRequestColorwayPreviews in main.js). If a
+  // newer renderList call has already replaced rowEl by the time this
+  // resolves, rowEl is simply detached — .after()/querySelector on a detached
+  // node are silent no-ops, not errors, so no generation-counter guard is
+  // needed here.
+  async function attachColorwayCards(design, rowEl) {
+    const colorways = await callbacks.onRequestColorwayPreviews(design.id);
+    if (currentViewMode === 'gallery') {
+      rowEl.after(...colorways.map((cw) => buildColorwayGalleryTile(design, cw)));
+    } else {
+      const wrap = rowEl.querySelector('.library-colorway-list');
+      if (wrap) wrap.replaceChildren(...colorways.map((cw) => buildColorwayListItem(design, cw)));
+    }
   }
 
   // Only shown when a pattern actually has more than one colorway — surfaces
@@ -141,8 +247,14 @@ export function mountLibraryView(callbacks) {
 
   function renderList(designs) {
     currentDesigns = designs;
-    listEl.replaceChildren(...designs.map(buildRow));
+    const rows = designs.map(buildRow);
+    listEl.replaceChildren(...rows);
     emptyMessageEl.hidden = designs.length > 0;
+    if (currentShowColorways) {
+      designs.forEach((design, i) => {
+        if (design.colorways.length > 1) attachColorwayCards(design, rows[i]);
+      });
+    }
   }
 
   function handleListPointerDown(e) {
@@ -192,13 +304,28 @@ export function mountLibraryView(callbacks) {
     callbacks.onReorder(designId, newOrder);
   }
 
-  // Row markup is identical in both modes (only CSS changes — see the Decisions
-  // this feature's plan makes), so this never re-renders rows itself.
+  // Row markup is identical in both modes (only CSS changes), so this never
+  // re-renders rows itself — except
+  // when colorway cards are showing, since List's nested indented items and
+  // Gallery's sibling grid tiles are genuinely different markup, not a CSS-only
+  // difference, and need rebuilding when switching between the two.
   function setViewMode(mode) {
     currentViewMode = mode;
     listEl.classList.toggle('gallery-mode', mode === 'gallery');
     viewListButton.setAttribute('aria-pressed', String(mode === 'list'));
     viewGalleryButton.setAttribute('aria-pressed', String(mode === 'gallery'));
+    if (currentShowColorways) renderList(currentDesigns);
+  }
+
+  // Whether multi-colorway designs show their colorways inline as their own
+  // cards (List: indented beneath; Gallery: sibling tiles next to it — see
+  // attachColorwayCards). Off by default; doesn't re-render on its own the way
+  // setViewMode's click handler does below, since a caller setting this before
+  // the library's first renderList (see main.js's boot()) shouldn't trigger a
+  // wasted render against an empty design list.
+  function setShowColorways(value) {
+    currentShowColorways = value;
+    colorwaysToggle.setAttribute('aria-pressed', String(value));
   }
 
   viewListButton.addEventListener('click', () => {
@@ -209,6 +336,12 @@ export function mountLibraryView(callbacks) {
     setViewMode('gallery');
     callbacks.onViewModeChanged('gallery');
   });
+  colorwaysToggle.addEventListener('click', () => {
+    const next = !currentShowColorways;
+    setShowColorways(next);
+    renderList(currentDesigns);
+    callbacks.onShowColorwaysChanged(next);
+  });
 
   listEl.addEventListener('pointerdown', handleListPointerDown);
   listEl.addEventListener('pointermove', handleListPointerMove);
@@ -216,5 +349,5 @@ export function mountLibraryView(callbacks) {
   listEl.addEventListener('pointercancel', handleListPointerUp);
   newButton.addEventListener('click', () => callbacks.onCreate());
 
-  return { renderList, setViewMode };
+  return { renderList, setViewMode, setShowColorways };
 }

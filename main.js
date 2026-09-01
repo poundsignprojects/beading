@@ -134,6 +134,11 @@ async function handleViewModeChanged(mode) {
   await savePreferences(appState.db, appState.preferences);
 }
 
+async function handleShowColorwaysChanged(value) {
+  appState.preferences = { ...appState.preferences, libraryShowColorways: value };
+  await savePreferences(appState.db, appState.preferences);
+}
+
 // Custom colors (Phase 8) are scoped per bead type — each of these mutates
 // appState.customColors in place (same pattern handlePreferencesChanged already
 // uses for appState.preferences), and editorView.js re-renders after the
@@ -746,6 +751,7 @@ async function boot() {
     onDelete: handleDelete,
     onReorder: handleReorder,
     onViewModeChanged: handleViewModeChanged,
+    onShowColorwaysChanged: handleShowColorwaysChanged,
     onOpenColorway: handleOpenColorway,
     onRequestColorwayPreviews: handleRequestColorwayPreviews,
     resolveBeadTypeName,
@@ -756,6 +762,7 @@ async function boot() {
   document.getElementById('library-backup-open').addEventListener('click', () => backupController.open());
 
   libraryController.setViewMode(appState.preferences.libraryViewMode === 'gallery' ? 'gallery' : 'list');
+  libraryController.setShowColorways(appState.preferences.libraryShowColorways === true);
   showLibraryView();
   libraryController.renderList(appState.designs);
 
