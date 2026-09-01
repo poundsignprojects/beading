@@ -91,19 +91,11 @@
           <div id="palette-section-header">
             <h2>Colors</h2>
             <div id="palette-header-actions">
-              <button id="color-undo-edit" type="button" hidden>Undo Color Change</button>
               <button id="color-manage-toggle" type="button" aria-pressed="false">Manage</button>
             </div>
           </div>
           <div id="color-palette" role="group" aria-label="Color"></div>
           <p id="color-palette-empty" hidden>No colors yet — tap + to add one.</p>
-          <input type="color" id="color-picker-input" class="visually-hidden-input">
-          <div id="pending-color-card" hidden>
-            <span id="pending-color-swatch"></span>
-            <input type="text" id="pending-color-name-input" placeholder="Color name" autocomplete="off">
-            <button type="button" id="pending-color-cancel">Cancel</button>
-            <button type="button" id="pending-color-add">Add</button>
-          </div>
           <ul id="color-manage-list" hidden></ul>
         </section>
         <section id="colorway-section" aria-label="Colorway">
@@ -210,6 +202,30 @@
     <div id="copy-color-list"></div>
     <div id="copy-color-actions">
       <button type="button" id="copy-color-cancel">Cancel</button>
+    </div>
+  </dialog>
+
+  <dialog id="color-picker-dialog">
+    <div id="color-picker-header">
+      <h2 id="color-picker-title">Add Color</h2>
+      <button type="button" id="color-picker-close" class="icon-btn" data-icon="x" title="Close" aria-label="Close"></button>
+    </div>
+    <div id="color-picker-body">
+      <div id="color-picker-sv" aria-hidden="true">
+        <div id="color-picker-sv-thumb"></div>
+      </div>
+      <div id="color-picker-hue" aria-hidden="true">
+        <div id="color-picker-hue-thumb"></div>
+      </div>
+      <div id="color-picker-hex-row">
+        <span id="color-picker-swatch"></span>
+        <input type="text" id="color-picker-hex-input" aria-label="Hex color code" maxlength="7" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <input type="text" id="color-picker-name-input" placeholder="Color name" autocomplete="off">
+    </div>
+    <div id="color-picker-actions">
+      <button type="button" id="color-picker-cancel">Cancel</button>
+      <button type="button" id="color-picker-confirm">Add</button>
     </div>
   </dialog>
 

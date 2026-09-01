@@ -848,18 +848,6 @@ input[type="range"]::-moz-range-thumb {
   margin: 0.25rem 0;
 }
 
-/* Kept out of `display: none` on purpose — iOS Safari won't open the native
-   color picker from a programmatic .click() on an input that isn't rendered. */
-.visually-hidden-input {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  pointer-events: none;
-}
-
 .color-swatch {
   width: 2.75rem;
   height: 2.75rem;
@@ -1072,6 +1060,7 @@ input[type="range"]::-moz-range-thumb {
 #bead-catalog-dialog,
 #convert-bead-type-dialog,
 #copy-color-dialog,
+#color-picker-dialog,
 #colorway-picker-dialog,
 #device-backup-picker-dialog,
 #resize-dialog,
@@ -1088,6 +1077,7 @@ input[type="range"]::-moz-range-thumb {
 #bead-catalog-dialog::backdrop,
 #convert-bead-type-dialog::backdrop,
 #copy-color-dialog::backdrop,
+#color-picker-dialog::backdrop,
 #colorway-picker-dialog::backdrop,
 #device-backup-picker-dialog::backdrop,
 #resize-dialog::backdrop,
@@ -1100,6 +1090,7 @@ input[type="range"]::-moz-range-thumb {
 #bead-catalog-dialog h2,
 #convert-bead-type-dialog h2,
 #copy-color-dialog h2,
+#color-picker-dialog h2,
 #colorway-picker-dialog h2,
 #device-backup-picker-dialog h2,
 #resize-dialog h2,
@@ -1111,6 +1102,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 #bead-catalog-header,
+#color-picker-header,
 #settings-dialog-header,
 #preferences-dialog-header,
 #backup-dialog-header {
@@ -1429,30 +1421,99 @@ input[type="range"]::-moz-range-thumb {
   border-color: #b3261e;
 }
 
-#pending-color-card {
+/* Custom color picker (colorPickerDialog.js) — draws its own saturation/value
+   square + hue bar instead of relying on the browser's native <input
+   type="color">, so it looks and behaves identically on Mac Safari and iPad
+   Safari (the native input opened two genuinely different OS pickers). */
+#color-picker-body {
   display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  margin-top: 0.5rem;
-  padding: 0.4rem;
-  border: 1px solid rgba(0, 0, 0, 0.15);
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.03);
+  flex-direction: column;
+  gap: 0.6rem;
 }
 
-#pending-color-swatch {
-  flex: none;
-  width: 1.75rem;
+#color-picker-sv {
+  --picker-hue: 0;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  max-height: 12rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background-color: hsl(var(--picker-hue), 100%, 50%);
+  background-image:
+    linear-gradient(to top, #000, rgba(0, 0, 0, 0)),
+    linear-gradient(to right, #fff, rgba(255, 255, 255, 0));
+  touch-action: none;
+  cursor: crosshair;
+}
+
+#color-picker-sv-thumb {
+  position: absolute;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.4);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+
+#color-picker-hue {
+  position: relative;
+  width: 100%;
   height: 1.75rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+  touch-action: none;
+  cursor: pointer;
+}
+
+#color-picker-hue-thumb {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 0.65rem;
+  border-radius: 4px;
+  border: 2px solid #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.4);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+#color-picker-hex-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#color-picker-swatch {
+  flex: none;
+  width: 2rem;
+  height: 2rem;
   border-radius: 4px;
   border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
-#pending-color-name-input {
+#color-picker-hex-input {
   flex: 1;
   min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.95rem;
   padding: 0.3rem 0.4rem;
+}
+
+#color-picker-name-input {
+  width: 100%;
+  font-size: 0.95rem;
+  padding: 0.3rem 0.4rem;
+}
+
+#color-picker-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
 }
 
 @media print {
