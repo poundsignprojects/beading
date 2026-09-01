@@ -73,6 +73,11 @@ export function mountLibraryView(callbacks) {
       const img = document.createElement('img');
       img.src = design.thumbnailDataUrl;
       img.alt = '';
+      // A browser's native "drag this image out" gesture otherwise hijacks the
+      // drag-reorder gesture the instant the pointer path crosses this image —
+      // see the sibling colorway thumbnails below, where that's exactly what
+      // broke reordering once a colorway card sat right next to a row's tile.
+      img.draggable = false;
       thumb.append(img);
     }
     // else: stays empty, styled as a neutral placeholder box via CSS — no
@@ -160,6 +165,7 @@ export function mountLibraryView(callbacks) {
       const img = document.createElement('img');
       img.src = colorway.thumbnailDataUrl;
       img.alt = '';
+      img.draggable = false;
       thumb.append(img);
     }
 
@@ -178,6 +184,18 @@ export function mountLibraryView(callbacks) {
   // card" ask. Not `.library-row`, so drag-reorder's sibling queries (which
   // look for that exact class) never treat it as a draggable row or a valid
   // drop target.
+  //
+  // Its thumbnail <img> still needs `draggable = false` even so — a design's
+  // drag-reorder gesture is pointer-based, not HTML5 drag-and-drop, but the
+  // browser's own native "drag this image out" detection doesn't know that,
+  // and fires a real pointercancel the instant the drag path crosses an
+  // `<img>` that's still natively draggable, aborting the whole gesture with
+  // no way to resume it. Confirmed empirically (a `pointercancel` fired even
+  // with zero DOM mutation happening on the move — just the pointer's path
+  // crossing a draggable <img> while a sibling held pointer capture) — this is
+  // exactly what "can't move tiles that have colorways open" turned out to be:
+  // a colorway tile's own thumbnail now sits close enough to a row's drag path
+  // to be crossed almost immediately.
   function buildColorwayGalleryTile(design, colorway) {
     const tile = document.createElement('li');
     tile.className = 'library-colorway-tile';
@@ -193,6 +211,7 @@ export function mountLibraryView(callbacks) {
       const img = document.createElement('img');
       img.src = colorway.thumbnailDataUrl;
       img.alt = '';
+      img.draggable = false;
       thumb.append(img);
     }
 
