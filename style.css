@@ -1431,6 +1431,18 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.6rem;
 }
 
+/* A full-width preview bar at the top of the dialog, above the drag surfaces —
+   so it stays visible regardless of which hand is dragging on the square/hue
+   bar below it (a left-handed user's hand covers the lower part of the dialog
+   while dragging, which is where this used to sit, next to the hex field). */
+#color-picker-swatch {
+  display: block;
+  width: 100%;
+  height: 2.5rem;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+}
+
 #color-picker-sv {
   --picker-hue: 0;
   position: relative;
@@ -1481,23 +1493,8 @@ input[type="range"]::-moz-range-thumb {
   pointer-events: none;
 }
 
-#color-picker-hex-row {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-#color-picker-swatch {
-  flex: none;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 4px;
-  border: 1px solid rgba(0, 0, 0, 0.2);
-}
-
 #color-picker-hex-input {
-  flex: 1;
-  min-width: 0;
+  width: 100%;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.95rem;
   padding: 0.3rem 0.4rem;
