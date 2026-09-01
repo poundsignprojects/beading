@@ -120,11 +120,13 @@
           <div id="photo-trace-controls" role="group" aria-label="Photo trace">
             <input type="file" id="photo-trace-file" accept="image/*" hidden>
             <button id="photo-trace-load" class="icon-text-btn" data-icon="image"><span>Load Photo</span></button>
+            <button id="photo-trace-move" class="icon-text-btn" aria-pressed="false" hidden data-icon="move"><span>Move Photo</span></button>
+            <button id="photo-trace-rotate-ccw" class="icon-btn icon-btn-lg" hidden data-icon="rotate-ccw" title="Rotate photo 15° counterclockwise" aria-label="Rotate photo counterclockwise"></button>
+            <button id="photo-trace-rotate-cw" class="icon-btn icon-btn-lg" hidden data-icon="rotate-cw" title="Rotate photo 15° clockwise" aria-label="Rotate photo clockwise"></button>
+            <button id="photo-trace-remove" class="icon-text-btn" hidden data-icon="trash-2"><span>Remove Photo</span></button>
             <label id="photo-trace-opacity-label" hidden>Opacity
               <input id="photo-trace-opacity" type="range" min="0" max="100" value="60">
             </label>
-            <button id="photo-trace-move" class="icon-text-btn" aria-pressed="false" hidden data-icon="move"><span>Move Photo</span></button>
-            <button id="photo-trace-remove" class="icon-text-btn" hidden data-icon="trash-2"><span>Remove Photo</span></button>
           </div>
         </section>
       </div>

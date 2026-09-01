@@ -5,7 +5,7 @@ import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
 import { applyFill } from '../tools/fillTool.js';
 import { applyColorReplace } from '../tools/colorReplaceTool.js';
-import { scalePhotoToAnchor } from '../state/photoTrace.js';
+import { scalePhotoToAnchor, normalizeRotationDeg } from '../state/photoTrace.js';
 import { interpolatedWorldPoints } from './dragTrace.js';
 import { createStrokePatch, recordCellChange, strokePatchToArray } from '../state/strokePatch.js';
 
@@ -14,6 +14,11 @@ import { createStrokePatch, recordCellChange, strokePatchToArray } from '../stat
 const MIN_SCALE_PX_PER_MM = 1;
 const MAX_SCALE_PX_PER_MM = 150;
 const WHEEL_ZOOM_SENSITIVITY = 0.0015;
+// Shift+wheel is the desktop fallback for rotating the photo trace overlay
+// (touch's equivalent is the two-finger twist gesture below) — same "no
+// multi-touch gesture on a bare mouse/trackpad" rationale as ctrl+wheel's own
+// comment on handleWheel. Degrees rotated per wheel-delta unit.
+const WHEEL_ROTATE_SENSITIVITY_DEG = 0.15;
 
 // A lone finger touch is momentarily ambiguous: it could be a tap/drag, the first
 // finger of a pinch about to land, or the start of an iOS system gesture (edge
@@ -61,6 +66,21 @@ function midpoint(a, b) {
 
 function distance(a, b) {
   return Math.hypot(b.x - a.x, b.y - a.y);
+}
+
+// Angle (radians) of the line from a to b, in canvas-local px — used for the
+// two-finger twist-to-rotate-photo gesture, mirroring how distance()/midpoint()
+// already feed the pinch-to-zoom/scale gesture.
+function angleBetween(a, b) {
+  return Math.atan2(b.y - a.y, b.x - a.x);
+}
+
+// Smallest signed angular difference from `from` to `to` (radians), wrapped
+// into [-π, π] — needed because pinchBaseline.angle is recomputed fresh every
+// move event (see the two-pointer branch below), so a raw subtraction would
+// jump by ~2π whenever the touch pair's angle crosses the atan2 branch cut.
+function angleDelta(from, to) {
+  return Math.atan2(Math.sin(to - from), Math.cos(to - from));
 }
 
 // 0 in the "safe" interior; ramps up to EDGE_PAN_MAX_SPEED_PX_PER_FRAME right at the
@@ -478,6 +498,7 @@ export function attachPointerRouter(canvas, viewport, {
     if (touchPointers.length === 2) {
       const mid = midpoint(touchPointers[0], touchPointers[1]);
       const dist = distance(touchPointers[0], touchPointers[1]);
+      const angle = angleBetween(touchPointers[0], touchPointers[1]);
       if (pinchBaseline && pinchBaseline.distance > 0) {
         const anchorWorld = screenToWorld(
           pinchBaseline.midpoint.x,
@@ -488,15 +509,20 @@ export function attachPointerRouter(canvas, viewport, {
         const photoTrace = getTool() === 'move-photo' ? getPhotoTrace() : null;
         // Structurally identical pinch math either way — only the target and the
         // change-notification hook differ, based on which tool is active.
+        // Rotation (twist) only applies to the photo — the viewport itself has
+        // no rotation concept (whole-canvas rotation is a discrete 90° action,
+        // not a pinch gesture).
         if (photoTrace) {
           Object.assign(photoTrace, scalePhotoToAnchor(photoTrace, anchorWorld, scaleFactor));
+          const rotateDeltaDeg = (angleDelta(pinchBaseline.angle, angle) * 180) / Math.PI;
+          photoTrace.rotationDeg = normalizeRotationDeg((photoTrace.rotationDeg ?? 0) + rotateDeltaDeg);
           onPhotoTraceChange();
         } else {
           zoomToAnchor(viewport, anchorWorld, mid, scaleFactor);
           onViewportChange();
         }
       }
-      pinchBaseline = { midpoint: mid, distance: dist };
+      pinchBaseline = { midpoint: mid, distance: dist, angle };
     } else if (drawStroke && drawStroke.pointerId === e.pointerId) {
       continueDrawStroke(point);
     } else if (selectionDrag && selectionDrag.pointerId === e.pointerId) {
@@ -556,11 +582,16 @@ export function attachPointerRouter(canvas, viewport, {
   // trackpad/mouse session has no multi-touch gesture at all otherwise.
   function handleWheel(e) {
     e.preventDefault();
-    if (e.ctrlKey) {
+    const photoTrace = getTool() === 'move-photo' ? getPhotoTrace() : null;
+    if (photoTrace && e.shiftKey && !e.ctrlKey) {
+      photoTrace.rotationDeg = normalizeRotationDeg(
+        (photoTrace.rotationDeg ?? 0) + e.deltaY * WHEEL_ROTATE_SENSITIVITY_DEG
+      );
+      onPhotoTraceChange();
+    } else if (e.ctrlKey) {
       const point = canvasPoint(e);
       const anchorWorld = screenToWorld(point.x, point.y, viewport);
       const zoomFactor = Math.exp(-e.deltaY * WHEEL_ZOOM_SENSITIVITY);
-      const photoTrace = getTool() === 'move-photo' ? getPhotoTrace() : null;
       if (photoTrace) {
         Object.assign(photoTrace, scalePhotoToAnchor(photoTrace, anchorWorld, zoomFactor));
         onPhotoTraceChange();

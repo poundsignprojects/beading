@@ -155,8 +155,12 @@ export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, 
   // beadwork-so-far stay simultaneously visible for direct comparison rather
   // than the photo being occluded wherever a bead has been placed. photoLayer
   // is plain drawable data ({ image, opacityPercent, xMm, yMm, widthMm,
-  // heightMm}); this module stays ignorant of "photo trace" as a persisted
-  // concept, matching its existing role for cells/resolveColor.
+  // heightMm, rotationDeg }); this module stays ignorant of "photo trace" as a
+  // persisted concept, matching its existing role for cells/resolveColor.
+  // Rotation is applied about the photo's own center (not the viewport's
+  // origin) — xMm/yMm/widthMm/heightMm always describe the photo's unrotated
+  // bounding box, matching photoTrace.js's placement/scale math, which stays
+  // ignorant of rotation entirely.
   if (photoLayer) {
     const photoTopLeft = worldToScreen(photoLayer.xMm, photoLayer.yMm, viewport);
     const photoBottomRight = worldToScreen(
@@ -164,15 +168,18 @@ export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, 
       photoLayer.yMm + photoLayer.heightMm,
       viewport
     );
+    const widthPx = photoBottomRight.xPx - photoTopLeft.xPx;
+    const heightPx = photoBottomRight.yPx - photoTopLeft.yPx;
+    const centerScreen = worldToScreen(
+      photoLayer.xMm + photoLayer.widthMm / 2,
+      photoLayer.yMm + photoLayer.heightMm / 2,
+      viewport
+    );
     ctx.save();
     ctx.globalAlpha = photoLayer.opacityPercent / 100;
-    ctx.drawImage(
-      photoLayer.image,
-      photoTopLeft.xPx,
-      photoTopLeft.yPx,
-      photoBottomRight.xPx - photoTopLeft.xPx,
-      photoBottomRight.yPx - photoTopLeft.yPx
-    );
+    ctx.translate(centerScreen.xPx, centerScreen.yPx);
+    ctx.rotate(((photoLayer.rotationDeg ?? 0) * Math.PI) / 180);
+    ctx.drawImage(photoLayer.image, -widthPx / 2, -heightPx / 2, widthPx, heightPx);
     ctx.restore();
   }
 }

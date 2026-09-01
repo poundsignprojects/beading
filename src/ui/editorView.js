@@ -17,8 +17,8 @@
 //                            rotation-viewmode-datefix-plan.md §4).
 //   onPreferencesChanged(patch) — fired when regenerate or the units toggle
 //                            should update the global preference defaults.
-//   onPhotoTraceChanged() — fired after a photo trace load/move/scale/opacity
-//                            change; main.js debounces the resulting save to
+//   onPhotoTraceChanged() — fired after a photo trace load/move/scale/rotate/
+//                            opacity change; main.js debounces the resulting save to
 //                            photoTraceStore (a separate debounce from cells,
 //                            since it targets a different store).
 //   onPhotoTraceRemoved() — fired after Remove Photo; main.js deletes the
@@ -84,7 +84,7 @@ import {
 } from '../state/resizeGrid.js';
 import { rotatedDimensions, rotateCells, rotateColorEntries, rotateSelection180 } from '../state/rotateGrid.js';
 import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from '../state/colorwaySync.js';
-import { defaultPhotoPlacement } from '../state/photoTrace.js';
+import { defaultPhotoPlacement, PHOTO_ROTATE_STEP_DEG, normalizeRotationDeg } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
 import { buildClipboard, applyEraseRegion, applyPaste, rotateClipboard } from '../tools/cutCopyTool.js';
@@ -185,6 +185,8 @@ export function mountEditorView(appState, hooks) {
   const photoTraceOpacityLabel = document.getElementById('photo-trace-opacity-label');
   const photoTraceOpacityInput = document.getElementById('photo-trace-opacity');
   const photoTraceMoveButton = document.getElementById('photo-trace-move');
+  const photoTraceRotateCcwButton = document.getElementById('photo-trace-rotate-ccw');
+  const photoTraceRotateCwButton = document.getElementById('photo-trace-rotate-cw');
   const photoTraceRemoveButton = document.getElementById('photo-trace-remove');
 
   let redrawScheduled = false;
@@ -540,6 +542,8 @@ export function mountEditorView(appState, hooks) {
     const hasPhoto = !!appState.photoTrace;
     photoTraceOpacityLabel.hidden = !hasPhoto;
     photoTraceMoveButton.hidden = !hasPhoto;
+    photoTraceRotateCcwButton.hidden = !hasPhoto;
+    photoTraceRotateCwButton.hidden = !hasPhoto;
     photoTraceRemoveButton.hidden = !hasPhoto;
     if (hasPhoto) photoTraceOpacityInput.value = String(appState.photoTrace.opacityPercent);
     if (!hasPhoto && appState.tool === 'move-photo') setTool('draw');
@@ -1536,6 +1540,26 @@ export function mountEditorView(appState, hooks) {
   function handlePhotoTraceMoveToggle() {
     setTool(appState.tool === 'move-photo' ? 'draw' : 'move-photo');
   }
+  // Fixed-step nudges — the buttons' role is quick/discoverable/repeatable
+  // rotation on any input device; arbitrary fine alignment is covered by the
+  // two-finger twist gesture (touch) and Shift+wheel (desktop, move-photo
+  // tool active), both in pointerRouter.js. Available whenever a photo is
+  // loaded, not gated to the move-photo tool being active — same convention
+  // as Remove Photo.
+  function handlePhotoTraceRotate(deltaDeg) {
+    if (!appState.photoTrace) return;
+    appState.photoTrace.rotationDeg = normalizeRotationDeg(
+      (appState.photoTrace.rotationDeg ?? 0) + deltaDeg
+    );
+    scheduleRedraw();
+    hooks.onPhotoTraceChanged();
+  }
+  function handlePhotoTraceRotateCcw() {
+    handlePhotoTraceRotate(-PHOTO_ROTATE_STEP_DEG);
+  }
+  function handlePhotoTraceRotateCw() {
+    handlePhotoTraceRotate(PHOTO_ROTATE_STEP_DEG);
+  }
   function handlePhotoTraceRemove() {
     if (!appState.photoTrace) return;
     if (!window.confirm(REMOVE_PHOTO_CONFIRM_MESSAGE)) return;
@@ -1650,6 +1674,8 @@ export function mountEditorView(appState, hooks) {
   photoTraceFileInput.addEventListener('change', handlePhotoTraceFileChange);
   photoTraceOpacityInput.addEventListener('input', handlePhotoTraceOpacityInput);
   photoTraceMoveButton.addEventListener('click', handlePhotoTraceMoveToggle);
+  photoTraceRotateCcwButton.addEventListener('click', handlePhotoTraceRotateCcw);
+  photoTraceRotateCwButton.addEventListener('click', handlePhotoTraceRotateCw);
   photoTraceRemoveButton.addEventListener('click', handlePhotoTraceRemove);
   window.addEventListener('keydown', handleKeyDown);
   window.addEventListener('resize', scheduleRedraw);
@@ -1777,6 +1803,8 @@ export function mountEditorView(appState, hooks) {
     photoTraceFileInput.removeEventListener('change', handlePhotoTraceFileChange);
     photoTraceOpacityInput.removeEventListener('input', handlePhotoTraceOpacityInput);
     photoTraceMoveButton.removeEventListener('click', handlePhotoTraceMoveToggle);
+    photoTraceRotateCcwButton.removeEventListener('click', handlePhotoTraceRotateCcw);
+    photoTraceRotateCwButton.removeEventListener('click', handlePhotoTraceRotateCw);
     photoTraceRemoveButton.removeEventListener('click', handlePhotoTraceRemove);
     window.removeEventListener('keydown', handleKeyDown);
     window.removeEventListener('resize', scheduleRedraw);

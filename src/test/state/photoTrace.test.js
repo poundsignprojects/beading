@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { defaultPhotoPlacement, scalePhotoToAnchor } from '../../state/photoTrace.js';
+import { defaultPhotoPlacement, scalePhotoToAnchor, normalizeRotationDeg } from '../../state/photoTrace.js';
 
 test('defaultPhotoPlacement: centers a wider-than-tall image against a wider grid box', () => {
   // Image aspect 2:1, grid box aspect 4:1 (wider) — image's width is the
@@ -12,6 +12,7 @@ test('defaultPhotoPlacement: centers a wider-than-tall image against a wider gri
   assert.equal(placement.heightMm, 100);
   assert.equal(placement.xMm, (400 - 200) / 2);
   assert.equal(placement.yMm, 0);
+  assert.equal(placement.rotationDeg, 0);
 });
 
 test('defaultPhotoPlacement: centers a wider-than-tall image against a taller grid box', () => {
@@ -46,4 +47,22 @@ test('scalePhotoToAnchor: keeps the anchor point\'s fractional position within t
     assert.ok(Math.abs(fracXAfter - fracXBefore) < 1e-9, `x fraction drifted at scale ${scaleFactor}`);
     assert.ok(Math.abs(fracYAfter - fracYBefore) < 1e-9, `y fraction drifted at scale ${scaleFactor}`);
   }
+});
+
+test('normalizeRotationDeg: leaves an in-range angle unchanged', () => {
+  assert.equal(normalizeRotationDeg(0), 0);
+  assert.equal(normalizeRotationDeg(90), 90);
+  assert.equal(normalizeRotationDeg(359.5), 359.5);
+});
+
+test('normalizeRotationDeg: wraps a positive overflow back into [0, 360)', () => {
+  assert.equal(normalizeRotationDeg(360), 0);
+  assert.equal(normalizeRotationDeg(370), 10);
+  assert.equal(normalizeRotationDeg(720 + 15), 15);
+});
+
+test('normalizeRotationDeg: wraps a negative angle into [0, 360)', () => {
+  assert.equal(normalizeRotationDeg(-10), 350);
+  assert.equal(normalizeRotationDeg(-360), 0);
+  assert.equal(normalizeRotationDeg(-370), 350);
 });

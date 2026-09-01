@@ -18,7 +18,23 @@ export function defaultPhotoPlacement(imageWidthPx, imageHeightPx, gridBoundingB
     heightMm,
     xMm: (gridBoundingBoxMm.widthMm - widthMm) / 2,
     yMm: (gridBoundingBoxMm.heightMm - heightMm) / 2,
+    rotationDeg: 0,
   };
+}
+
+// Degrees nudged per click of the Rotate CCW/CW buttons — a fixed step rather
+// than a slider, since fine/arbitrary alignment is already covered by the
+// two-finger twist gesture (touch) and Shift+wheel (desktop, see
+// pointerRouter.js); the buttons exist for quick, discoverable, repeatable
+// nudges on any input device.
+export const PHOTO_ROTATE_STEP_DEG = 15;
+
+// Keeps a rotation angle in [0, 360) so it doesn't grow without bound across
+// many small gesture frames or button nudges — purely cosmetic (the canvas
+// rotation math in canvasRenderer.js doesn't care about the stored range),
+// but keeps a persisted value legible.
+export function normalizeRotationDeg(deg) {
+  return ((deg % 360) + 360) % 360;
 }
 
 // Used by the pinch-to-scale "Move Photo" interaction — scales widthMm/heightMm by

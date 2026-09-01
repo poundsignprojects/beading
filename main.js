@@ -364,8 +364,8 @@ async function handleCustomColorReordered(id, newOrder) {
 // of leaving a stale record here for this to silently skip.
 async function persistPhotoTrace() {
   if (!appState.currentDesignId || !appState.photoTrace) return;
-  const { blob, opacityPercent, xMm, yMm, widthMm, heightMm } = appState.photoTrace;
-  await savePhotoTrace(appState.db, appState.currentDesignId, { blob, opacityPercent, xMm, yMm, widthMm, heightMm });
+  const { blob, opacityPercent, xMm, yMm, widthMm, heightMm, rotationDeg } = appState.photoTrace;
+  await savePhotoTrace(appState.db, appState.currentDesignId, { blob, opacityPercent, xMm, yMm, widthMm, heightMm, rotationDeg });
 }
 
 async function handlePhotoTraceRemoved() {
@@ -390,6 +390,9 @@ async function loadPhotoTraceForDesign(designId) {
     yMm: record.yMm,
     widthMm: record.widthMm,
     heightMm: record.heightMm,
+    // rotationDeg didn't exist before this feature — a record saved by an
+    // older session has no field for it at all, which must mean "unrotated."
+    rotationDeg: record.rotationDeg ?? 0,
   });
 }
 
