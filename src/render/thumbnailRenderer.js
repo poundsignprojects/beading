@@ -12,7 +12,14 @@ const THUMBNAIL_BACKGROUND_STYLE = '#fff';
 export function renderThumbnailDataUrl(gridParams, cells, resolveColor, maxSizePx, cornerRadiusFraction = 0) {
   const { beadWidthMm, beadHeightMm, boundingBoxMm } = gridParams;
   const engine = resolveGridEngine(gridParams.stitchType);
-  const scale = maxSizePx / Math.max(boundingBoxMm.widthMm, boundingBoxMm.heightMm);
+  // The resulting <img> is always sized via CSS (width/height, not the img's own
+  // width/height attributes), so rendering the canvas at maxSizePx CSS-equivalent
+  // pixels leaves it visibly soft on a Retina/high-DPI screen once the browser
+  // scales it up to fill its CSS box. Render at the device's actual pixel ratio
+  // instead so it stays crisp.
+  const pixelRatio = (typeof window !== 'undefined' && window.devicePixelRatio) || 1;
+  const effectiveMaxSizePx = maxSizePx * pixelRatio;
+  const scale = effectiveMaxSizePx / Math.max(boundingBoxMm.widthMm, boundingBoxMm.heightMm);
   const canvasWidth = Math.max(1, Math.round(boundingBoxMm.widthMm * scale));
   const canvasHeight = Math.max(1, Math.round(boundingBoxMm.heightMm * scale));
 

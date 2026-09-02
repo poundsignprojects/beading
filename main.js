@@ -34,9 +34,11 @@ const AUTOSAVE_DEBOUNCE_MS = 800;
 // Rendered once at a size that stays crisp scaled down into either the small list
 // thumbnail box or the larger gallery tile via CSS, rather than re-rendering two sizes.
 const THUMBNAIL_MAX_SIZE_PX = 200;
-// Smaller than the library's own thumbnail — these render inside a compact picker
-// row (see colorwayPickerDialog.js), not a full library tile.
-const COLORWAY_PREVIEW_MAX_SIZE_PX = 96;
+// Same base size as THUMBNAIL_MAX_SIZE_PX — these render both inside the compact
+// picker row (colorwayPickerDialog.js) and, since the library colorway toggle,
+// inline as full library tiles/rows (libraryView.js), which need the same
+// resolution the main design thumbnail already uses.
+const COLORWAY_PREVIEW_MAX_SIZE_PX = 200;
 
 const appState = createAppState();
 
