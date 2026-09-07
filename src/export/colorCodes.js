@@ -16,12 +16,15 @@ function codeForIndex(index) {
   return code;
 }
 
-// colorCounts: buildWordChart's colorCounts list. Sorted most-used-first so the
-// shortest codes go to the colors that appear most on the printout; ties keep
-// first-appearance order via Array#sort's stability.
+// colorCounts: buildWordChart's colorCounts list, already in first-appearance
+// order (the order a color is first encountered scanning the pattern row by
+// row) — codes are assigned in that same order, not sorted by count, so a
+// printout's materials table reads A, B, C, ... straight down the page instead
+// of jumping around whenever the most-used color isn't the first one a
+// stitcher would encounter. (Quantity is still shown in its own Count column
+// for whoever wants to shop by that instead.)
 export function assignColorCodes(colorCounts) {
-  const sorted = [...colorCounts].sort((a, b) => b.count - a.count);
   const codes = new Map();
-  sorted.forEach((entry, index) => codes.set(entry.colorId, codeForIndex(index)));
+  colorCounts.forEach((entry, index) => codes.set(entry.colorId, codeForIndex(index)));
   return codes;
 }

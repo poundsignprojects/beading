@@ -2,19 +2,21 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { assignColorCodes } from '../../export/colorCodes.js';
 
-test('assignColorCodes: most-used color gets A', () => {
+test('assignColorCodes: codes are assigned in the given (first-appearance) order, not by quantity', () => {
   const codes = assignColorCodes([
     { colorId: 'red', count: 3 },
-    { colorId: 'blue', count: 10 },
+    { colorId: 'blue', count: 10 }, // most-used, but appears second — must NOT get A
     { colorId: 'green', count: 1 },
   ]);
-  assert.equal(codes.get('blue'), 'A');
+  assert.equal(codes.get('red'), 'A');
+  assert.equal(codes.get('blue'), 'B');
+  assert.equal(codes.get('green'), 'C');
 });
 
 test('assignColorCodes: a 30-color fixture rolls over into AA, AB, ...', () => {
   const colorCounts = Array.from({ length: 30 }, (_, i) => ({
     colorId: `color${i}`,
-    count: 30 - i, // strictly descending so sort order is unambiguous
+    count: i % 2 === 0 ? 1 : 5, // deliberately non-monotonic — order must still follow appearance, not count
   }));
   const codes = assignColorCodes(colorCounts);
   assert.equal(codes.get('color0'), 'A');
