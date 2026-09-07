@@ -231,12 +231,28 @@ export function mountEditorView(appState, hooks) {
     updateScaleReadout();
   }
 
+  // The scale fitViewportToGrid would apply, without mutating anything — shared
+  // with updateScaleReadout so it can tell whether the live viewport is actually
+  // still at the fit scale, not just whether appState.viewMode last said "fit"
+  // (which pinch/wheel zoom can drift away from without changing).
+  function computeFitScale() {
+    const { widthMm, heightMm } = appState.gridParams.boundingBoxMm;
+    const FIT_MARGIN = 0.9;
+    return Math.min(lastCssSize.cssWidth / widthMm, lastCssSize.cssHeight / heightMm) * FIT_MARGIN;
+  }
+
+  // The scale setViewportToActualSize would apply for the given (or currently
+  // saved) calibration factor — same sharing rationale as computeFitScale.
+  function computeActualSizeScale(factorOverride) {
+    const factor = factorOverride ?? appState.preferences.actualSizeCalibration ?? 1;
+    return CSS_PX_PER_MM * factor;
+  }
+
   // Centers the grid's bounding box in the canvas at a scale that fits it with
   // margin — used on design open, on regenerate, and on "Reset View" (fit side).
   function fitViewportToGrid() {
     const { widthMm, heightMm } = appState.gridParams.boundingBoxMm;
-    const FIT_MARGIN = 0.9;
-    const scale = Math.min(lastCssSize.cssWidth / widthMm, lastCssSize.cssHeight / heightMm) * FIT_MARGIN;
+    const scale = computeFitScale();
     const paddingXmm = (lastCssSize.cssWidth / scale - widthMm) / 2;
     const paddingYmm = (lastCssSize.cssHeight / scale - heightMm) / 2;
     // Mutate in place, don't reassign — attachPointerRouter closes over this object by
@@ -262,8 +278,7 @@ export function mountEditorView(appState, hooks) {
   // scale, the existing pan/pinch interaction already lets the user scroll
   // around it — no new interaction needed.
   function setViewportToActualSize(factorOverride) {
-    const factor = factorOverride ?? appState.preferences.actualSizeCalibration ?? 1;
-    const scale = CSS_PX_PER_MM * factor;
+    const scale = computeActualSizeScale(factorOverride);
     const { widthMm, heightMm } = appState.gridParams.boundingBoxMm;
     const paddingXmm = (lastCssSize.cssWidth / scale - widthMm) / 2;
     const paddingYmm = (lastCssSize.cssHeight / scale - heightMm) / 2;
@@ -294,16 +309,27 @@ export function mountEditorView(appState, hooks) {
 
   // Persistent zoom-level indicator, always visible (not just while hovering/pressing
   // Reset View) — the fit-vs-actual-size question this exists to answer needs to be
-  // answerable at a glance. Recomputed from the viewport's live scalePxPerMm rather
-  // than cached off appState.viewMode, since pinch/wheel zoom (pointerRouter.js)
-  // mutates scalePxPerMm directly without going through fitViewportToGrid/
-  // setViewportToActualSize/updateResetViewButton — so this is called every render()
-  // frame, not just at the handful of call sites that also call updateSizeReadout().
+  // answerable at a glance. The mode label is derived by comparing the viewport's
+  // live scalePxPerMm directly against what Fit/Actual Size would currently produce
+  // — NOT from appState.viewMode, which only tracks which state Reset View would
+  // toggle to next and stays put through a manual pinch/wheel zoom. Without this
+  // comparison, zooming away from either reference scale would still show the
+  // stale "(Fit)"/"(Actual Size)" label as if nothing had changed. Recomputed every
+  // render() frame (not just at the handful of call sites that also call
+  // updateSizeReadout()), since manual zoom updates scalePxPerMm without going
+  // through fitViewportToGrid/setViewportToActualSize/updateResetViewButton at all.
+  const SCALE_MATCH_TOLERANCE = 0.005; // 0.5% relative — floating-point slop, not a real zoom difference
   function updateScaleReadout() {
-    const actualScale = CSS_PX_PER_MM * (appState.preferences.actualSizeCalibration ?? 1);
-    const percent = Math.round((appState.viewport.scalePxPerMm / actualScale) * 100);
-    const modeLabel = appState.viewMode === 'actual' ? 'Actual Size' : 'Fit';
-    scaleReadout.textContent = `${percent}% (${modeLabel})`;
+    const scale = appState.viewport.scalePxPerMm;
+    const actualScale = computeActualSizeScale();
+    const percent = Math.round((scale / actualScale) * 100);
+    let modeLabel = '';
+    if (Math.abs(scale - actualScale) / actualScale < SCALE_MATCH_TOLERANCE) {
+      modeLabel = ' (Actual Size)';
+    } else if (Math.abs(scale - computeFitScale()) / computeFitScale() < SCALE_MATCH_TOLERANCE) {
+      modeLabel = ' (Fit)';
+    }
+    scaleReadout.textContent = `${percent}%${modeLabel}`;
   }
 
   // Manage mode and the swatch grid share the same panel real estate — only one
