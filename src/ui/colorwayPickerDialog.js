@@ -14,7 +14,7 @@ export function promptColorwayPicker({ designName, colorways }) {
     const listEl = document.getElementById('colorway-picker-list');
     const cancelButton = document.getElementById('colorway-picker-cancel');
 
-    titleEl.textContent = `${designName} — Colorways`;
+    titleEl.textContent = designName ? `${designName} — Colorways` : 'Colorways';
 
     function cleanup() {
       cancelButton.removeEventListener('click', onCancel);

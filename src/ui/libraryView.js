@@ -67,7 +67,7 @@ export function mountLibraryView(callbacks) {
     const thumb = document.createElement('button');
     thumb.type = 'button';
     thumb.className = 'library-row-thumb';
-    thumb.setAttribute('aria-label', `Open ${design.name}`);
+    thumb.setAttribute('aria-label', design.name ? `Open ${design.name}` : 'Open pattern');
     thumb.addEventListener('click', () => callbacks.onOpen(design.id));
     if (design.thumbnailDataUrl) {
       const img = document.createElement('img');
@@ -88,10 +88,6 @@ export function mountLibraryView(callbacks) {
     info.className = 'library-row-info';
     info.addEventListener('click', () => callbacks.onOpen(design.id));
 
-    const name = document.createElement('span');
-    name.className = 'library-row-name';
-    name.textContent = design.name;
-
     const beadType = document.createElement('span');
     beadType.className = 'library-row-beadtype';
     beadType.textContent = `${callbacks.resolveBeadTypeName(design.beadTypeKey)} — ${callbacks.resolveStitchTypeLabel(design.stitchType)}`;
@@ -100,7 +96,17 @@ export function mountLibraryView(callbacks) {
     updated.className = 'library-row-updated';
     updated.textContent = relativeTime(design.updatedAt);
 
-    info.append(name, beadType, updated);
+    // Only render a name line if one exists — an unnamed design (the default,
+    // see main.js's handleCreate) shows just its thumbnail/bead-type/updated
+    // time, rather than a placeholder like "Untitled Pattern" in every row.
+    if (design.name) {
+      const name = document.createElement('span');
+      name.className = 'library-row-name';
+      name.textContent = design.name;
+      info.append(name, beadType, updated);
+    } else {
+      info.append(beadType, updated);
+    }
 
     const renameButton = document.createElement('button');
     renameButton.type = 'button';

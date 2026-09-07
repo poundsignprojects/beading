@@ -29,8 +29,10 @@ function buildHeader(appState, designName) {
   const header = document.createElement('header');
   header.id = 'print-header';
 
-  const title = document.createElement('h2');
-  title.textContent = designName;
+  // An unnamed design (see main.js's handleCreate) just skips the title line
+  // rather than printing a blank <h2> or an "Untitled Pattern" placeholder.
+  const title = designName ? document.createElement('h2') : null;
+  if (title) title.textContent = designName;
 
   const specLine = document.createElement('p');
   specLine.textContent = `${bead.name}, ${stitchTypeLabel(appState.stitchType)} — ${appState.rows} rows × ${appState.cols} cols`;
@@ -38,7 +40,9 @@ function buildHeader(appState, designName) {
   const sizeLine = document.createElement('p');
   sizeLine.textContent = `Finished size: ${formatLength(widthMm, 'mm')} × ${formatLength(heightMm, 'mm')} (${formatLength(widthMm, 'in')} × ${formatLength(heightMm, 'in')})`;
 
-  header.append(title, specLine, sizeLine);
+  // .append(null) would stringify to a literal "null" text node, so filter
+  // out the title when there isn't one instead of passing it through.
+  header.append(...[title, specLine, sizeLine].filter(Boolean));
   return header;
 }
 
@@ -168,7 +172,7 @@ export function mountPrintView(appState, hooks) {
   const directionToggleButton = document.getElementById('print-start-direction-toggle');
   const referenceImageToggleButton = document.getElementById('print-reference-image-toggle');
 
-  const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? 'Untitled Pattern';
+  const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? '';
   const chart = buildWordChart(appState.cells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped);
   const codes = assignColorCodes(chart.colorCounts);
 

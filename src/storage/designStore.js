@@ -127,7 +127,9 @@ export async function duplicateDesign(db, id) {
   const copy = {
     ...original,
     id: generateId(),
-    name: `${original.name} copy`,
+    // An unnamed original stays unnamed — no "copy" suffix with nothing to
+    // suffix (see main.js's handleCreate for why a design can be unnamed).
+    name: original.name ? `${original.name} copy` : '',
     shapeEntries: [...original.shapeEntries],
     colorways: original.colorways.map((cw) => ({
       ...cw,

@@ -579,7 +579,10 @@ async function handleRequestColorwayPreviews(designId) {
 async function handleCreate() {
   const prefs = appState.preferences;
   const design = await createDesign(appState.db, {
-    name: 'Untitled Pattern',
+    // No default name — the library shows nothing until the user renames it
+    // (see handleRename/libraryView.js's buildRow), rather than stacking up
+    // "Untitled Pattern"/"Untitled Pattern copy" rows.
+    name: '',
     beadTypeKey: prefs.defaultBeadTypeKey,
     stitchType: prefs.defaultStitchType,
     rows: prefs.defaultRows,
@@ -594,11 +597,14 @@ async function handleRename(id) {
   const design = appState.designs.find((d) => d.id === id);
   if (!design) return;
   const newName = window.prompt('Rename pattern', design.name);
-  if (!newName || !newName.trim()) return;
+  if (newName === null) return; // cancelled
+  // An intentionally-cleared name is a valid state (see handleCreate) — it
+  // just puts the design back to unnamed, it doesn't abort the rename.
+  const trimmed = newName.trim();
   // Explicitly requested in the original bug report — a title change alone
   // shouldn't count as "content changed" (see .work/feature-ruler-rotation-
   // viewmode-datefix-plan.md §4, which otherwise left this as an open call).
-  const saved = await saveDesign(appState.db, { ...design, name: newName.trim() }, { bumpUpdatedAt: false });
+  const saved = await saveDesign(appState.db, { ...design, name: trimmed }, { bumpUpdatedAt: false });
   const idx = appState.designs.findIndex((d) => d.id === id);
   appState.designs[idx] = saved;
   libraryController.renderList(appState.designs);
