@@ -137,6 +137,7 @@ export function mountEditorView(appState, hooks) {
   const preferencesUnitToggleButton = document.getElementById('preferences-unit-toggle');
   const outlineToggleButton = document.getElementById('outline-toggle');
   const sizeReadout = document.getElementById('size-readout');
+  const scaleReadout = document.getElementById('scale-readout');
   const resetViewButton = document.getElementById('reset-view');
   const rotateCwButton = document.getElementById('rotate-cw');
   const toolDrawButton = document.getElementById('tool-draw');
@@ -227,6 +228,7 @@ export function mountEditorView(appState, hooks) {
       const leftSize = resizeCanvasForDisplay(rulerLeftCanvas, rulerLeftCtx);
       drawRulerLeft(rulerLeftCtx, leftSize.cssWidth, leftSize.cssHeight, appState.viewport, appState.units);
     }
+    updateScaleReadout();
   }
 
   // Centers the grid's bounding box in the canvas at a scale that fits it with
@@ -288,6 +290,20 @@ export function mountEditorView(appState, hooks) {
     const width = formatLength(widthMm, appState.units);
     const height = formatLength(heightMm, appState.units);
     sizeReadout.textContent = `${width} x ${height}`;
+  }
+
+  // Persistent zoom-level indicator, always visible (not just while hovering/pressing
+  // Reset View) — the fit-vs-actual-size question this exists to answer needs to be
+  // answerable at a glance. Recomputed from the viewport's live scalePxPerMm rather
+  // than cached off appState.viewMode, since pinch/wheel zoom (pointerRouter.js)
+  // mutates scalePxPerMm directly without going through fitViewportToGrid/
+  // setViewportToActualSize/updateResetViewButton — so this is called every render()
+  // frame, not just at the handful of call sites that also call updateSizeReadout().
+  function updateScaleReadout() {
+    const actualScale = CSS_PX_PER_MM * (appState.preferences.actualSizeCalibration ?? 1);
+    const percent = Math.round((appState.viewport.scalePxPerMm / actualScale) * 100);
+    const modeLabel = appState.viewMode === 'actual' ? 'Actual Size' : 'Fit';
+    scaleReadout.textContent = `${percent}% (${modeLabel})`;
   }
 
   // Manage mode and the swatch grid share the same panel real estate — only one

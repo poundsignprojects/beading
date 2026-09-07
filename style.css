@@ -610,6 +610,13 @@ input[type="range"]::-moz-range-thumb {
   margin-left: 0.25rem;
 }
 
+#scale-readout {
+  color: #777;
+  font-size: 0.85em;
+  white-space: nowrap;
+  margin-left: 0.25rem;
+}
+
 #calibration-controls {
   display: flex;
   align-items: center;
