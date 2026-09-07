@@ -105,7 +105,7 @@ function buildMaterials(chart, codes, customColors) {
 }
 
 function formatRun(run, codes) {
-  if (run.colorId === null) return `${run.count} blank`;
+  if (run.colorId === null) return `${run.count}-`;
   if (run.colorId === UNASSIGNED) return `${run.count} ??`;
   return `${run.count}${codes.get(run.colorId)}`;
 }
