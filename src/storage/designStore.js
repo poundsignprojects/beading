@@ -32,7 +32,7 @@ export async function listDesignsSorted(db) {
   return (await listDesignsSortedWithMigrationInfo(db)).designs;
 }
 
-export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote', rows, cols }) {
+export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote', dropCount = 1, rows, cols }) {
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
@@ -42,6 +42,10 @@ export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote
     name,
     beadTypeKey,
     stitchType,
+    // Meaningful only for peyote — square-stitch designs still carry
+    // dropCount: 1 for schema uniformity (see .work/feature-multi-drop-
+    // peyote-plan.md), so nothing has to undefined-guard it elsewhere.
+    dropCount,
     rows,
     cols,
     shapeEntries: [],
@@ -71,10 +75,14 @@ export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote
 // starting empty or copying another record verbatim. staggerFlipped/stitchType
 // are passed through from the source design by default (same shape, so it must
 // render under the same stagger/stitch convention as what's being converted) —
-// a stitch-type conversion (see .work/feature-square-stitch-plan.md) is the one
+// dropCount defaults to 1 (matching createDesign's own default) but every
+// real caller passes it explicitly per .work/feature-multi-drop-peyote-plan.md
+// (bead-type conversion always preserves it; stitch-type conversion preserves
+// it only when converting to peyote, resets to 1 for square stitch). A
+// stitch-type conversion (see .work/feature-square-stitch-plan.md) is the one
 // caller that overrides stitchType explicitly, since that's the one field the
 // conversion is actually changing.
-export async function createConvertedDesign(db, { name, beadTypeKey, stitchType = 'peyote', rows, cols, staggerFlipped = false, shapeEntries, colorways, activeColorwayId }) {
+export async function createConvertedDesign(db, { name, beadTypeKey, stitchType = 'peyote', dropCount = 1, rows, cols, staggerFlipped = false, shapeEntries, colorways, activeColorwayId }) {
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
@@ -83,6 +91,7 @@ export async function createConvertedDesign(db, { name, beadTypeKey, stitchType 
     name,
     beadTypeKey,
     stitchType,
+    dropCount,
     rows,
     cols,
     staggerFlipped,

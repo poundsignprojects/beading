@@ -66,7 +66,7 @@
 //                            module has finished its own cleanup.
 
 import { createIcon } from './icons.js';
-import { findBeadType } from '../palette/beadSpecs.js';
+import { findBeadType, beadTypeSelectOptions } from '../palette/beadSpecs.js';
 import { resolveSwatchHex } from '../palette/colorLibrary.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
 import { resolveGridEngine, stitchTypeLabel } from '../grid/gridEngine.js';
@@ -88,7 +88,7 @@ import { defaultPhotoPlacement, PHOTO_ROTATE_STEP_DEG, normalizeRotationDeg } fr
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
 import { buildClipboard, applyEraseRegion, applyPaste, rotateClipboard } from '../tools/cutCopyTool.js';
-import { applyMirror } from '../tools/mirrorTool.js';
+import { applyMirror, canMirrorHorizontally } from '../tools/mirrorTool.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
 import { mountBeadCatalogDialog } from './beadCatalogDialog.js';
@@ -129,6 +129,8 @@ export function mountEditorView(appState, hooks) {
   const beadTypeSelect = document.getElementById('bead-type');
   const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
   const stitchTypeSelect = document.getElementById('stitch-type');
+  const dropCountLabel = document.getElementById('settings-drop-count-label');
+  const dropCountInput = document.getElementById('drop-count');
   const rowsInput = document.getElementById('rows');
   const colsInput = document.getElementById('cols');
   const generateButton = document.getElementById('generate');
@@ -489,9 +491,10 @@ export function mountEditorView(appState, hooks) {
     colorwayDeleteButton.disabled = appState.colorways.length <= 1;
   }
 
-  // Copy/Cut/Mirror-V need only a selection; Mirror-H additionally needs an odd
-  // selection width on a peyote design (see mirrorTool.js's parity constraint —
-  // reversing col order on an even-width selection would land content on the
+  // Copy/Cut/Mirror-V need only a selection; Mirror-H additionally needs a
+  // selection width that's compatible with the design's dropCount on a peyote
+  // design (see mirrorTool.js's canMirrorHorizontally — reversing col order
+  // on an unsupported width/dropCount combination would land content on the
   // wrong physical stagger, not fixable at integer bead resolution, since
   // isRaised's stagger rule depends on col, not row — see peyote.js). Square
   // stitch has no stagger at all, so this restriction doesn't apply there — see
@@ -504,13 +507,13 @@ export function mountEditorView(appState, hooks) {
     selectionControlsEl.hidden = appState.tool !== 'select';
     const selection = appState.selection;
     const hasSelection = !!selection;
-    const widthEven = hasSelection && (selection.colEnd - selection.colStart + 1) % 2 === 0;
-    const blocksEvenWidthMirror = appState.stitchType === 'peyote' && widthEven;
+    const width = hasSelection ? selection.colEnd - selection.colStart + 1 : 0;
+    const blocksMirror = appState.stitchType === 'peyote' && hasSelection && !canMirrorHorizontally(width, appState.dropCount);
     selectionCopyButton.disabled = !hasSelection;
     selectionCutButton.disabled = !hasSelection;
-    selectionMirrorHButton.disabled = !hasSelection || blocksEvenWidthMirror;
-    selectionMirrorHButton.title = blocksEvenWidthMirror
-      ? 'Mirror Horizontal needs an odd-width selection (even widths would land content on the wrong bead stagger)'
+    selectionMirrorHButton.disabled = !hasSelection || blocksMirror;
+    selectionMirrorHButton.title = blocksMirror
+      ? 'Mirror Horizontal needs a selection width compatible with this pattern\'s drop count (an incompatible width would land content on the wrong bead stagger)'
       : '';
     selectionMirrorVButton.disabled = !hasSelection;
     // Unlike Mirror Horizontal, rotation has no even/odd restriction at all:
@@ -580,12 +583,13 @@ export function mountEditorView(appState, hooks) {
       beadWidthMm: bead.widthMm,
       beadHeightMm: bead.heightMm,
     });
-    // Neither is part of generateGrid's own signature (it only computes the
-    // bounding box) — stashed onto gridParams here purely so every renderer/
-    // hit-tester that already reads gridParams can pick them up without a
-    // separate parameter of its own.
+    // None of these are part of generateGrid's own signature (it only computes
+    // the bounding box) — stashed onto gridParams here purely so every
+    // renderer/hit-tester that already reads gridParams can pick them up
+    // without a separate parameter of its own.
     appState.gridParams.staggerFlipped = appState.staggerFlipped;
     appState.gridParams.stitchType = appState.stitchType;
+    appState.gridParams.dropCount = appState.dropCount;
   }
 
   // Draws the grid for the design as currently loaded into appState (rows/cols/
@@ -940,10 +944,10 @@ export function mountEditorView(appState, hooks) {
   // rename/add/delete/reorder is reflected immediately without remounting.
   function renderBeadTypeSelect() {
     beadTypeSelect.replaceChildren(
-      ...appState.beadCatalog.map((bead) => {
+      ...beadTypeSelectOptions(appState.beadCatalog).map(({ value, label }) => {
         const option = document.createElement('option');
-        option.value = bead.id;
-        option.textContent = bead.name;
+        option.value = value;
+        option.textContent = label;
         return option;
       })
     );
@@ -991,6 +995,16 @@ export function mountEditorView(appState, hooks) {
     // right after the promise above resolves — nothing left to do here.
   }
 
+  // Shows the Drops field only for peyote — square stitch has no drop concept
+  // at all (see .work/feature-multi-drop-peyote-plan.md). Keyed off the
+  // *currently selected* stitch-type option, not necessarily the committed
+  // appState.stitchType, since the select's own value can change before a
+  // non-empty-design conversion is confirmed or reverted (handleStitchTypeChange
+  // below calls this from all three of its own branches, plus once at mount).
+  function updateDropCountVisibility() {
+    dropCountLabel.hidden = stitchTypeSelect.value !== 'peyote';
+  }
+
   // A design's stitch type is chosen once and is fixed, same "no in-place
   // geometry mutation" rule as bead type (see handleBeadTypeChange above) — but
   // simpler: unlike a bead-type change, the color palette itself never changes
@@ -1006,6 +1020,7 @@ export function mountEditorView(appState, hooks) {
       rebuildGridParams();
       fitViewportToGrid();
       updateSizeReadout();
+      updateDropCountVisibility();
       scheduleRedraw();
       hooks.onPreferencesChanged({ defaultStitchType: appState.stitchType });
       hooks.onDesignContentChanged();
@@ -1019,11 +1034,34 @@ export function mountEditorView(appState, hooks) {
     );
     if (!confirmed) {
       stitchTypeSelect.value = appState.stitchType; // revert the displayed selection
+      updateDropCountVisibility();
       return;
     }
     await hooks.onStitchTypeConvertConfirmed(targetStitchType);
+    updateDropCountVisibility();
     // main.js unmounts this editor instance and opens the newly created design
     // right after the promise above resolves — nothing left to do here.
+  }
+
+  // The Settings dialog's Drops field is the conversion mechanism for an
+  // existing design — no separate dialog, since a dropCount change is
+  // non-destructive and reinterpreted live (see appState.js's own comment).
+  // No confirm dialog (matches Crop to Design's precedent — nothing is lost),
+  // no undo-history entry (matches how stitchType/beadTypeKey changes aren't
+  // part of the cell-patch undo stack either — this doesn't touch cells/rows/
+  // cols/staggerFlipped at all, only a rendering reinterpretation of existing
+  // data).
+  function handleDropCountChange() {
+    const value = Math.max(1, Math.round(Number(dropCountInput.value)) || 1);
+    dropCountInput.value = String(value);
+    if (value === appState.dropCount) return;
+    appState.dropCount = value;
+    rebuildGridParams();
+    updateSelectionButtons(); // Mirror Horizontal's guard depends on dropCount
+    scheduleRedraw();
+    hooks.onPreferencesChanged({ defaultDropCount: value });
+    hooks.onDesignContentChanged();
+    hooks.onImmediateSave();
   }
   function handlePanelToggle() {
     const collapsed = !sidePanel.hidden;
@@ -1563,6 +1601,7 @@ export function mountEditorView(appState, hooks) {
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   stitchTypeSelect.addEventListener('change', handleStitchTypeChange);
+  dropCountInput.addEventListener('change', handleDropCountChange);
   generateButton.addEventListener('click', handleResizeClick);
   cropToDesignButton.addEventListener('click', applyCrop);
   resetViewButton.addEventListener('click', handleResetView);
@@ -1652,6 +1691,8 @@ export function mountEditorView(appState, hooks) {
   // events just from being set programmatically.
   renderBeadTypeSelect();
   stitchTypeSelect.value = appState.stitchType;
+  dropCountInput.value = String(appState.dropCount);
+  updateDropCountVisibility();
   rowsInput.value = String(appState.rows);
   colsInput.value = String(appState.cols);
 
@@ -1688,6 +1729,7 @@ export function mountEditorView(appState, hooks) {
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     stitchTypeSelect.removeEventListener('change', handleStitchTypeChange);
+    dropCountInput.removeEventListener('change', handleDropCountChange);
     generateButton.removeEventListener('click', handleResizeClick);
     cropToDesignButton.removeEventListener('click', applyCrop);
     resetViewButton.removeEventListener('click', handleResetView);

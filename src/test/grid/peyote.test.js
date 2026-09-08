@@ -328,3 +328,145 @@ test('peyoteNeighbors: flipped=true produces a genuinely different adjacency set
   const flipped = peyoteNeighbors(3, 2, 7, true).map(String).sort();
   assert.notDeepEqual(flipped, unflipped);
 });
+
+// dropCount (see .work/feature-multi-drop-peyote-plan.md) — dropCount=1 must
+// reproduce every case above unchanged (already confirmed since it's the
+// default and every prior test omits it); these cases cover dropCount>1
+// specifically.
+
+test('isRaised: dropCount=1 is byte-for-byte the original per-column rule', () => {
+  for (let col = -5; col < 10; col++) {
+    assert.equal(isRaised(col, 10, false, 1), isRaised(col, 10, false));
+  }
+});
+
+test('isRaised: dropCount=2 groups columns in pairs sharing the same parity', () => {
+  // group 0 = cols {0,1}, group 1 = cols {2,3}, group 2 = cols {4,5}, ...
+  assert.equal(isRaised(0, 10, false, 2), isRaised(1, 10, false, 2));
+  assert.equal(isRaised(2, 10, false, 2), isRaised(3, 10, false, 2));
+  assert.notEqual(isRaised(1, 10, false, 2), isRaised(2, 10, false, 2));
+});
+
+test('isRaised: dropCount=2 negative columns group cleanly across zero (Math.floor, not truncation)', () => {
+  // -2 and -1 both belong to group -1, matching how 0 and 1 both belong to group 0
+  // (Math.floor(-1/2) === -1, not 0 — a truncating divide would have wrongly split
+  // -2 and -1 into different groups).
+  assert.equal(isRaised(-2, 10, false, 2), isRaised(-1, 10, false, 2));
+  // Group -1 (cols -2,-1) and group 0 (cols 0,1) are adjacent groups, so their
+  // parity must differ, same as any two adjacent groups do.
+  assert.notEqual(isRaised(-1, 10, false, 2), isRaised(0, 10, false, 2));
+});
+
+test('isRaised: dropCount=3 groups columns in triples', () => {
+  assert.equal(isRaised(0, 12, false, 3), isRaised(1, 12, false, 3));
+  assert.equal(isRaised(1, 12, false, 3), isRaised(2, 12, false, 3));
+  assert.notEqual(isRaised(2, 12, false, 3), isRaised(3, 12, false, 3));
+});
+
+test('peyoteCellOriginMm: dropCount=2 gives same-group columns the same yMm offset, different-group columns different offsets', () => {
+  const a = peyoteCellOriginMm(0, 0, BEAD_W, BEAD_H, 10, false, 2);
+  const b = peyoteCellOriginMm(0, 1, BEAD_W, BEAD_H, 10, false, 2);
+  const c = peyoteCellOriginMm(0, 2, BEAD_W, BEAD_H, 10, false, 2);
+  assert.equal(a.yMm, b.yMm); // same group (0)
+  assert.notEqual(b.yMm, c.yMm); // group boundary
+  // xMm is untouched by dropCount — each bead still occupies its own column slot.
+  assert.equal(a.xMm, 0);
+  assert.equal(b.xMm, BEAD_H);
+  assert.equal(c.xMm, 2 * BEAD_H);
+});
+
+test('peyoteCellAtPoint: round-trips against peyoteCellOriginMm with dropCount=2, including negative-column group boundaries', () => {
+  const rows = 6, cols = 9;
+  for (let row = 0; row < rows; row++) {
+    for (let col = 0; col < cols; col++) {
+      const origin = peyoteCellOriginMm(row, col, BEAD_W, BEAD_H, cols, false, 2);
+      const point = { xMm: origin.xMm + BEAD_H / 2, yMm: origin.yMm + BEAD_W / 2 };
+      const hit = peyoteCellAtPoint(point.xMm, point.yMm, BEAD_W, BEAD_H, rows, cols, false, 2);
+      assert.deepEqual(hit, { row, col }, `mismatch at row ${row}, col ${col}`);
+    }
+  }
+});
+
+test('peyoteCellAtPointUnbounded: dropCount=2 round-trips for a negative column', () => {
+  const origin = peyoteCellOriginMm(0, -2, BEAD_W, BEAD_H, 10, false, 2);
+  const point = { xMm: origin.xMm + BEAD_H / 2, yMm: origin.yMm + BEAD_W / 2 };
+  assert.deepEqual(peyoteCellAtPointUnbounded(point.xMm, point.yMm, BEAD_W, BEAD_H, 10, false, 2), { row: 0, col: -2 });
+});
+
+test('peyoteNeighbors: dropCount=2 makes same-group columns direct same-row neighbors, not diagonal', () => {
+  // Group 0 = cols {0,1}. (row,0) and (row,1) are in the same group.
+  const neighbors0 = peyoteNeighbors(3, 0, 10, false, 2);
+  assert.ok(neighbors0.some(([r, c]) => r === 3 && c === 1), '(3,0) should list (3,1) as a same-row neighbor');
+  assert.ok(!neighbors0.some(([r, c]) => r === 2 && c === 1), '(3,0) should not list (2,1) as a neighbor');
+  assert.ok(!neighbors0.some(([r, c]) => r === 4 && c === 1), '(3,0) should not list (4,1) as a neighbor');
+
+  const neighbors1 = peyoteNeighbors(3, 1, 10, false, 2);
+  assert.ok(neighbors1.some(([r, c]) => r === 3 && c === 0), '(3,1) should list (3,0) as a same-row neighbor');
+});
+
+test('peyoteNeighbors: dropCount=2 still uses the diagonal relationship across a group boundary', () => {
+  // Group 0 = cols {0,1}, group 1 = cols {2,3}. (row,1) and (row,2) cross a boundary.
+  const neighbors1 = peyoteNeighbors(3, 1, 10, false, 2);
+  const boundaryHits = neighbors1.filter(([, c]) => c === 2);
+  assert.equal(boundaryHits.length, 2, 'a group-boundary neighbor should still be diagonal (two rows)');
+});
+
+test('peyoteNeighbors: dropCount=2 returns four neighbors deep inside a group (fewer than the six at dropCount=1)', () => {
+  // col 0 and col 1 are both interior to group 0 relative to each other (left of 0
+  // and right of 1 still cross boundaries), but a column with same-group neighbors
+  // on BOTH sides only exists for dropCount >= 3 — use dropCount=3, middle column
+  // of a triple, to exercise the 4-neighbor case directly.
+  const neighbors = peyoteNeighbors(3, 1, 12, false, 3); // group 0 = cols {0,1,2}
+  assert.equal(neighbors.length, 4);
+});
+
+test('peyoteNeighbors: dropCount>1 adjacency is symmetric across a sample grid, for several (dropCount, flipped) combinations', () => {
+  const cases = [
+    { dropCount: 2, flipped: false },
+    { dropCount: 2, flipped: true },
+    { dropCount: 3, flipped: false },
+    { dropCount: 3, flipped: true },
+    { dropCount: 4, flipped: false },
+  ];
+  const cols = 13; // deliberately not a clean multiple of any dropCount above
+  for (const { dropCount, flipped } of cases) {
+    for (let row = 0; row < 6; row++) {
+      for (let col = 0; col < cols; col++) {
+        for (const [nRow, nCol] of peyoteNeighbors(row, col, cols, flipped, dropCount)) {
+          const back = peyoteNeighbors(nRow, nCol, cols, flipped, dropCount).map(String);
+          assert.ok(
+            back.includes(String([row, col])),
+            `dropCount=${dropCount} flipped=${flipped}: (${nRow},${nCol})'s neighbors should include (${row},${col})`
+          );
+        }
+      }
+    }
+  }
+});
+
+test('peyoteNeighbors: two cells in the same drop group are always mutual same-row neighbors', () => {
+  const dropCount = 3;
+  const cols = 13;
+  for (let row = 0; row < 5; row++) {
+    for (let col = 0; col < cols - 1; col++) {
+      const group = Math.floor(col / dropCount);
+      const nextGroup = Math.floor((col + 1) / dropCount);
+      if (group !== nextGroup) continue; // group boundary — diagonal, not same-row, covered elsewhere
+      const forward = peyoteNeighbors(row, col, cols, false, dropCount);
+      const backward = peyoteNeighbors(row, col + 1, cols, false, dropCount);
+      assert.ok(forward.some(([r, c]) => r === row && c === col + 1), `(${row},${col}) should list (${row},${col + 1}) as same-row`);
+      assert.ok(backward.some(([r, c]) => r === row && c === col), `(${row},${col + 1}) should list (${row},${col}) as same-row`);
+    }
+  }
+});
+
+test('peyoteNeighbors: dropCount=1 is byte-for-byte the original 6-neighbor formula', () => {
+  for (let row = 0; row < 6; row++) {
+    for (let col = 0; col < 6; col++) {
+      assert.deepEqual(
+        peyoteNeighbors(row, col, COLS, false, 1).map(String).sort(),
+        peyoteNeighbors(row, col, COLS).map(String).sort()
+      );
+    }
+  }
+});

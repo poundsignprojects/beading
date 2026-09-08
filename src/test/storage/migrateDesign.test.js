@@ -61,13 +61,14 @@ test('migrateDesign: a pre-refactor record (no axisVersion, already has colorway
   assert.equal(migrated.staggerFlipped, true); // post-swap cols is 7, odd
 });
 
-test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlipped set, stitchType set) passes through with rows/cols/keys/flip/stitchType untouched', () => {
+test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlipped set, stitchType set, dropCount set) passes through with rows/cols/keys/flip/stitchType/dropCount untouched', () => {
   const record = {
     id: 'd5',
     rows: 20,
     cols: 7,
     staggerFlipped: true,
     stitchType: 'square',
+    dropCount: 1,
     shapeEntries: ['0,0', '5,2'],
     colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
     activeColorwayId: 'cw1',
@@ -162,6 +163,7 @@ test('migrateDesign: staggerFlipped explicitly false is left alone, not recomput
     cols: 9, // odd, but staggerFlipped is already explicitly set — must not be overridden
     staggerFlipped: false,
     stitchType: 'peyote',
+    dropCount: 1,
     shapeEntries: ['0,0'],
     colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
     activeColorwayId: 'cw1',
@@ -219,5 +221,77 @@ test('migrateDesign: running the migration twice is idempotent for stitchType to
   const once = migrateDesign(record);
   const twice = migrateDesign(once);
   assert.equal(once.stitchType, 'peyote');
+  assert.deepEqual(twice, once);
+});
+
+// migrateDropCount specifically (.work/feature-multi-drop-peyote-plan.md):
+// gated on dropCount's own presence, independent of every other step's own
+// gate — same convention as migrateStitchType above.
+
+test('migrateDesign: a record with no dropCount field gets stamped 1 (every design before multi-drop peyote existed was implicitly 1-drop)', () => {
+  const record = {
+    id: 'd14',
+    rows: 5,
+    cols: 8,
+    staggerFlipped: false,
+    stitchType: 'peyote',
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.dropCount, 1);
+});
+
+test('migrateDesign: an explicit dropCount of 3 is left alone, not overridden to 1', () => {
+  const record = {
+    id: 'd15',
+    rows: 5,
+    cols: 8,
+    staggerFlipped: false,
+    stitchType: 'peyote',
+    dropCount: 3,
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.dropCount, 3);
+});
+
+test('migrateDesign: a record already at axisVersion 2 with stitchType/staggerFlipped set but no dropCount at all (the real "already ran a session before this feature existed" scenario) gets dropCount stamped without disturbing anything else', () => {
+  const record = {
+    id: 'd16',
+    rows: 5,
+    cols: 8,
+    staggerFlipped: false,
+    stitchType: 'peyote',
+    shapeEntries: ['0,0'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.equal(migrated.dropCount, 1);
+  assert.equal(migrated.rows, 5);
+  assert.equal(migrated.cols, 8);
+  assert.equal(migrated.staggerFlipped, false);
+  assert.equal(migrated.stitchType, 'peyote');
+});
+
+test('migrateDesign: running the migration twice is idempotent for dropCount too', () => {
+  const record = {
+    id: 'd17',
+    rows: 7,
+    cols: 20,
+    shapeEntries: ['3,4'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['3,4', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+  };
+  const once = migrateDesign(record);
+  const twice = migrateDesign(once);
+  assert.equal(once.dropCount, 1);
   assert.deepEqual(twice, once);
 });

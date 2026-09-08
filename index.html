@@ -142,6 +142,10 @@
           <option value="square">Square Stitch</option>
         </select>
       </label>
+      <label id="settings-drop-count-label">Drops
+        <input id="drop-count" type="number" value="1" min="1" max="10">
+      </label>
+      <p id="settings-drop-count-help">Changes how existing rows restagger for stitching — no beads are added or removed.</p>
       <div id="settings-dimensions">
         <label>Rows <input id="rows" type="number" value="20" min="1"></label>
         <label>Cols <input id="cols" type="number" value="20" min="1"></label>
@@ -294,6 +298,35 @@
       <div id="resize-actions">
         <button type="button" id="resize-cancel">Cancel</button>
         <button type="submit" id="resize-confirm">Resize</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="new-pattern-dialog">
+    <form method="dialog" id="new-pattern-form">
+      <h2>New Pattern</h2>
+      <label id="new-pattern-name-label">Name
+        <input type="text" id="new-pattern-name" autocomplete="off">
+      </label>
+      <label id="new-pattern-stitch-type-label">Pattern type
+        <select id="new-pattern-stitch-type">
+          <option value="peyote">Peyote</option>
+          <option value="square">Square Stitch</option>
+        </select>
+      </label>
+      <label id="new-pattern-bead-type-label">Bead type
+        <select id="new-pattern-bead-type"></select>
+      </label>
+      <label id="new-pattern-drop-count-label">Drops
+        <input id="new-pattern-drop-count" type="number" value="1" min="1" max="10">
+      </label>
+      <div id="new-pattern-dimensions">
+        <label>Rows <input id="new-pattern-rows" type="number" value="20" min="1"></label>
+        <label>Cols <input id="new-pattern-cols" type="number" value="20" min="1"></label>
+      </div>
+      <div id="new-pattern-actions">
+        <button type="button" id="new-pattern-cancel">Cancel</button>
+        <button type="submit" id="new-pattern-confirm">Create</button>
       </div>
     </form>
   </dialog>

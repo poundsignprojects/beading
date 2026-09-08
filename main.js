@@ -17,6 +17,7 @@ import { remapColorwayColorIds } from './src/state/beadTypeConversion.js';
 import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
+import { promptNewPattern } from './src/ui/newPatternDialog.js';
 import { mountBackupDialog, DRIVE_CONNECTED_BEFORE_KEY } from './src/ui/backupDialog.js';
 import { showReconnectBanner, showAxisMigrationReviewBanner, hideReconnectBanner } from './src/ui/driveReconnectBanner.js';
 import { getStoredDeviceName } from './src/sync/deviceName.js';
@@ -25,7 +26,7 @@ import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchHex } from './src/palette/colorLibrary.js';
 import { findBeadType } from './src/palette/beadSpecs.js';
-import { resolveGridEngine, stitchTypeLabel } from './src/grid/gridEngine.js';
+import { resolveGridEngine, stitchTypeDetailLabel } from './src/grid/gridEngine.js';
 import { createGoogleDriveClient } from './src/sync/googleDriveClient.js';
 import { pushBackupToDriveTracked, recordDesignDeletedLocally, recordCustomColorDeletedLocally, recordBeadTypeDeletedLocally, runPreMigrationBackup } from './src/sync/backupSync.js';
 import { getDriveSyncMeta, saveDriveSyncMeta } from './src/storage/driveSyncStore.js';
@@ -104,6 +105,7 @@ async function persistCurrentDesign() {
       ...existing,
       beadTypeKey: appState.beadTypeKey,
       stitchType: appState.stitchType,
+      dropCount: appState.dropCount,
       rows: appState.rows,
       cols: appState.cols,
       staggerFlipped: appState.staggerFlipped,
@@ -250,10 +252,14 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
     name: originalDesign.name,
     beadTypeKey: targetBeadTypeKey,
     // Same shape/stitch structure as the source (only bead type/colors
-    // changed) — keep the same stagger convention and stitch type so the
-    // converted copy renders identically to the design it came from, not the
-    // default for a "brand new" design.
+    // changed) — keep the same stagger convention, stitch type, and drop
+    // count so the converted copy renders identically to the design it came
+    // from, not the default for a "brand new" design. Bead type never changes
+    // stitch geometry, so dropCount always carries through unchanged here
+    // (unlike stitch-type conversion below, which resets it for square
+    // stitch).
     stitchType: appState.stitchType,
+    dropCount: appState.dropCount,
     rows: appState.rows,
     cols: appState.cols,
     staggerFlipped: appState.staggerFlipped,
@@ -301,6 +307,12 @@ async function handleStitchTypeConvertConfirmed(targetStitchType) {
     name: originalDesign.name,
     beadTypeKey: appState.beadTypeKey,
     stitchType: targetStitchType,
+    // dropCount only means anything for peyote — preserve it when the target
+    // is still peyote (e.g. this design's own dropCount was already peyote-
+    // meaningful), reset to 1 when converting to square stitch so a stale
+    // drop count can't resurface confusingly if this design is later
+    // converted back to peyote.
+    dropCount: targetStitchType === 'peyote' ? appState.dropCount : 1,
     rows: appState.rows,
     cols: appState.cols,
     // The stagger convention only means anything for peyote — carried through
@@ -407,6 +419,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   appState.currentDesignId = design.id;
   appState.beadTypeKey = design.beadTypeKey;
   appState.stitchType = design.stitchType ?? 'peyote';
+  appState.dropCount = design.dropCount ?? 1;
   appState.rows = design.rows;
   appState.cols = design.cols;
   appState.staggerFlipped = design.staggerFlipped ?? false;
@@ -541,8 +554,8 @@ function resolveBeadTypeName(beadTypeKey) {
   return findBeadType(appState.beadCatalog, beadTypeKey)?.name ?? beadTypeKey;
 }
 
-function resolveStitchTypeLabel(stitchType) {
-  return stitchTypeLabel(stitchType);
+function resolveStitchTypeLabel(stitchType, dropCount) {
+  return stitchTypeDetailLabel(stitchType, dropCount);
 }
 
 // Renders a small preview thumbnail per colorway of a (closed) design, for the
@@ -562,6 +575,7 @@ async function handleRequestColorwayPreviews(designId) {
   });
   gridParams.staggerFlipped = design.staggerFlipped ?? false;
   gridParams.stitchType = stitchType;
+  gridParams.dropCount = design.dropCount ?? 1;
   const customColors = await listCustomColorsSorted(appState.db, design.beadTypeKey);
   return design.colorways.map((cw) => ({
     id: cw.id,
@@ -578,18 +592,47 @@ async function handleRequestColorwayPreviews(designId) {
 
 async function handleCreate() {
   const prefs = appState.preferences;
+  const result = await promptNewPattern({
+    beadCatalog: appState.beadCatalog,
+    defaults: {
+      // No default name — same "no Untitled Pattern stacking" reasoning the
+      // old instant-create flow already followed (see handleRename/
+      // libraryView.js's buildRow) — a blank name is a supported, intentional
+      // state, not something this dialog needs to fill in.
+      name: '',
+      stitchType: prefs.defaultStitchType,
+      beadTypeKey: prefs.defaultBeadTypeKey,
+      dropCount: prefs.defaultDropCount ?? 1,
+      rows: prefs.defaultRows,
+      cols: prefs.defaultCols,
+    },
+  });
+  if (!result) return; // Cancelled — nothing created, matching every other cancel-flow in this app
+
   const design = await createDesign(appState.db, {
-    // No default name — the library shows nothing until the user renames it
-    // (see handleRename/libraryView.js's buildRow), rather than stacking up
-    // "Untitled Pattern"/"Untitled Pattern copy" rows.
-    name: '',
-    beadTypeKey: prefs.defaultBeadTypeKey,
-    stitchType: prefs.defaultStitchType,
-    rows: prefs.defaultRows,
-    cols: prefs.defaultCols,
+    name: result.name,
+    beadTypeKey: result.beadTypeKey,
+    stitchType: result.stitchType,
+    dropCount: result.dropCount,
+    rows: result.rows,
+    cols: result.cols,
   });
   appState.designs.push(design);
   appState.designs.sort((a, b) => a.order - b.order);
+
+  // The dialog's own choices become the new "last-used" defaults, same
+  // treatment defaultStitchType/defaultBeadTypeKey/defaultRows/defaultCols
+  // already get from a Resize or a bead/stitch-type change.
+  appState.preferences = {
+    ...prefs,
+    defaultStitchType: result.stitchType,
+    defaultBeadTypeKey: result.beadTypeKey,
+    defaultDropCount: result.dropCount,
+    defaultRows: result.rows,
+    defaultCols: result.cols,
+  };
+  await savePreferences(appState.db, appState.preferences);
+
   await openDesign(design);
 }
 

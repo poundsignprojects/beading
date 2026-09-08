@@ -90,7 +90,7 @@ export function mountLibraryView(callbacks) {
 
     const beadType = document.createElement('span');
     beadType.className = 'library-row-beadtype';
-    beadType.textContent = `${callbacks.resolveBeadTypeName(design.beadTypeKey)} — ${callbacks.resolveStitchTypeLabel(design.stitchType)}`;
+    beadType.textContent = `${callbacks.resolveBeadTypeName(design.beadTypeKey)} — ${callbacks.resolveStitchTypeLabel(design.stitchType, design.dropCount)}`;
 
     const updated = document.createElement('span');
     updated.className = 'library-row-updated';

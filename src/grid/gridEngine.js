@@ -29,11 +29,11 @@ import {
 
 const peyoteEngine = {
   generateGrid: (p) => generatePeyoteGrid(p),
-  cellOrigin: (row, col, p) => peyoteCellOriginMm(row, col, p.beadWidthMm, p.beadHeightMm, p.cols, p.staggerFlipped),
-  cellAtPoint: (xMm, yMm, p) => peyoteCellAtPoint(xMm, yMm, p.beadWidthMm, p.beadHeightMm, p.rows, p.cols, p.staggerFlipped),
-  cellAtPointClamped: (xMm, yMm, p) => peyoteCellAtPointClamped(xMm, yMm, p.beadWidthMm, p.beadHeightMm, p.rows, p.cols, p.staggerFlipped),
-  cellAtPointUnbounded: (xMm, yMm, p) => peyoteCellAtPointUnbounded(xMm, yMm, p.beadWidthMm, p.beadHeightMm, p.cols, p.staggerFlipped),
-  neighbors: (row, col, p) => peyoteNeighbors(row, col, p.cols, p.staggerFlipped),
+  cellOrigin: (row, col, p) => peyoteCellOriginMm(row, col, p.beadWidthMm, p.beadHeightMm, p.cols, p.staggerFlipped, p.dropCount),
+  cellAtPoint: (xMm, yMm, p) => peyoteCellAtPoint(xMm, yMm, p.beadWidthMm, p.beadHeightMm, p.rows, p.cols, p.staggerFlipped, p.dropCount),
+  cellAtPointClamped: (xMm, yMm, p) => peyoteCellAtPointClamped(xMm, yMm, p.beadWidthMm, p.beadHeightMm, p.rows, p.cols, p.staggerFlipped, p.dropCount),
+  cellAtPointUnbounded: (xMm, yMm, p) => peyoteCellAtPointUnbounded(xMm, yMm, p.beadWidthMm, p.beadHeightMm, p.cols, p.staggerFlipped, p.dropCount),
+  neighbors: (row, col, p) => peyoteNeighbors(row, col, p.cols, p.staggerFlipped, p.dropCount),
 };
 
 const squareEngine = {
@@ -60,4 +60,19 @@ const STITCH_TYPE_LABELS = { peyote: 'Peyote', square: 'Square Stitch' };
 
 export function stitchTypeLabel(stitchType) {
   return STITCH_TYPE_LABELS[stitchType] ?? STITCH_TYPE_LABELS.peyote;
+}
+
+// Like stitchTypeLabel, but names a *specific design's* drop count too — e.g.
+// "Peyote (2-Drop)" — so a printed pattern or library row is self-describing
+// for the stitcher. 1-drop is just "Peyote" (nobody calls ordinary peyote
+// "1-drop peyote" in practice), and square stitch has no drop concept at all,
+// so its dropCount (always 1 by data-model convention — see
+// .work/feature-multi-drop-peyote-plan.md) is silently ignored. Use this at
+// call sites describing a specific design; keep using the bare stitchTypeLabel
+// for messages about a stitch type in the abstract (e.g. the stitch-type
+// conversion confirm dialog, which is about the target type, not this design's
+// current drop count).
+export function stitchTypeDetailLabel(stitchType, dropCount) {
+  if (stitchType === 'peyote' && dropCount > 1) return `${stitchTypeLabel(stitchType)} (${dropCount}-Drop)`;
+  return stitchTypeLabel(stitchType);
 }

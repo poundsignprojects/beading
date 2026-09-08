@@ -44,6 +44,15 @@ export function createAppState() {
     // restores the exact look a pre-existing odd-column design always had,
     // before this constant existed (see migrateDesign.js's migrateStaggerFlip).
     staggerFlipped: false,
+    // Peyote-only (see src/grid/peyote.js's isRaised/peyoteNeighbors and
+    // .work/feature-multi-drop-peyote-plan.md) — how many beads are picked up
+    // together at each stitch, sitting side-by-side at the same raised/
+    // recessed level. Square-stitch designs still carry dropCount: 1 for
+    // schema uniformity; the square grid engine simply never reads it.
+    // Changing it on an existing design is a live, undo-free reinterpretation
+    // of existing cell data (same/no color change), not a clone-based
+    // conversion like bead type or stitch type.
+    dropCount: 1,
     units: 'mm',
     showBeadOutlines: true, // whether drawGrid strokes a bead outline or fills edge-to-edge; mirrors `units`' preference-backed-default-then-session-toggle pattern
     gridParams: null,

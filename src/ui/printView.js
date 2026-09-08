@@ -4,7 +4,7 @@
 // closing it just hides the overlay again, no re-mount of the editor.
 
 import { findBeadType } from '../palette/beadSpecs.js';
-import { stitchTypeLabel } from '../grid/gridEngine.js';
+import { stitchTypeDetailLabel } from '../grid/gridEngine.js';
 import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
@@ -35,7 +35,7 @@ function buildHeader(appState, designName) {
   if (title) title.textContent = designName;
 
   const specLine = document.createElement('p');
-  specLine.textContent = `${bead.name}, ${stitchTypeLabel(appState.stitchType)} — ${appState.rows} rows × ${appState.cols} cols`;
+  specLine.textContent = `${bead.name}, ${stitchTypeDetailLabel(appState.stitchType, appState.dropCount)} — ${appState.rows} rows × ${appState.cols} cols`;
 
   const sizeLine = document.createElement('p');
   sizeLine.textContent = `Finished size: ${formatLength(widthMm, 'mm')} × ${formatLength(heightMm, 'mm')} (${formatLength(widthMm, 'in')} × ${formatLength(heightMm, 'in')})`;
@@ -173,7 +173,7 @@ export function mountPrintView(appState, hooks) {
   const referenceImageToggleButton = document.getElementById('print-reference-image-toggle');
 
   const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? '';
-  const chart = buildWordChart(appState.cells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped);
+  const chart = buildWordChart(appState.cells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount);
   const codes = assignColorCodes(chart.colorCounts);
 
   // Rendered once at mount, not per renderContent() call — appState.cells can't

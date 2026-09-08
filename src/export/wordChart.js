@@ -38,11 +38,19 @@ export const UNASSIGNED = Symbol('unassigned-color');
 // position-parity split silently swaps which printed line is physically first
 // whenever `cols` is even, producing a chart that's unstitchable in either
 // direction. isRaised is the actual physical-level test and must be used directly.
-function splitByPosition(rowCells, cols, flipped) {
+//
+// dropCount (see .work/feature-multi-drop-peyote-plan.md) needs no run-format
+// change here — an N-drop group just means N consecutive columns share one
+// isRaised bucket, so they land in the same printed line's run sequence
+// automatically, and a run like "4A" already correctly reads as "4 same-
+// colored beads in a row on this pass" whether picked up one at a time or N at
+// a time. Only which columns land in which bucket changes, which is exactly
+// what threading dropCount into isRaised already provides.
+function splitByPosition(rowCells, cols, flipped, dropCount) {
   const raised = [];
   const notRaised = [];
   for (const cell of rowCells) {
-    (isRaised(cell.col, cols, flipped) ? raised : notRaised).push(cell);
+    (isRaised(cell.col, cols, flipped, dropCount) ? raised : notRaised).push(cell);
   }
   return { raised, notRaised };
 }
@@ -81,7 +89,7 @@ function buildRuns(cells, cellList, colorCounts, tallyUnassigned) {
 // unlike peyote's real stitching structure (see the file-level comment above).
 // This can't be handled by the grid-engine abstraction (gridEngine.js) since
 // it's specific to how a stitch type is actually worked, not its geometry.
-export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped = false) {
+export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped = false, dropCount = 1) {
   const chartRows = [];
   const colorCounts = new Map(); // colorId -> running total, insertion = first appearance
   let unassignedCount = 0;
@@ -117,7 +125,7 @@ export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped
     // row r (r>=1) contributes physical rows 2r+1 (raised, printed first) and
     // 2r+2 (non-raised, printed second).
     for (let row = 1; row < rows; row++) {
-      const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols, flipped);
+      const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols, flipped, dropCount);
       pushEntry(raised, `Row ${row * 2 + 1}`);
       pushEntry(notRaised, `Row ${row * 2 + 2}`);
     }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveGridEngine } from '../../grid/gridEngine.js';
+import { resolveGridEngine, stitchTypeLabel, stitchTypeDetailLabel } from '../../grid/gridEngine.js';
 
 const BEAD_W = 1.6;
 const BEAD_H = 1.3;
@@ -53,4 +53,59 @@ test('resolveGridEngine: cellAtPoint/cellOrigin round-trip for both engines', ()
     const hit = engine.cellAtPoint(point.xMm, point.yMm, p);
     assert.deepEqual(hit, { row: 4, col: 5 }, `mismatch for stitchType ${stitchType}`);
   }
+});
+
+// dropCount threading (.work/feature-multi-drop-peyote-plan.md) — peyoteEngine
+// wrappers pass p.dropCount through; squareEngine has no dropCount concept at
+// all (its underlying functions never gained the parameter), so a dropCount on
+// its gridParams is simply never read.
+
+test('resolveGridEngine: peyote engine threads p.dropCount through cellOrigin (same-group columns share yMm)', () => {
+  const p = { rows: 5, cols: 10, beadWidthMm: BEAD_W, beadHeightMm: BEAD_H, staggerFlipped: false, dropCount: 2 };
+  const engine = resolveGridEngine('peyote');
+  const a = engine.cellOrigin(0, 0, p);
+  const b = engine.cellOrigin(0, 1, p);
+  assert.equal(a.yMm, b.yMm); // same drop group (0)
+});
+
+test('resolveGridEngine: peyote engine cellAtPoint/cellOrigin round-trip with p.dropCount set', () => {
+  const p = { rows: 10, cols: 10, beadWidthMm: BEAD_W, beadHeightMm: BEAD_H, staggerFlipped: false, dropCount: 3 };
+  const engine = resolveGridEngine('peyote');
+  const origin = engine.cellOrigin(4, 5, p);
+  const point = { xMm: origin.xMm + BEAD_H / 2, yMm: origin.yMm + BEAD_W / 2 };
+  const hit = engine.cellAtPoint(point.xMm, point.yMm, p);
+  assert.deepEqual(hit, { row: 4, col: 5 });
+});
+
+test('resolveGridEngine: peyote engine neighbors treats a same-group pair as adjacent with p.dropCount set', () => {
+  const p = { rows: 10, cols: 10, beadWidthMm: BEAD_W, beadHeightMm: BEAD_H, staggerFlipped: false, dropCount: 2 };
+  const engine = resolveGridEngine('peyote');
+  const neighbors = engine.neighbors(3, 0, p);
+  assert.ok(neighbors.some(([r, c]) => r === 3 && c === 1));
+});
+
+test('resolveGridEngine: square engine ignores dropCount entirely (present on gridParams but never read)', () => {
+  const withDropCount = { rows: 5, cols: 5, beadWidthMm: BEAD_W, beadHeightMm: BEAD_H, dropCount: 3 };
+  const withoutDropCount = { rows: 5, cols: 5, beadWidthMm: BEAD_W, beadHeightMm: BEAD_H };
+  const engine = resolveGridEngine('square');
+  assert.deepEqual(engine.cellOrigin(2, 3, withDropCount), engine.cellOrigin(2, 3, withoutDropCount));
+  assert.equal(engine.neighbors(3, 3, withDropCount).length, 4);
+});
+
+test('stitchTypeDetailLabel: 1-drop peyote is unlabeled, matching bare stitchTypeLabel', () => {
+  assert.equal(stitchTypeDetailLabel('peyote', 1), stitchTypeLabel('peyote'));
+});
+
+test('stitchTypeDetailLabel: N-drop peyote appends a "(N-Drop)" suffix', () => {
+  assert.equal(stitchTypeDetailLabel('peyote', 2), 'Peyote (2-Drop)');
+  assert.equal(stitchTypeDetailLabel('peyote', 3), 'Peyote (3-Drop)');
+});
+
+test('stitchTypeDetailLabel: square stitch ignores dropCount entirely, even if it were somehow > 1', () => {
+  assert.equal(stitchTypeDetailLabel('square', 1), stitchTypeLabel('square'));
+  assert.equal(stitchTypeDetailLabel('square', 2), stitchTypeLabel('square'));
+});
+
+test('stitchTypeDetailLabel: dropCount undefined behaves like 1-drop (no suffix)', () => {
+  assert.equal(stitchTypeDetailLabel('peyote', undefined), stitchTypeLabel('peyote'));
 });

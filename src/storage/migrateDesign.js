@@ -1,4 +1,4 @@
-// Design records get migrated on read, in four independent steps, oldest first:
+// Design records get migrated on read, in five independent steps, oldest first:
 //   1. migrateLegacyColorways — Phase 4/5 designs saved as flat cellEntries (no
 //      colorways field) get wrapped into a single default colorway.
 //   2. migrateAxisConvention — pre-refactor designs (see
@@ -13,7 +13,10 @@
 //   4. migrateStitchType — every design before square stitch existed was
 //      implicitly peyote; this stamps that explicitly (see .work/feature-
 //      square-stitch-plan.md).
-// All four steps are idempotent: a record already past a given step passes
+//   5. migrateDropCount — every design before multi-drop peyote existed was
+//      implicitly 1-drop; this stamps that explicitly (see .work/feature-
+//      multi-drop-peyote-plan.md).
+// All five steps are idempotent: a record already past a given step passes
 // through unchanged. designStore.js's listDesignsSorted re-saves any record
 // any step changed, so migration happens once per design, system-wide.
 
@@ -92,6 +95,15 @@ function migrateStitchType(record) {
   return { ...record, stitchType: 'peyote' };
 }
 
+// Every design saved before multi-drop peyote existed was, implicitly,
+// 1-drop — no data ambiguity, unlike some of this file's earlier
+// stagger-related steps. Gated on field presence, same convention as the
+// other steps above.
+function migrateDropCount(record) {
+  if (record.dropCount !== undefined) return record;
+  return { ...record, dropCount: 1 };
+}
+
 export function migrateDesign(record) {
-  return migrateStitchType(migrateStaggerFlip(migrateAxisConvention(migrateLegacyColorways(record))));
+  return migrateDropCount(migrateStitchType(migrateStaggerFlip(migrateAxisConvention(migrateLegacyColorways(record)))));
 }

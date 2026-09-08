@@ -347,3 +347,65 @@ test('buildWordChart: stitchType defaults to "peyote" when omitted, matching eve
   const withExplicit = buildWordChart(cells, 1, 3, 'peyote');
   assert.deepEqual(withDefault, withExplicit);
 });
+
+// dropCount (.work/feature-multi-drop-peyote-plan.md) — needs no run-format
+// change, only which columns land in the raised vs. non-raised bucket. With
+// cols=4, dropCount=2: dropGroup is 0,0,1,1 for cols 0,1,2,3 — group {0,1} has
+// dropGroup=0 (even) so it's the NON-raised half-pass (chart.rows[2]); group
+// {2,3} has dropGroup=1 (odd) so it's the RAISED half-pass (chart.rows[1]),
+// printed first — same isRaised rule as ever, just keyed by group instead of
+// column.
+
+test('buildWordChart: dropCount=2 merges a same-colored group of columns into one run, not one run per column', () => {
+  const cells = new Map();
+  // Group {2,3} (raised) is uniformly blue; group {0,1} (non-raised) is
+  // uniformly red. At dropCount=1 these same per-column colors would split
+  // into two separate 1-length runs per half-pass (col1/col3 alternate raised,
+  // col0/col2 alternate non-raised, each pair genuinely red-then-blue or
+  // blue-then-red) — only dropCount=2's grouping merges each half-pass's own
+  // pair into a single run of 2.
+  setCell(cells, 1, 0, 'red');
+  setCell(cells, 1, 1, 'red');
+  setCell(cells, 1, 2, 'blue');
+  setCell(cells, 1, 3, 'blue');
+  const chart = buildWordChart(cells, 2, 4, 'peyote', false, 2);
+  assert.deepEqual(chart.rows[1].runs, [{ colorId: 'blue', count: 2 }]); // raised: group {2,3}
+  assert.deepEqual(chart.rows[2].runs, [{ colorId: 'red', count: 2 }]); // non-raised: group {0,1}
+});
+
+test('buildWordChart: dropCount=1 with the identical per-column colors does NOT merge — confirms the dropCount=2 merge above is genuinely grouping-driven', () => {
+  const cells = new Map();
+  setCell(cells, 1, 0, 'red');
+  setCell(cells, 1, 1, 'red');
+  setCell(cells, 1, 2, 'blue');
+  setCell(cells, 1, 3, 'blue');
+  const chart = buildWordChart(cells, 2, 4, 'peyote', false, 1);
+  // dropCount=1: raised bucket is col1,col3 = red,blue; non-raised is col0,col2 = red,blue.
+  assert.deepEqual(chart.rows[1].runs, [{ colorId: 'red', count: 1 }, { colorId: 'blue', count: 1 }]);
+  assert.deepEqual(chart.rows[2].runs, [{ colorId: 'red', count: 1 }, { colorId: 'blue', count: 1 }]);
+});
+
+test('buildWordChart: dropCount=2 still produces two separate runs for two differently-colored beads within one group', () => {
+  const cells = new Map();
+  // cols=2, dropCount=2: the single group {0,1} has dropGroup=0 (even), so
+  // it's entirely the non-raised half-pass. Different colors within that one
+  // group must still print as two separate 1-length runs, proving color
+  // independence survives grouping — a drop group shares a stagger level, not
+  // a color.
+  setCell(cells, 1, 0, 'red');
+  setCell(cells, 1, 1, 'blue');
+  const chart = buildWordChart(cells, 2, 2, 'peyote', false, 2);
+  assert.deepEqual(chart.rows[1].runs, []); // raised half-pass: no columns in it
+  assert.deepEqual(chart.rows[2].runs, [{ colorId: 'red', count: 1 }, { colorId: 'blue', count: 1 }]);
+});
+
+test('buildWordChart: dropCount defaults to 1, matching every pre-multi-drop test above', () => {
+  const cells = new Map();
+  setCell(cells, 1, 0, 'P');
+  setCell(cells, 1, 1, 'Q');
+  setCell(cells, 1, 2, 'R');
+  setCell(cells, 1, 3, 'S');
+  const withDefault = buildWordChart(cells, 2, 4, 'peyote', false);
+  const withExplicit = buildWordChart(cells, 2, 4, 'peyote', false, 1);
+  assert.deepEqual(withDefault, withExplicit);
+});

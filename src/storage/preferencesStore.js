@@ -12,6 +12,14 @@ const DEFAULT_PREFERENCES = {
   units: 'mm',
   defaultBeadTypeKey: 'delica11',
   defaultStitchType: 'peyote',
+  // "Last-used becomes the new default," same role as defaultStitchType/
+  // defaultRows/defaultCols. A stored preferences row saved before this field
+  // existed comes back with defaultDropCount: undefined, not this default —
+  // read `prefs.defaultDropCount ?? 1` at consuming call sites rather than
+  // trusting the stored object to already have it (see
+  // .work/feature-multi-drop-peyote-plan.md's caveat, same class of gap
+  // already found once in driveSyncStore.js's getDriveSyncMeta).
+  defaultDropCount: 1,
   defaultRows: 20,
   defaultCols: 20,
   panelCollapsed: false,

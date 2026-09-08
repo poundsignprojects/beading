@@ -2,13 +2,13 @@
 // designStore.js/preferencesStore.js are the shape-specific layers on top.
 
 const DB_NAME = 'bead-pattern-designer';
-// Bumped 7 -> 8 for the stitchType field added by square stitch (see
-// .work/feature-square-stitch-plan.md) — no new object store is needed for
-// this migration (it's a record-shape change, handled entirely by
+// Bumped 8 -> 9 for the dropCount field added by multi-drop peyote (see
+// .work/feature-multi-drop-peyote-plan.md) — no new object store is needed
+// for this migration (it's a record-shape change, handled entirely by
 // migrateDesign.js on read), but the version bump alone still trips main.js's
 // attemptPreMigrationDriveBackup() pre-migration warning, the same safety net
 // every prior schema version bump has gotten.
-const DB_VERSION = 8;
+const DB_VERSION = 9;
 
 export function openDatabase() {
   return new Promise((resolve, reject) => {

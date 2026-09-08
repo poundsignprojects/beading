@@ -1071,6 +1071,7 @@ input[type="range"]::-moz-range-thumb {
 #colorway-picker-dialog,
 #device-backup-picker-dialog,
 #resize-dialog,
+#new-pattern-dialog,
 #settings-dialog,
 #preferences-dialog,
 #backup-dialog {
@@ -1088,6 +1089,7 @@ input[type="range"]::-moz-range-thumb {
 #colorway-picker-dialog::backdrop,
 #device-backup-picker-dialog::backdrop,
 #resize-dialog::backdrop,
+#new-pattern-dialog::backdrop,
 #settings-dialog::backdrop,
 #preferences-dialog::backdrop,
 #backup-dialog::backdrop {
@@ -1101,6 +1103,7 @@ input[type="range"]::-moz-range-thumb {
 #colorway-picker-dialog h2,
 #device-backup-picker-dialog h2,
 #resize-dialog h2,
+#new-pattern-dialog h2,
 #settings-dialog h2,
 #preferences-dialog h2,
 #backup-dialog h2 {
@@ -1196,6 +1199,12 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.25rem;
   font-size: 0.9rem;
   color: #444;
+}
+
+#settings-drop-count-help {
+  margin: -0.5rem 0 0;
+  font-size: 0.8rem;
+  color: #666;
 }
 
 #settings-dimensions {
@@ -1426,6 +1435,41 @@ input[type="range"]::-moz-range-thumb {
   background: #b3261e;
   color: #fff;
   border-color: #b3261e;
+}
+
+#new-pattern-form {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+#new-pattern-name-label,
+#new-pattern-stitch-type-label,
+#new-pattern-bead-type-label,
+#new-pattern-drop-count-label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.9rem;
+  color: #444;
+}
+
+#new-pattern-dimensions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+#new-pattern-dimensions input[type="number"] {
+  width: 4.5rem;
+}
+
+#new-pattern-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
 }
 
 /* Custom color picker (colorPickerDialog.js) — draws its own saturation/value

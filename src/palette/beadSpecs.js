@@ -23,3 +23,12 @@ export const DEFAULT_BEAD_CATALOG = [
 export function findBeadType(catalog, beadTypeKey) {
   return catalog.find((bead) => bead.id === beadTypeKey) ?? null;
 }
+
+// Shared, DOM-free source of {value, label} pairs for populating a bead-type
+// <select> — used by both editorView.js's top-bar select (settings dialog) and
+// newPatternDialog.js's own bead-type select (see .work/feature-multi-drop-
+// peyote-plan.md), so the two can never drift out of sync with each other or
+// with the live catalog.
+export function beadTypeSelectOptions(catalog) {
+  return catalog.map((bead) => ({ value: bead.id, label: bead.name }));
+}

@@ -120,6 +120,20 @@ export function cropColorEntries(colorEntries, box) {
 // exact raised/recessed look it had before the resize/crop. An even col shift
 // needs no compensation (parity unaffected); only the shift's own parity matters,
 // not its sign or magnitude.
-export function compensatedStaggerFlipped(staggerFlipped, colOffset) {
-  return Math.abs(colOffset) % 2 === 1 ? !staggerFlipped : staggerFlipped;
+//
+// Generalized for dropCount (see .work/feature-multi-drop-peyote-plan.md): a
+// shift only cleanly preserves every drop group's internal structure when
+// colOffset is itself a whole multiple of dropCount (a whole-groups-at-a-time
+// shift) — in that case, compensate by toggling iff colOffset/dropCount is
+// odd, the exact dropCount=1 rule generalized from "column parity" to "group
+// parity." When colOffset is NOT a multiple of dropCount, different columns'
+// group membership shifts by different amounts, so no single staggerFlipped
+// toggle can correctly compensate every column uniformly — this is a known,
+// narrow limitation (flagged to the user, see the plan's "Known limitations"):
+// staggerFlipped is left uncompensated in that case, equivalent to accepting a
+// possible one-time visual restagger for that specific resize, fully undoable
+// via the existing resize/crop undo mechanism.
+export function compensatedStaggerFlipped(staggerFlipped, colOffset, dropCount = 1) {
+  if (colOffset % dropCount !== 0) return staggerFlipped;
+  return Math.abs(colOffset / dropCount) % 2 === 1 ? !staggerFlipped : staggerFlipped;
 }

@@ -206,3 +206,54 @@ test('compensatedStaggerFlipped: cancels the isRaised() flip a col shift introdu
     }
   }
 });
+
+// dropCount generalization (.work/feature-multi-drop-peyote-plan.md). dropCount=1
+// (default or explicit) must reduce to every case above unchanged.
+
+test('compensatedStaggerFlipped: dropCount=1 explicit matches dropCount omitted, for every offset/flip case above', () => {
+  for (const colOffset of [-5, -4, -3, -2, -1, 0, 1, 2, 3, 4, 5]) {
+    for (const staggerFlipped of [false, true]) {
+      assert.equal(
+        compensatedStaggerFlipped(staggerFlipped, colOffset, 1),
+        compensatedStaggerFlipped(staggerFlipped, colOffset)
+      );
+    }
+  }
+});
+
+test('compensatedStaggerFlipped: a colOffset that is a clean multiple of dropCount compensates by group parity', () => {
+  // dropCount=2: colOffset must be evenly divisible by 2 to be "clean." 4/2=2
+  // (even) -> unchanged; 6/2=3 (odd) -> toggled; negative offsets follow the
+  // same rule via colOffset/dropCount's own sign-preserving division.
+  assert.equal(compensatedStaggerFlipped(false, 4, 2), false);
+  assert.equal(compensatedStaggerFlipped(false, 6, 2), true);
+  assert.equal(compensatedStaggerFlipped(true, 6, 2), false);
+  assert.equal(compensatedStaggerFlipped(false, -4, 2), false);
+  assert.equal(compensatedStaggerFlipped(false, -6, 2), true);
+});
+
+test('compensatedStaggerFlipped: a colOffset that is NOT a multiple of dropCount leaves staggerFlipped unchanged (documented limitation, not a crash)', () => {
+  // dropCount=2, colOffset=3: 3 % 2 !== 0, so no single toggle can uniformly
+  // compensate every column — left as-is per the plan's documented tradeoff.
+  assert.equal(compensatedStaggerFlipped(false, 3, 2), false);
+  assert.equal(compensatedStaggerFlipped(true, 3, 2), true);
+  assert.equal(compensatedStaggerFlipped(false, -3, 2), false);
+  assert.equal(compensatedStaggerFlipped(false, 5, 3), false);
+});
+
+test('compensatedStaggerFlipped: cancels the isRaised() flip for a dropCount-multiple col shift, for every starting col/flip state', () => {
+  const dropCount = 2;
+  for (const colOffset of [-8, -6, -4, -2, 0, 2, 4, 6, 8]) {
+    for (const staggerFlipped of [false, true]) {
+      const newStaggerFlipped = compensatedStaggerFlipped(staggerFlipped, colOffset, dropCount);
+      for (let oldCol = 0; oldCol < 10; oldCol++) {
+        const newCol = oldCol + colOffset;
+        assert.equal(
+          isRaised(newCol, 999, newStaggerFlipped, dropCount),
+          isRaised(oldCol, 999, staggerFlipped, dropCount),
+          `oldCol=${oldCol} colOffset=${colOffset} staggerFlipped=${staggerFlipped} dropCount=${dropCount}`
+        );
+      }
+    }
+  }
+});
