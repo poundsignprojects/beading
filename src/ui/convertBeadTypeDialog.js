@@ -6,18 +6,19 @@
 // caller (editorView.js's handleBeadTypeChange) does the actual conversion after
 // this resolves.
 //
-// usedColors: [{id, name, hex}] — every color actually used across every colorway
-// of the current design.
+// usedColors: [{id, name, hex, alphaPercent, luster, overlay, overlayHex}] —
+// every color actually used across every colorway of the current design.
 // targetColors: [{id, name, hex}] — the target bead type's own existing palette.
 //
 // Resolves with:
 //   { mappings: [
 //       {sourceColorId, action: 'map', targetColorId} |
-//       {sourceColorId, action: 'copy', name, hex}
+//       {sourceColorId, action: 'copy', name, hex, alphaPercent, luster, overlay, overlayHex}
 //     ] }
 //   on confirm, null on cancel/Esc. A 'copy' mapping carries the source color's
-// own name/hex along — the caller needs them to actually create the new color in
-// the target palette, and this dialog is the only place that already has them.
+// own name/hex/appearance along — the caller needs them to actually create the
+// new color in the target palette, and this dialog is the only place that
+// already has them.
 const COPY_ACTION_VALUE = '__copy__';
 
 export function promptConvertBeadType({ usedColors, targetColors, targetBeadTypeName }) {
@@ -84,7 +85,16 @@ export function promptConvertBeadType({ usedColors, targetColors, targetBeadType
       const mappings = usedColors.map((color) => {
         const select = listEl.querySelector(`select[data-source-color-id="${color.id}"]`);
         if (select.value === COPY_ACTION_VALUE) {
-          return { sourceColorId: color.id, action: 'copy', name: color.name, hex: color.hex };
+          return {
+            sourceColorId: color.id,
+            action: 'copy',
+            name: color.name,
+            hex: color.hex,
+            alphaPercent: color.alphaPercent,
+            luster: color.luster,
+            overlay: color.overlay,
+            overlayHex: color.overlayHex,
+          };
         }
         return { sourceColorId: color.id, action: 'map', targetColorId: select.value };
       });

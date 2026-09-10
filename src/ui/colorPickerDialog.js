@@ -13,7 +13,12 @@
 // existed specifically because the native picker gave no reliable dismissal
 // signal to hang a commit on.
 
-import { hexToHsv, hsvToHex, isValidHex, normalizeHex, clamp01 } from '../palette/colorConversion.js';
+import { hexToHsv, hsvToHex, isValidHex, normalizeHex, clamp01, alphaOverWhite } from '../palette/colorConversion.js';
+
+// Where the "Transparent" opacity preset chip sets the slider to — a
+// reasonable starting point, not a lock; the slider stays freely adjustable
+// after clicking it, same as every other preset chip in this app.
+const TRANSPARENT_OPACITY_PRESET = 50;
 
 // Wires pointer-driven dragging on `el` (mouse, touch, and pen all go through
 // the same Pointer Events path — consistent with the rest of this app's
@@ -48,10 +53,15 @@ function bindDrag(el, onPoint) {
   };
 }
 
-// Resolves with { hex, name } on confirm (name is omitted when showNameField
-// is false), or null on cancel/Esc.
+// Resolves with { hex, name, alphaPercent, luster } on confirm when
+// showAppearanceControls is true (alphaPercent/luster included; name omitted
+// when showNameField is false), or plain { hex, name? } when
+// showAppearanceControls is false — the original, pre-finish-effects shape,
+// unchanged for any caller that just wants a hex (e.g. the canvas-background
+// custom-color picker). Resolves null on cancel/Esc.
 export function promptColorPicker({
   initialHex = '#ff0000', title, confirmLabel, showNameField = false, initialName = '',
+  showAppearanceControls = true, initialAlphaPercent = 100, initialLuster = 'matte',
 } = {}) {
   return new Promise((resolve) => {
     const dialog = document.getElementById('color-picker-dialog');
@@ -63,19 +73,40 @@ export function promptColorPicker({
     const hueThumb = document.getElementById('color-picker-hue-thumb');
     const swatchEl = document.getElementById('color-picker-swatch');
     const hexInput = document.getElementById('color-picker-hex-input');
+    const appearanceEl = document.getElementById('color-picker-appearance');
+    const opacityRange = document.getElementById('color-picker-opacity-range');
+    const opacityValueLabel = document.getElementById('color-picker-opacity-value');
+    const opacityOpaqueButton = document.getElementById('color-picker-opacity-opaque');
+    const opacityTransparentButton = document.getElementById('color-picker-opacity-transparent');
+    const lusterMatteButton = document.getElementById('color-picker-luster-matte');
+    const lusterShinyButton = document.getElementById('color-picker-luster-shiny');
     const nameInput = document.getElementById('color-picker-name-input');
     const cancelButton = document.getElementById('color-picker-cancel');
     const confirmButton = document.getElementById('color-picker-confirm');
 
     let hsv = hexToHsv(isValidHex(initialHex) ? normalizeHex(initialHex) : '#ff0000');
+    let alphaPercent = clamp01(initialAlphaPercent / 100) * 100;
+    let luster = initialLuster === 'shiny' ? 'shiny' : 'matte';
 
     titleEl.textContent = title ?? (showNameField ? 'Add Color' : 'Edit Color');
     confirmButton.textContent = confirmLabel ?? (showNameField ? 'Add' : 'Done');
     nameInput.hidden = !showNameField;
     nameInput.value = initialName;
+    appearanceEl.hidden = !showAppearanceControls;
+    opacityRange.value = String(alphaPercent);
 
     function currentHex() {
       return hsvToHex(hsv);
+    }
+
+    function updateOpacityLabel() {
+      opacityValueLabel.textContent = `${Math.round(alphaPercent)}%`;
+    }
+
+    function updateLusterButtons() {
+      lusterMatteButton.setAttribute('aria-pressed', String(luster === 'matte'));
+      lusterShinyButton.setAttribute('aria-pressed', String(luster === 'shiny'));
+      swatchEl.classList.toggle('swatch-shiny', luster === 'shiny');
     }
 
     // Updates everything except the hex text field — used while the hex field
@@ -87,7 +118,12 @@ export function promptColorPicker({
       svThumb.style.left = `${hsv.s * 100}%`;
       svThumb.style.top = `${(1 - hsv.v) * 100}%`;
       hueThumb.style.left = `${(hsv.h / 360) * 100}%`;
-      swatchEl.style.background = hex;
+      // DOM swatch previews are pinned to a white backing regardless of where
+      // this dialog itself renders (see colorConversion.js's alphaOverWhite) —
+      // a plain rgba() would composite differently against whatever's really
+      // behind this element. When appearance controls are hidden, alphaPercent
+      // stays at its 100 default, so this is just the opaque hex either way.
+      swatchEl.style.backgroundColor = alphaOverWhite(hex, alphaPercent);
     }
 
     function updateDisplay() {
@@ -125,11 +161,46 @@ export function promptColorPicker({
       hexInput.value = currentHex();
     }
 
+    // Presets are a shortcut into the same slider/toggle fields, never a
+    // separate stored mode — clicking one just moves the control to that
+    // value exactly as if it had been dragged/tapped there, and it stays
+    // freely adjustable afterward.
+    function handleOpacityRangeInput() {
+      alphaPercent = Number(opacityRange.value);
+      updateOpacityLabel();
+      updateVisuals();
+    }
+    function handleOpacityOpaquePreset() {
+      alphaPercent = 100;
+      opacityRange.value = '100';
+      updateOpacityLabel();
+      updateVisuals();
+    }
+    function handleOpacityTransparentPreset() {
+      alphaPercent = TRANSPARENT_OPACITY_PRESET;
+      opacityRange.value = String(TRANSPARENT_OPACITY_PRESET);
+      updateOpacityLabel();
+      updateVisuals();
+    }
+    function handleLusterMatte() {
+      luster = 'matte';
+      updateLusterButtons();
+    }
+    function handleLusterShiny() {
+      luster = 'shiny';
+      updateLusterButtons();
+    }
+
     function cleanup() {
       unbindSv();
       unbindHue();
       hexInput.removeEventListener('input', handleHexInput);
       hexInput.removeEventListener('blur', handleHexBlur);
+      opacityRange.removeEventListener('input', handleOpacityRangeInput);
+      opacityOpaqueButton.removeEventListener('click', handleOpacityOpaquePreset);
+      opacityTransparentButton.removeEventListener('click', handleOpacityTransparentPreset);
+      lusterMatteButton.removeEventListener('click', handleLusterMatte);
+      lusterShinyButton.removeEventListener('click', handleLusterShiny);
       cancelButton.removeEventListener('click', onCancel);
       closeButton.removeEventListener('click', onCancel);
       confirmButton.removeEventListener('click', onConfirm);
@@ -153,12 +224,12 @@ export function promptColorPicker({
         }
         cleanup();
         dialog.close();
-        resolve({ hex: currentHex(), name });
+        resolve(showAppearanceControls ? { hex: currentHex(), name, alphaPercent, luster } : { hex: currentHex(), name });
         return;
       }
       cleanup();
       dialog.close();
-      resolve({ hex: currentHex() });
+      resolve(showAppearanceControls ? { hex: currentHex(), alphaPercent, luster } : { hex: currentHex() });
     }
 
     function onNameKeydown(e) {
@@ -172,12 +243,19 @@ export function promptColorPicker({
     const unbindHue = bindDrag(hueEl, (x) => setFromHuePoint(x));
     hexInput.addEventListener('input', handleHexInput);
     hexInput.addEventListener('blur', handleHexBlur);
+    opacityRange.addEventListener('input', handleOpacityRangeInput);
+    opacityOpaqueButton.addEventListener('click', handleOpacityOpaquePreset);
+    opacityTransparentButton.addEventListener('click', handleOpacityTransparentPreset);
+    lusterMatteButton.addEventListener('click', handleLusterMatte);
+    lusterShinyButton.addEventListener('click', handleLusterShiny);
     cancelButton.addEventListener('click', onCancel);
     closeButton.addEventListener('click', onCancel);
     confirmButton.addEventListener('click', onConfirm);
     nameInput.addEventListener('keydown', onNameKeydown);
     dialog.addEventListener('cancel', onCancel);
 
+    updateOpacityLabel();
+    updateLusterButtons();
     updateDisplay();
     dialog.showModal();
   });

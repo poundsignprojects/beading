@@ -869,6 +869,15 @@ input[type="range"]::-moz-range-thumb {
   outline-offset: 2px;
 }
 
+/* Shiny luster preview (.work/feature-bead-finish-effects-mvp-plan.md) — a
+   direct CSS analog of beadFill.js's own paintShineCap gradient (same
+   position/extent/peak-alpha constants), not an independently-invented look.
+   Applies to any swatch-shaped element: the palette swatch, the Manage
+   Colors row swatch, and the color picker's own live preview. */
+.swatch-shiny {
+  background-image: linear-gradient(to bottom, transparent 12%, rgba(255, 255, 255, 0.82) 29%, transparent 46%);
+}
+
 .color-swatch-add {
   display: flex;
   align-items: center;
@@ -1154,6 +1163,13 @@ input[type="range"]::-moz-range-thumb {
   flex-wrap: wrap;
   gap: 0.5rem;
   margin-top: 0.5rem;
+}
+
+#canvas-background-controls {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 #backup-device-row {
@@ -1549,6 +1565,79 @@ input[type="range"]::-moz-range-thumb {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: 0.95rem;
   padding: 0.3rem 0.4rem;
+}
+
+/* Opacity/luster controls (.work/feature-bead-finish-effects-mvp-plan.md) —
+   hidden entirely via showAppearanceControls for the "just pick a hex"
+   callers (canvas background custom color, later the full-feature plan's
+   overlayHex picker). */
+#color-picker-appearance {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+#color-picker-opacity-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+/* Presets are a shortcut into the same slider, never a separate stored mode —
+   clicking one just moves the slider, which stays freely adjustable after. */
+#color-picker-opacity-presets {
+  display: flex;
+  gap: 0.4rem;
+}
+
+.chip-btn {
+  min-height: 0;
+  padding: 0.25rem 0.7rem;
+  font-size: 0.8rem;
+  border-radius: 999px;
+  border: 1px solid #999;
+  background: none;
+  color: #444;
+  cursor: pointer;
+}
+
+#color-picker-opacity-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+#color-picker-opacity-range {
+  flex: 1;
+}
+
+#color-picker-opacity-value {
+  min-width: 3rem;
+  text-align: right;
+  font-size: 0.85rem;
+  color: #444;
+}
+
+#color-picker-luster-section {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+#color-picker-luster-label {
+  font-size: 0.85rem;
+  color: #444;
+}
+
+#color-picker-luster-toggle {
+  display: flex;
+  gap: 0.4rem;
+}
+
+#color-picker-luster-toggle button[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
 }
 
 #color-picker-name-input {

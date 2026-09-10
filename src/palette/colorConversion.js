@@ -81,3 +81,26 @@ export function hexToHsv(hex) {
 export function hsvToHex(hsv) {
   return rgbToHex(hsvToRgb(hsv));
 }
+
+// For CANVAS rendering only (paintBeadFill in beadFill.js) — real alpha
+// compositing, safe because the canvas always fills an explicit #fff (or
+// chosen canvas-background) before drawing any cell, every frame. Never use
+// this for a DOM element's background-color — see alphaOverWhite below.
+export function hexToRgba(hex, alphaPercent = 100) {
+  const { r, g, b } = hexToRgb(hex);
+  return `rgba(${r}, ${g}, ${b}, ${clamp01(alphaPercent / 100)})`;
+}
+
+// For DOM swatches (palette, Manage Colors, the picker's own preview) — an
+// element's ancestor background varies (#f8f8f8 side panel, #fff manage row,
+// an unstyled <dialog>'s default), so a plain rgba() would composite
+// differently in each place and none of them would reliably match what the
+// canvas shows (which always composites against a hard-coded white fill).
+// Precomposits the alpha blend against white instead, returning a flat
+// OPAQUE hex that reads identically everywhere it's used.
+export function alphaOverWhite(hex, alphaPercent = 100) {
+  const { r, g, b } = hexToRgb(hex);
+  const a = clamp01(alphaPercent / 100);
+  const blend = (channel) => Math.round(channel * a + 255 * (1 - a));
+  return rgbToHex({ r: blend(r), g: blend(g), b: blend(b) });
+}

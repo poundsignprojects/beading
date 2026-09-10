@@ -1,5 +1,6 @@
 import { resolveGridEngine } from '../grid/gridEngine.js';
 import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
+import { paintBeadFill } from './beadFill.js';
 
 const THUMBNAIL_BACKGROUND_STYLE = '#fff';
 
@@ -37,10 +38,8 @@ export function renderThumbnailDataUrl(gridParams, cells, resolveColor, maxSizeP
     const y = origin.yMm * scale;
     const w = beadHeightMm * scale;
     const h = beadWidthMm * scale;
-    ctx.fillStyle = resolveColor(cell.colorId) ?? MISSING_COLOR_FALLBACK_HEX;
-    ctx.beginPath();
-    ctx.roundRect(x, y, w, h, Math.min(w, h) * cornerRadiusFraction);
-    ctx.fill();
+    const appearance = resolveColor(cell.colorId) ?? { hex: MISSING_COLOR_FALLBACK_HEX, alphaPercent: 100, luster: 'matte' };
+    paintBeadFill(ctx, x, y, w, h, Math.min(w, h) * cornerRadiusFraction, appearance);
   }
 
   return canvas.toDataURL('image/png');

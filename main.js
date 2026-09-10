@@ -24,7 +24,7 @@ import { getStoredDeviceName } from './src/sync/deviceName.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
 import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
-import { resolveSwatchHex } from './src/palette/colorLibrary.js';
+import { resolveSwatchAppearance } from './src/palette/colorLibrary.js';
 import { findBeadType } from './src/palette/beadSpecs.js';
 import { resolveGridEngine, stitchTypeDetailLabel } from './src/grid/gridEngine.js';
 import { createGoogleDriveClient } from './src/sync/googleDriveClient.js';
@@ -93,7 +93,7 @@ async function persistCurrentDesign() {
     ? renderThumbnailDataUrl(
         appState.gridParams,
         appState.cells,
-        (colorId) => resolveSwatchHex(appState.customColors, colorId),
+        (colorId) => resolveSwatchAppearance(appState.customColors, colorId),
         THUMBNAIL_MAX_SIZE_PX,
         findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0,
       )
@@ -187,7 +187,15 @@ async function handleBeadTypeReordered(id, newOrder) {
 async function handleCustomColorCopiedToBeadType(id, targetBeadTypeKey) {
   const color = appState.customColors.find((c) => c.id === id);
   if (!color) return;
-  await createCustomColor(appState.db, { beadTypeKey: targetBeadTypeKey, name: color.name, hex: color.hex });
+  await createCustomColor(appState.db, {
+    beadTypeKey: targetBeadTypeKey,
+    name: color.name,
+    hex: color.hex,
+    alphaPercent: color.alphaPercent,
+    luster: color.luster,
+    overlay: color.overlay,
+    overlayHex: color.overlayHex,
+  });
 }
 
 // Builds what the Convert Bead Type mapping dialog needs (Part C): every color
@@ -207,7 +215,7 @@ async function handleRequestBeadTypeConversionData(targetBeadTypeKey) {
   const usedColors = [...usedColorIds]
     .map((id) => appState.customColors.find((c) => c.id === id))
     .filter(Boolean)
-    .map(({ id, name, hex }) => ({ id, name, hex }));
+    .map(({ id, name, hex, alphaPercent, luster, overlay, overlayHex }) => ({ id, name, hex, alphaPercent, luster, overlay, overlayHex }));
 
   const targetColors = (await listCustomColorsSorted(appState.db, targetBeadTypeKey))
     .map(({ id, name, hex }) => ({ id, name, hex }));
@@ -224,7 +232,15 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
   const mappingTable = new Map();
   for (const mapping of mappings) {
     if (mapping.action === 'copy') {
-      const created = await createCustomColor(appState.db, { beadTypeKey: targetBeadTypeKey, name: mapping.name, hex: mapping.hex });
+      const created = await createCustomColor(appState.db, {
+        beadTypeKey: targetBeadTypeKey,
+        name: mapping.name,
+        hex: mapping.hex,
+        alphaPercent: mapping.alphaPercent,
+        luster: mapping.luster,
+        overlay: mapping.overlay,
+        overlayHex: mapping.overlayHex,
+      });
       mappingTable.set(mapping.sourceColorId, created.id);
     } else {
       mappingTable.set(mapping.sourceColorId, mapping.targetColorId);
@@ -336,8 +352,8 @@ async function handleStitchTypeConvertConfirmed(targetStitchType) {
   await openDesign(newDesign);
 }
 
-async function handleCustomColorAdded({ name, hex }) {
-  const created = await createCustomColor(appState.db, { beadTypeKey: appState.beadTypeKey, name, hex });
+async function handleCustomColorAdded({ name, hex, alphaPercent, luster }) {
+  const created = await createCustomColor(appState.db, { beadTypeKey: appState.beadTypeKey, name, hex, alphaPercent, luster });
   appState.customColors.push(created);
 }
 
@@ -349,10 +365,12 @@ async function handleCustomColorRenamed(id, name) {
   appState.customColors[idx] = saved;
 }
 
-async function handleCustomColorHexChanged(id, hex) {
+// Renamed from handleCustomColorHexChanged (.work/feature-bead-finish-effects-
+// mvp-plan.md) — Edit Color now covers alpha/luster too, not just hex.
+async function handleCustomColorAppearanceChanged(id, { hex, alphaPercent, luster }) {
   const color = appState.customColors.find((c) => c.id === id);
   if (!color) return;
-  const saved = await saveCustomColor(appState.db, { ...color, hex });
+  const saved = await saveCustomColor(appState.db, { ...color, hex, alphaPercent, luster });
   const idx = appState.customColors.findIndex((c) => c.id === id);
   appState.customColors[idx] = saved;
 }
@@ -467,7 +485,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
     onStitchTypeConvertConfirmed: handleStitchTypeConvertConfirmed,
     onCustomColorAdded: handleCustomColorAdded,
     onCustomColorRenamed: handleCustomColorRenamed,
-    onCustomColorHexChanged: handleCustomColorHexChanged,
+    onCustomColorAppearanceChanged: handleCustomColorAppearanceChanged,
     onCustomColorDeleted: handleCustomColorDeleted,
     onCustomColorReordered: handleCustomColorReordered,
     onCustomColorCopiedToBeadType: handleCustomColorCopiedToBeadType,
@@ -583,7 +601,7 @@ async function handleRequestColorwayPreviews(designId) {
     thumbnailDataUrl: renderThumbnailDataUrl(
       gridParams,
       materializeColorwayCells(design.shapeEntries, cw.colorEntries),
-      (colorId) => resolveSwatchHex(customColors, colorId),
+      (colorId) => resolveSwatchAppearance(customColors, colorId),
       COLORWAY_PREVIEW_MAX_SIZE_PX,
       bead.cornerRadiusFraction ?? 0,
     ),

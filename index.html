@@ -178,6 +178,19 @@
           <button id="calibration-save" type="button">Save</button>
         </div>
       </section>
+      <section id="preferences-canvas-background-section" aria-label="Canvas background">
+        <h3>Canvas Background</h3>
+        <p>Preview beads against something other than white while working — a transparent color composites against whatever's chosen here. Color swatches elsewhere in the app always stay white, unaffected by this.</p>
+        <div id="canvas-background-controls">
+          <select id="canvas-background-mode" aria-label="Canvas background">
+            <option value="white">White</option>
+            <option value="dark">Dark</option>
+            <option value="checkerboard">Checkerboard</option>
+            <option value="custom">Custom Color</option>
+          </select>
+          <button id="canvas-background-custom-swatch" type="button" hidden>Choose Color</button>
+        </div>
+      </section>
     </div>
   </dialog>
 
@@ -225,6 +238,25 @@
       </div>
       <div id="color-picker-hex-row">
         <input type="text" id="color-picker-hex-input" aria-label="Hex color code" maxlength="7" autocomplete="off" autocapitalize="off" spellcheck="false">
+      </div>
+      <div id="color-picker-appearance">
+        <div id="color-picker-opacity-section">
+          <div id="color-picker-opacity-presets" role="group" aria-label="Opacity presets">
+            <button type="button" id="color-picker-opacity-opaque" class="chip-btn">Opaque</button>
+            <button type="button" id="color-picker-opacity-transparent" class="chip-btn">Transparent</button>
+          </div>
+          <div id="color-picker-opacity-row">
+            <input type="range" id="color-picker-opacity-range" min="0" max="100" value="100" aria-label="Opacity percentage">
+            <span id="color-picker-opacity-value">100%</span>
+          </div>
+        </div>
+        <div id="color-picker-luster-section" role="group" aria-label="Luster">
+          <span id="color-picker-luster-label">Luster</span>
+          <div id="color-picker-luster-toggle">
+            <button type="button" id="color-picker-luster-matte" aria-pressed="true">Matte</button>
+            <button type="button" id="color-picker-luster-shiny" aria-pressed="false">Shiny</button>
+          </div>
+        </div>
       </div>
       <input type="text" id="color-picker-name-input" placeholder="Color name" autocomplete="off">
     </div>

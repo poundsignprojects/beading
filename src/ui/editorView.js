@@ -52,10 +52,12 @@
 //                            into a brand-new design under the target stitch
 //                            type and switches the editor into it. Same
 //                            teardown as onBeadTypeConvertConfirmed above.
-//   onCustomColorAdded({name, hex}) — fired from the palette's "+" tile;
-//                            main.js persists and pushes onto appState.customColors.
+//   onCustomColorAdded({name, hex, alphaPercent, luster}) — fired from the
+//                            palette's "+" tile; main.js persists and pushes
+//                            onto appState.customColors.
 //   onCustomColorRenamed(id, name) — Manage Colors list rename.
-//   onCustomColorHexChanged(id, hex) — Manage Colors list color edit.
+//   onCustomColorAppearanceChanged(id, {hex, alphaPercent, luster}) — Manage
+//                            Colors list color/opacity/luster edit.
 //   onCustomColorDeleted(id)       — Manage Colors list delete.
 //   onCustomColorReordered(id, newOrder) — Manage Colors list drag-reorder.
 //   onCustomColorCopiedToBeadType(id, targetBeadTypeKey) — Manage Colors list
@@ -67,7 +69,8 @@
 
 import { createIcon } from './icons.js';
 import { findBeadType, beadTypeSelectOptions } from '../palette/beadSpecs.js';
-import { resolveSwatchHex } from '../palette/colorLibrary.js';
+import { resolveSwatchAppearance } from '../palette/colorLibrary.js';
+import { alphaOverWhite } from '../palette/colorConversion.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
 import { resolveGridEngine, stitchTypeLabel } from '../grid/gridEngine.js';
 import { resizeCanvasForDisplay, drawGrid } from '../render/canvasRenderer.js';
@@ -126,6 +129,8 @@ export function mountEditorView(appState, hooks) {
   const calibrationValueLabel = document.getElementById('calibration-value');
   const calibrationSaveButton = document.getElementById('calibration-save');
   const calibrationResetButton = document.getElementById('calibration-reset');
+  const canvasBackgroundModeSelect = document.getElementById('canvas-background-mode');
+  const canvasBackgroundCustomSwatchButton = document.getElementById('canvas-background-custom-swatch');
   const beadTypeSelect = document.getElementById('bead-type');
   const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
   const stitchTypeSelect = document.getElementById('stitch-type');
@@ -204,7 +209,17 @@ export function mountEditorView(appState, hooks) {
   }
 
   function resolveColor(colorId) {
-    return resolveSwatchHex(appState.customColors, colorId);
+    return resolveSwatchAppearance(appState.customColors, colorId);
+  }
+
+  // Read directly from appState.preferences at render time (no new appState
+  // field) — a canvas-only preview toggle, unlike showBeadOutlines, so there's
+  // no button-state to keep locally in sync between renders.
+  function currentCanvasBackground() {
+    return {
+      mode: appState.preferences.canvasBackgroundMode ?? 'white',
+      hex: appState.preferences.canvasBackgroundHex ?? null,
+    };
   }
 
   function render() {
@@ -220,7 +235,8 @@ export function mountEditorView(appState, hooks) {
       resolveColor,
       appState.photoTrace,
       bead.cornerRadiusFraction ?? 0,
-      appState.showBeadOutlines
+      appState.showBeadOutlines,
+      currentCanvasBackground()
     );
     drawSelectionOverlay(ctx, appState.viewport, appState.gridParams, appState.selection);
     drawPastePreviewOverlay(ctx, appState.viewport, appState.gridParams, appState.clipboard, appState.pastePreview, resolveColor);
@@ -365,7 +381,11 @@ export function mountEditorView(appState, hooks) {
         button.className = 'color-swatch';
         button.type = 'button';
         button.title = swatch.name;
-        button.style.background = swatch.hex;
+        // Pinned to a white backing regardless of the canvas background
+        // toggle (see colorConversion.js's alphaOverWhite) — swatches always
+        // preview the same way, only the live canvas itself is configurable.
+        button.style.backgroundColor = alphaOverWhite(swatch.hex, swatch.alphaPercent);
+        button.classList.toggle('swatch-shiny', swatch.luster === 'shiny');
         button.setAttribute('aria-pressed', String(swatch.id === appState.selectedColorId));
         button.addEventListener('click', () => {
           appState.selectedColorId = swatch.id;
@@ -401,7 +421,8 @@ export function mountEditorView(appState, hooks) {
 
     const swatch = document.createElement('span');
     swatch.className = 'color-manage-swatch';
-    swatch.style.background = color.hex;
+    swatch.style.backgroundColor = alphaOverWhite(color.hex, color.alphaPercent);
+    swatch.classList.toggle('swatch-shiny', color.luster === 'shiny');
 
     const name = document.createElement('span');
     name.className = 'color-manage-name';
@@ -1084,16 +1105,22 @@ export function mountEditorView(appState, hooks) {
   async function handleAddColorClick() {
     const result = await promptColorPicker({ title: 'Add Color', showNameField: true });
     if (!result) return;
-    await hooks.onCustomColorAdded({ name: result.name, hex: result.hex });
+    await hooks.onCustomColorAdded({ name: result.name, hex: result.hex, alphaPercent: result.alphaPercent, luster: result.luster });
     renderColorPalette();
     if (manageMode) renderColorManageList();
   }
   async function handleColorEditClick(id) {
     const color = appState.customColors.find((c) => c.id === id);
     if (!color) return;
-    const result = await promptColorPicker({ title: 'Edit Color', initialHex: color.hex, showNameField: false });
+    const result = await promptColorPicker({
+      title: 'Edit Color',
+      initialHex: color.hex,
+      showNameField: false,
+      initialAlphaPercent: color.alphaPercent,
+      initialLuster: color.luster,
+    });
     if (!result) return;
-    await hooks.onCustomColorHexChanged(id, result.hex);
+    await hooks.onCustomColorAppearanceChanged(id, { hex: result.hex, alphaPercent: result.alphaPercent, luster: result.luster });
     renderColorPalette();
     renderColorManageList();
     scheduleRedraw();
@@ -1196,6 +1223,15 @@ export function mountEditorView(appState, hooks) {
     calibrationValueLabel.textContent = `${calibrationRangeInput.value}%`;
   }
 
+  // Reflects appState.preferences.canvasBackgroundMode/Hex on the select and
+  // the Custom Color button's visibility — called once on open and again
+  // after the custom-color picker resolves, since that's the only other way
+  // the mode/hex could change while this dialog is open.
+  function updateCanvasBackgroundControls() {
+    canvasBackgroundModeSelect.value = appState.preferences.canvasBackgroundMode ?? 'white';
+    canvasBackgroundCustomSwatchButton.hidden = canvasBackgroundModeSelect.value !== 'custom';
+  }
+
   // Preferences is app-level, not per-design (CLAUDE.md pain point #1 — global
   // toggles belong in one place, not scattered per-design controls). Opening it
   // seeds the calibration slider from whatever's currently saved and, since
@@ -1208,11 +1244,41 @@ export function mountEditorView(appState, hooks) {
     calibrationFactor = appState.preferences.actualSizeCalibration ?? 1;
     calibrationRangeInput.value = String(calibrationFactor * 100);
     updateCalibrationValueLabel();
+    updateCanvasBackgroundControls();
     appState.viewMode = 'actual';
     setViewportToActualSize(calibrationFactor);
     updateResetViewButton();
     scheduleRedraw();
     preferencesDialog.showModal();
+  }
+
+  // Canvas background applies and persists immediately on every change — no
+  // Save/Cancel step, unlike calibration's live-preview-then-commit flow.
+  // Picking a mode or a color *is* the final action; there's no "abort
+  // mid-drag" scenario here worth a separate commit step.
+  function handleCanvasBackgroundModeChange() {
+    const mode = canvasBackgroundModeSelect.value;
+    // onPreferencesChanged mutates appState.preferences synchronously (before
+    // its own first await) — must run before updateCanvasBackgroundControls,
+    // which reads appState.preferences.canvasBackgroundMode to decide the
+    // Custom Color button's visibility. Calling it first would read the
+    // *old* mode and immediately reset the select back to it.
+    hooks.onPreferencesChanged({ canvasBackgroundMode: mode });
+    updateCanvasBackgroundControls();
+    scheduleRedraw();
+  }
+
+  async function handleCanvasBackgroundCustomSwatchClick() {
+    const result = await promptColorPicker({
+      title: 'Canvas Background Color',
+      confirmLabel: 'Done',
+      showNameField: false,
+      showAppearanceControls: false,
+      initialHex: appState.preferences.canvasBackgroundHex ?? '#ffffff',
+    });
+    if (!result) return;
+    hooks.onPreferencesChanged({ canvasBackgroundHex: result.hex });
+    scheduleRedraw();
   }
 
   // Live-adjusts as the user drags, so the canvas visibly resizes in real time
@@ -1598,6 +1664,8 @@ export function mountEditorView(appState, hooks) {
   calibrationRangeInput.addEventListener('input', handleCalibrationInput);
   calibrationSaveButton.addEventListener('click', handleCalibrationSave);
   calibrationResetButton.addEventListener('click', handleCalibrationResetDefault);
+  canvasBackgroundModeSelect.addEventListener('change', handleCanvasBackgroundModeChange);
+  canvasBackgroundCustomSwatchButton.addEventListener('click', handleCanvasBackgroundCustomSwatchClick);
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   stitchTypeSelect.addEventListener('change', handleStitchTypeChange);
@@ -1726,6 +1794,8 @@ export function mountEditorView(appState, hooks) {
     calibrationRangeInput.removeEventListener('input', handleCalibrationInput);
     calibrationSaveButton.removeEventListener('click', handleCalibrationSave);
     calibrationResetButton.removeEventListener('click', handleCalibrationResetDefault);
+    canvasBackgroundModeSelect.removeEventListener('change', handleCanvasBackgroundModeChange);
+    canvasBackgroundCustomSwatchButton.removeEventListener('click', handleCanvasBackgroundCustomSwatchClick);
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     stitchTypeSelect.removeEventListener('change', handleStitchTypeChange);

@@ -1,5 +1,6 @@
 import { resolveGridEngine } from '../grid/gridEngine.js';
 import { worldToScreen, screenToWorld } from './viewport.js';
+import { paintBeadFill } from './beadFill.js';
 
 const CELL_STROKE_STYLE = '#000';
 const BACKGROUND_STYLE = '#fff';
@@ -29,6 +30,61 @@ const MISSING_COLOR_X_STYLE = '#c0392b';
 const MISSING_COLOR_X_LINE_WIDTH_FRACTION = 0.12;
 const MISSING_COLOR_X_LINE_WIDTH_MIN_PX = 0.75;
 const MISSING_COLOR_X_INSET_FRACTION = 0.22; // keeps the X inside the bead outline
+
+// Canvas background modes (.work/feature-bead-finish-effects-mvp-plan.md) — lets
+// a transparent bead be previewed against something other than white while
+// working. DOM swatches (palette, Manage Colors, picker preview) are
+// deliberately unaffected by this and always stay pinned to white (see
+// alphaOverWhite in colorConversion.js) — only the live pattern canvas itself
+// is configurable.
+const DARK_BACKGROUND_STYLE = '#242424'; // a fixed dark neutral, not pure black —
+// pure black tends to make alpha-blended colors read as muddier/harder to judge
+// than a dark gray does.
+const CHECKERBOARD_LIGHT = '#ffffff';
+const CHECKERBOARD_DARK = '#cccccc';
+const CHECKERBOARD_TILE_PX = 12; // fixed screen-pixel size, not scaled by zoom —
+// this is an abstract "this is transparent" indicator (the standard
+// image-editor convention), not a to-scale rendering of anything physical, so
+// it should stay a constant on-screen size.
+
+// Pure enough to unit test without a canvas context: resolves a
+// {mode, hex} preference pair down to either a flat hex string or the
+// 'checkerboard' sentinel. The actual CanvasPattern/WeakMap caching machinery
+// stays below, canvas-context-dependent and untested like the rest of this
+// module.
+export function resolveCanvasBackgroundFillStyle({ mode, hex } = {}) {
+  if (mode === 'checkerboard') return 'checkerboard';
+  if (mode === 'dark') return DARK_BACKGROUND_STYLE;
+  if (mode === 'custom' && hex) return hex;
+  return BACKGROUND_STYLE; // 'white', or a 'custom' mode with no hex chosen yet
+}
+
+// Cached per canvas context (not module-global) via a WeakMap, since a
+// CanvasPattern is only ever needed by the one live pattern-canvas context in
+// practice today, but keying by ctx rather than assuming a singleton keeps
+// this correct if that ever changes.
+const checkerPatternCache = new WeakMap();
+function getCheckerPattern(ctx) {
+  let pattern = checkerPatternCache.get(ctx);
+  if (pattern) return pattern;
+  const tile = document.createElement('canvas');
+  tile.width = tile.height = CHECKERBOARD_TILE_PX * 2;
+  const tileCtx = tile.getContext('2d');
+  tileCtx.fillStyle = CHECKERBOARD_LIGHT;
+  tileCtx.fillRect(0, 0, tile.width, tile.height);
+  tileCtx.fillStyle = CHECKERBOARD_DARK;
+  tileCtx.fillRect(0, 0, CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX);
+  tileCtx.fillRect(CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX);
+  pattern = ctx.createPattern(tile, 'repeat');
+  checkerPatternCache.set(ctx, pattern);
+  return pattern;
+}
+
+function paintCanvasBackground(ctx, cssWidth, cssHeight, canvasBackground) {
+  const fillStyle = resolveCanvasBackgroundFillStyle(canvasBackground);
+  ctx.fillStyle = fillStyle === 'checkerboard' ? getCheckerPattern(ctx) : fillStyle;
+  ctx.fillRect(0, 0, cssWidth, cssHeight);
+}
 
 // Syncs the canvas's backing-store resolution to its CSS size * devicePixelRatio
 // (crisp on Retina iPad) and scales the context so all drawing below can use CSS
@@ -71,12 +127,11 @@ function visibleIndexRange(minMm, maxMm, cellSizeMm, cellCount) {
 // The grid engine (peyote vs. square — see gridEngine.js) is resolved once from
 // gridParams.stitchType; this module stays ignorant of what distinguishes them
 // beyond that one lookup.
-export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0, showBeadOutlines = true) {
+export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, resolveColor, photoLayer = null, beadCornerRadiusFraction = 0, showBeadOutlines = true, canvasBackground = { mode: 'white' }) {
   const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
   const engine = resolveGridEngine(gridParams.stitchType);
 
-  ctx.fillStyle = BACKGROUND_STYLE;
-  ctx.fillRect(0, 0, cssWidth, cssHeight);
+  paintCanvasBackground(ctx, cssWidth, cssHeight, canvasBackground);
 
   const topLeftMm = screenToWorld(0, 0, viewport);
   const bottomRightMm = screenToWorld(cssWidth, cssHeight, viewport);
@@ -111,16 +166,24 @@ export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, 
         const beadY = topLeft.yPx + insetPx;
         const beadWidthPx = widthPx - insetPx * 2;
         const beadHeightPx = heightPx - insetPx * 2;
-        const hex = resolveColor(cell.colorId);
-        ctx.fillStyle = hex ?? MISSING_COLOR_FILL_STYLE;
-        ctx.lineWidth = lineWidthPx;
-        ctx.beginPath();
+        const appearance = resolveColor(cell.colorId);
         const radiusPx = Math.min(beadWidthPx, beadHeightPx) * beadCornerRadiusFraction;
-        ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);
-        ctx.fill();
-        if (showBeadOutlines) ctx.stroke();
+        ctx.lineWidth = lineWidthPx;
 
-        if (hex === null) {
+        if (appearance) {
+          paintBeadFill(ctx, beadX, beadY, beadWidthPx, beadHeightPx, radiusPx, appearance);
+          if (showBeadOutlines) {
+            ctx.beginPath();
+            ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);
+            ctx.stroke();
+          }
+        } else {
+          ctx.fillStyle = MISSING_COLOR_FILL_STYLE;
+          ctx.beginPath();
+          ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);
+          ctx.fill();
+          if (showBeadOutlines) ctx.stroke();
+
           const inset = Math.min(beadWidthPx, beadHeightPx) * MISSING_COLOR_X_INSET_FRACTION;
           ctx.strokeStyle = MISSING_COLOR_X_STYLE;
           ctx.lineWidth = Math.max(

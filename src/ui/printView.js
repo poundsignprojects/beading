@@ -8,7 +8,7 @@ import { stitchTypeDetailLabel } from '../grid/gridEngine.js';
 import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
-import { MISSING_COLOR_FALLBACK_HEX, resolveSwatchHex } from '../palette/colorLibrary.js';
+import { MISSING_COLOR_FALLBACK_HEX, resolveSwatchAppearance } from '../palette/colorLibrary.js';
 import { renderThumbnailDataUrl } from '../render/thumbnailRenderer.js';
 
 // Deliberately bigger than the library's own THUMBNAIL_MAX_SIZE_PX (200, main.js)
@@ -185,7 +185,7 @@ export function mountPrintView(appState, hooks) {
     ? renderThumbnailDataUrl(
         appState.gridParams,
         appState.cells,
-        (colorId) => resolveSwatchHex(appState.customColors, colorId),
+        (colorId) => resolveSwatchAppearance(appState.customColors, colorId),
         PRINT_REFERENCE_IMAGE_MAX_SIZE_PX,
         findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0
       )

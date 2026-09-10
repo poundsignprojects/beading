@@ -40,6 +40,14 @@ const DEFAULT_PREFERENCES = {
   // (added screen real estate a new feature shouldn't impose until opted in),
   // see .work/feature-ruler-rotation-viewmode-datefix-plan.md §1.
   showRuler: false,
+  // Live pattern canvas background, for previewing transparent beads against
+  // something other than white while working — DOM swatches (palette, Manage
+  // Colors, picker preview) always stay pinned to white regardless of this.
+  // canvasBackgroundHex is only meaningful when mode === 'custom'; retained
+  // even after switching away so re-selecting Custom doesn't lose the last
+  // pick. See .work/feature-bead-finish-effects-mvp-plan.md.
+  canvasBackgroundMode: 'white', // 'white' | 'dark' | 'checkerboard' | 'custom'
+  canvasBackgroundHex: null,
 };
 
 // defaultRows/defaultCols ("last resize becomes the new default size") need the
