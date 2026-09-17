@@ -13,5 +13,4 @@ To do:
 - Mixed bead design?
 - Working color palette
 - Magic wand select (areas or colors)
-- Move tool
 - single column select

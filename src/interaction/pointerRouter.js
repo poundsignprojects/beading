@@ -8,6 +8,7 @@ import { applyColorReplace } from '../tools/colorReplaceTool.js';
 import { scalePhotoToAnchor, normalizeRotationDeg } from '../state/photoTrace.js';
 import { interpolatedWorldPoints } from './dragTrace.js';
 import { createStrokePatch, recordCellChange, strokePatchToArray } from '../state/strokePatch.js';
+import { collectMovingEntries, applyMove } from '../tools/moveTool.js';
 
 // Don't let a bead render under ~4px (illegible) or the scale balloon past filling
 // most of the viewport on a single bead. Tune once visible on a real device.
@@ -43,7 +44,10 @@ const EDGE_PAN_MAX_SPEED_PX_PER_FRAME = 14;
 // stamp action — it's a drag-to-position preview, confirmed explicitly (see
 // startPastePreviewDrag/continuePastePreviewDrag below). eyedropper is its own
 // branch, not part of DISCRETE_TOOLS — unlike fill/replace it never mutates
-// cells, so it has no patch to commit through onStrokeCommitted.
+// cells, so it has no patch to commit through onStrokeCommitted. move is a
+// direct drag like draw/erase (mutates cells live, commits one patch at the
+// end) rather than a position-then-confirm flow like paste — see
+// startMoveDrag/continueMoveDrag below.
 const STROKE_TOOLS = new Set(['draw', 'erase']);
 const DISCRETE_TOOLS = new Set(['fill', 'replace']);
 
@@ -142,6 +146,7 @@ export function attachPointerRouter(canvas, viewport, {
   let selectionDrag = null; // { pointerId, startRow, startCol, moved, tapOutsideExisting } or null
   let photoDrag = null; // { pointerId, x, y } in canvas-local px, or null
   let pasteDrag = null; // { pointerId } or null
+  let moveDrag = null; // { pointerId, baseCells, movingEntries, bounds, startRow, startCol, touchedKeys, lastPatch } or null
   let edgePanRafId = null; // rAF handle for the select/paste edge auto-pan loop, or null
   let pendingTouchStart = null; // { pointerId, point, timerId } or null — see TOUCH_DRAW_DISAMBIGUATION_MS
   let spacePressed = false;
@@ -302,13 +307,84 @@ export function attachPointerRouter(canvas, viewport, {
     onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
   }
 
+  // Move: translates the active selection if one exists, else every occupied
+  // cell on the active layer (getCells() is already the active layer alone —
+  // see its own comment on the 'select'/'paste' branches above). Unlike paste's
+  // position-then-confirm flow, this mutates appState.cells live during the
+  // drag (same "commit once at the end" shape as a draw stroke — see
+  // commitStroke) so the moved content is visible in real time with no
+  // separate ghost overlay needed; a baseCells snapshot taken at drag start
+  // means every pointermove recomputes the move fresh (via applyMove) rather
+  // than drifting incrementally. Uses unboundedHit, not clampedHit, so content
+  // can be dragged fully off any edge while positioning, same as paste — it's
+  // simply clipped at whichever cells land outside the grid.
+  function startMoveDrag(pointerId, point) {
+    const gridParams = getGridParams();
+    if (!gridParams) return;
+    const cells = getCells();
+    if (cells.size === 0) return; // nothing on this layer to move
+    const selection = getSelection();
+    const bounds = selection
+      ? { rowStart: selection.rowStart, rowEnd: selection.rowEnd, colStart: selection.colStart, colEnd: selection.colEnd }
+      : null;
+    const baseCells = new Map(cells);
+    const movingEntries = collectMovingEntries(baseCells, bounds);
+    if (movingEntries.length === 0) return; // selection has no content — nothing to move
+    const hit = unboundedHit(point);
+    if (!hit) return;
+    moveDrag = {
+      pointerId, baseCells, movingEntries, bounds,
+      startRow: hit.row, startCol: hit.col,
+      touchedKeys: new Set(), // accumulates across every call this drag makes — see applyMove's own contract
+      lastPatch: [],
+    };
+    startEdgePanLoop();
+  }
+
+  function continueMoveDrag(point) {
+    const hit = unboundedHit(point);
+    if (!hit) return;
+    const gridParams = getGridParams();
+    if (!gridParams) return;
+    const deltaRow = hit.row - moveDrag.startRow;
+    const deltaCol = hit.col - moveDrag.startCol;
+    moveDrag.lastPatch = applyMove(
+      getCells(), moveDrag.baseCells, moveDrag.movingEntries, deltaRow, deltaCol,
+      gridParams.rows, gridParams.cols, moveDrag.touchedKeys
+    );
+    onCellsChanged();
+    // The selection marquee follows the moved content live, clamped into the
+    // grid — same "always keep a selection's bounds valid" rule clampedHit
+    // already enforces for an ordinary selection drag.
+    if (moveDrag.bounds) {
+      const clamp = (value, max) => Math.max(0, Math.min(max - 1, value));
+      onSelectionChange({
+        rowStart: clamp(moveDrag.bounds.rowStart + deltaRow, gridParams.rows),
+        rowEnd: clamp(moveDrag.bounds.rowEnd + deltaRow, gridParams.rows),
+        colStart: clamp(moveDrag.bounds.colStart + deltaCol, gridParams.cols),
+        colEnd: clamp(moveDrag.bounds.colEnd + deltaCol, gridParams.cols),
+      });
+    }
+  }
+
+  // Both places a move drag can end — a normal pointerup/cancel, and a second
+  // finger landing mid-drag (which aborts to pan/zoom) — commit whatever the
+  // last applyMove call already left in appState.cells as one undo-able patch,
+  // same shape as commitStroke. A tap with no movement leaves lastPatch empty
+  // (delta stayed 0,0), so nothing is pushed and nothing visibly changed.
+  function commitMoveDrag() {
+    if (!moveDrag) return;
+    if (moveDrag.lastPatch.length > 0) onStrokeCommitted(moveDrag.lastPatch);
+    moveDrag = null; // otherwise the last onSelectionChange already left the selection at its final value
+  }
+
   // Auto-pans the viewport while a select/paste drag's pointer sits near or past
   // the canvas edge, so the drag can keep extending even once the physical mouse/
   // finger has nowhere further to go. Runs as its own rAF loop tied to the drag's
   // lifetime (not off pointermove) since it needs to keep panning even while the
   // pointer holds still right at the edge.
   function tickEdgePan() {
-    const activeDrag = selectionDrag || pasteDrag;
+    const activeDrag = selectionDrag || pasteDrag || moveDrag;
     if (!activeDrag) {
       edgePanRafId = null;
       return;
@@ -325,6 +401,7 @@ export function attachPointerRouter(canvas, viewport, {
     onViewportChange();
     if (selectionDrag) continueSelectionDrag(last);
     else if (pasteDrag) continuePastePreviewDrag(last);
+    else if (moveDrag) continueMoveDrag(last);
   }
 
   function startEdgePanLoop() {
@@ -374,6 +451,7 @@ export function attachPointerRouter(canvas, viewport, {
     else if (selectionDrag && selectionDrag.pointerId === pointerId) continueSelectionDrag(latestPoint);
     else if (photoDrag && photoDrag.pointerId === pointerId) continuePhotoDrag(latestPoint);
     else if (pasteDrag && pasteDrag.pointerId === pointerId) continuePastePreviewDrag(latestPoint);
+    else if (moveDrag && moveDrag.pointerId === pointerId) continueMoveDrag(latestPoint);
   }
 
   function schedulePendingTouchStart(pointerId, point) {
@@ -429,6 +507,8 @@ export function attachPointerRouter(canvas, viewport, {
       startPhotoDrag(pointerId, point);
     } else if (tool === 'paste') {
       startPastePreviewDrag(pointerId, point);
+    } else if (tool === 'move') {
+      startMoveDrag(pointerId, point);
     }
   }
 
@@ -473,6 +553,7 @@ export function attachPointerRouter(canvas, viewport, {
       if (touchCount >= 2) {
         cancelPendingTouchStart(); // resolve the first finger's ambiguity as a pinch, not a tap
         commitStroke(); // second finger landed — hand off to pan/zoom, not a stray bead
+        commitMoveDrag(); // same reasoning — a move drag already mutated cells, so it must commit, not just null out
         selectionDrag = null; // last onSelectionChange already left the selection at its value
         photoDrag = null; // hand off to pinch-scale instead
         pasteDrag = null; // last onPastePreviewChange already left the preview at its value
@@ -538,6 +619,8 @@ export function attachPointerRouter(canvas, viewport, {
       continuePhotoDrag(point);
     } else if (pasteDrag && pasteDrag.pointerId === e.pointerId) {
       continuePastePreviewDrag(point);
+    } else if (moveDrag && moveDrag.pointerId === e.pointerId) {
+      continueMoveDrag(point);
     } else if (e.pointerType === 'mouse' && mouseDrag) {
       const dxPx = point.x - mouseDrag.x;
       const dyPx = point.y - mouseDrag.y;
@@ -572,6 +655,10 @@ export function attachPointerRouter(canvas, viewport, {
     }
     if (pasteDrag && pasteDrag.pointerId === e.pointerId) {
       pasteDrag = null; // preview itself (appState.pastePreview) persists until Confirm/Cancel
+      stopEdgePanLoop();
+    }
+    if (moveDrag && moveDrag.pointerId === e.pointerId) {
+      commitMoveDrag();
       stopEdgePanLoop();
     }
     if (touchLikePointers().length < 2) {

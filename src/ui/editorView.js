@@ -158,6 +158,7 @@ export function mountEditorView(appState, hooks) {
   const toolReplaceButton = document.getElementById('tool-replace');
   const toolEyedropperButton = document.getElementById('tool-eyedropper');
   const toolSelectButton = document.getElementById('tool-select');
+  const toolMoveButton = document.getElementById('tool-move');
   const clearButton = document.getElementById('clear-pattern');
   const panelToggleButton = document.getElementById('panel-toggle');
   const sidePanel = document.getElementById('side-panel');
@@ -509,6 +510,7 @@ export function mountEditorView(appState, hooks) {
     toolReplaceButton.setAttribute('aria-pressed', String(appState.tool === 'replace'));
     toolEyedropperButton.setAttribute('aria-pressed', String(appState.tool === 'eyedropper'));
     toolSelectButton.setAttribute('aria-pressed', String(appState.tool === 'select'));
+    toolMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move'));
     selectionPasteButton.setAttribute('aria-pressed', String(appState.tool === 'paste'));
     photoTraceMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move-photo'));
   }
@@ -1947,6 +1949,12 @@ export function mountEditorView(appState, hooks) {
   function handleToolSelect() {
     setTool('select');
   }
+  // Moves the active selection if one exists, else the whole active layer
+  // (dragged directly on canvas via pointerRouter.js's startMoveDrag/
+  // continueMoveDrag) — see .work/feature-requests-and-bugs.md.
+  function handleToolMove() {
+    setTool('move');
+  }
   // Fired by pointerRouter.js when the eyedropper tool taps an occupied,
   // color-assigned cell. Guards against a dangling colorId (a cell referencing a
   // since-deleted custom color, rendered on canvas as a red X marker — see the
@@ -2267,6 +2275,7 @@ export function mountEditorView(appState, hooks) {
   toolReplaceButton.addEventListener('click', handleToolReplace);
   toolEyedropperButton.addEventListener('click', handleToolEyedropper);
   toolSelectButton.addEventListener('click', handleToolSelect);
+  toolMoveButton.addEventListener('click', handleToolMove);
   clearButton.addEventListener('click', handleClear);
   panelToggleButton.addEventListener('click', handlePanelToggle);
   colorManageToggleButton.addEventListener('click', handleColorManageToggle);
@@ -2400,6 +2409,7 @@ export function mountEditorView(appState, hooks) {
     toolFillButton.removeEventListener('click', handleToolFill);
     toolReplaceButton.removeEventListener('click', handleToolReplace);
     toolSelectButton.removeEventListener('click', handleToolSelect);
+    toolMoveButton.removeEventListener('click', handleToolMove);
     clearButton.removeEventListener('click', handleClear);
     panelToggleButton.removeEventListener('click', handlePanelToggle);
     colorManageToggleButton.removeEventListener('click', handleColorManageToggle);
