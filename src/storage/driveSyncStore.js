@@ -31,6 +31,13 @@ const DEFAULT_META = {
   // live Drive backup before anyone's looked. Never set for a fresh install or a
   // library already fully on axisVersion: 2.
   pendingAxisMigrationReview: false,
+  // Same idea as pendingAxisMigrationReview, tripped instead by the layers
+  // feature's own destructive restructuring (shapeEntries/colorEntries into
+  // layers/layerColorEntries — see .work/feature-layers-plan.md's Backup
+  // Safety section). Set by boot() when listDesignsSortedWithMigrationInfo()
+  // reports it actually ran migrateLayers on at least one design; cleared
+  // only by an explicit manual Back Up Now.
+  pendingLayerMigrationReview: false,
 };
 
 // Merges over DEFAULT_META rather than returning a stored row verbatim — this

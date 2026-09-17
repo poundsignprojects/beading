@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   resizeCells, countCellsLost, resizeKeyList, resizeColorEntries,
-  boundingBoxForCells, cropCells, cropColorEntries,
+  boundingBoxForCells, cropCells, cropKeyList, cropColorEntries,
   axisOffset, compensatedStaggerFlipped,
 } from '../../state/resizeGrid.js';
 import { isRaised } from '../../grid/peyote.js';
@@ -155,6 +155,14 @@ test('cropColorEntries: mirrors cropCells for the equivalent colorId pairs', () 
   const cropped = cropCells(cells, box);
   const colorEntries = cropColorEntries([['2,5', 'a'], ['7,1', 'b'], ['4,9', 'c']], box);
   assert.deepEqual(colorEntries.sort(), [...cropped.entries()].map(([key, value]) => [key, value.colorId]).sort());
+});
+
+test('cropKeyList: mirrors cropCells for the equivalent key set (a layer\'s own shapeEntries)', () => {
+  const cells = makeCells([[2, 5, 'a'], [7, 1, 'b'], [4, 9, 'c']]);
+  const box = boundingBoxForCells(cells);
+  const cropped = cropCells(cells, box);
+  const keys = cropKeyList(['2,5', '7,1', '4,9'], box);
+  assert.deepEqual(keys.sort(), keysOf(cropped));
 });
 
 test('axisOffset: "start" is always 0 regardless of delta', () => {

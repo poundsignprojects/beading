@@ -12,14 +12,14 @@ import { listBeadCatalogSorted, createBeadType, saveBeadType, deleteBeadType, se
 import { generateId } from './src/storage/id.js';
 import { debounce } from './src/storage/debounce.js';
 import { createAppState } from './src/state/appState.js';
-import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from './src/state/colorwaySync.js';
+import { materializeLayerCells, composeVisibleLayers, decomposeCellsForSave, pruneColorwayLayerToShape } from './src/state/colorwaySync.js';
 import { remapColorwayColorIds } from './src/state/beadTypeConversion.js';
 import { createHistory } from './src/state/historyStore.js';
 import { mountEditorView } from './src/ui/editorView.js';
 import { mountLibraryView } from './src/ui/libraryView.js';
 import { promptNewPattern } from './src/ui/newPatternDialog.js';
 import { mountBackupDialog, DRIVE_CONNECTED_BEFORE_KEY } from './src/ui/backupDialog.js';
-import { showReconnectBanner, showAxisMigrationReviewBanner, hideReconnectBanner } from './src/ui/driveReconnectBanner.js';
+import { showReconnectBanner, showAxisMigrationReviewBanner, showLayerMigrationReviewBanner, hideReconnectBanner } from './src/ui/driveReconnectBanner.js';
 import { getStoredDeviceName } from './src/sync/deviceName.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
 import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
@@ -72,27 +72,39 @@ function showEditorView() {
 // design's record. Safe to call more than once for the same state (e.g. once
 // directly, once from a debounce timer that was already pending) — always reflects
 // current appState, so a redundant call just re-writes the same values. Folds the
-// active colorway's on-screen cells back into appState.colorways before saving
-// (same reconciliation switchColorway does when leaving a colorway) so shapeEntries/
-// colorways persisted here always agree with what's actually drawn.
+// active layer's on-screen cells back into appState.layers/colorways before saving
+// (same reconciliation switchLayer/switchColorway do when leaving a layer/colorway)
+// so layers/colorways persisted here always agree with what's actually drawn.
 async function persistCurrentDesign() {
   if (!appState.currentDesignId) return;
   const existing = appState.designs.find((d) => d.id === appState.currentDesignId);
   if (!existing) return;
 
   const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
-  appState.colorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
-    cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+  appState.layers = appState.layers.map((layer) =>
+    layer.id === appState.activeLayerId ? { ...layer, shapeEntries } : layer
+  );
+  appState.colorways = pruneColorwayLayerToShape(appState.colorways, appState.activeLayerId, shapeEntries).map((cw) =>
+    cw.id === appState.activeColorwayId
+      ? { ...cw, layerColorEntries: { ...cw.layerColorEntries, [appState.activeLayerId]: colorEntries }, updatedAt: Date.now() }
+      : cw
   );
 
   // Regenerated from live state on every save (no separate dirty-tracking), so it's
-  // always in sync with what's actually drawn. Falls back to whatever was already
-  // stored if the editor hasn't derived gridParams yet (shouldn't happen while a
-  // design is open, but keeps this function total rather than throwing).
+  // always in sync with what's actually drawn — composited from every *visible*
+  // layer (see .work/feature-layers-plan.md), matching what the canvas itself shows.
+  const activeColorwayForThumbnail = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
+  const displayCells = composeVisibleLayers(appState.layers, activeColorwayForThumbnail, {
+    overrideLayerId: appState.activeLayerId,
+    overrideCells: appState.cells,
+  });
+  // Falls back to whatever was already stored if the editor hasn't derived
+  // gridParams yet (shouldn't happen while a design is open, but keeps this
+  // function total rather than throwing).
   const thumbnailDataUrl = appState.gridParams
     ? renderThumbnailDataUrl(
         appState.gridParams,
-        appState.cells,
+        displayCells,
         (colorId) => resolveSwatchAppearance(appState.customColors, colorId),
         THUMBNAIL_MAX_SIZE_PX,
         findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0,
@@ -109,7 +121,8 @@ async function persistCurrentDesign() {
       rows: appState.rows,
       cols: appState.cols,
       staggerFlipped: appState.staggerFlipped,
-      shapeEntries,
+      layers: appState.layers,
+      activeLayerId: appState.activeLayerId,
       colorways: appState.colorways,
       activeColorwayId: appState.activeColorwayId,
       thumbnailDataUrl,
@@ -199,18 +212,22 @@ async function handleCustomColorCopiedToBeadType(id, targetBeadTypeKey) {
 }
 
 // Builds what the Convert Bead Type mapping dialog needs (Part C): every color
-// actually used across every one of this design's colorways (decomposing the
-// active colorway from live appState.cells so an edit not yet through the
-// autosave debounce still counts, same substitution colorUsage.js's
-// findPatternsUsingColor already makes for the same reason), resolved to
-// {id, name, hex}; and the target bead type's own existing palette, freshly read
-// since it isn't the currently loaded one.
+// actually used across every one of this design's (layer, colorway) pairs
+// (decomposing the active layer's active colorway from live appState.cells so
+// an edit not yet through the autosave debounce still counts, same
+// substitution colorUsage.js's findPatternsUsingColor already makes for the
+// same reason), resolved to {id, name, hex}; and the target bead type's own
+// existing palette, freshly read since it isn't the currently loaded one.
 async function handleRequestBeadTypeConversionData(targetBeadTypeKey) {
   const { colorEntries } = decomposeCellsForSave(appState.cells);
   const usedColorIds = new Set();
   for (const cw of appState.colorways) {
-    const entries = cw.id === appState.activeColorwayId ? colorEntries : cw.colorEntries;
-    for (const [, colorId] of entries) usedColorIds.add(colorId);
+    for (const layer of appState.layers) {
+      const entries = (layer.id === appState.activeLayerId && cw.id === appState.activeColorwayId)
+        ? colorEntries
+        : cw.layerColorEntries[layer.id] ?? [];
+      for (const [, colorId] of entries) usedColorIds.add(colorId);
+    }
   }
   const usedColors = [...usedColorIds]
     .map((id) => appState.customColors.find((c) => c.id === id))
@@ -225,9 +242,12 @@ async function handleRequestBeadTypeConversionData(targetBeadTypeKey) {
 
 // The actual conversion (Part C): resolves every mapping into a source-colorId ->
 // target-colorId table (creating a new color for each 'copy' action first),
-// clones the open design's current shape/colorways with colors remapped through
-// that table into a brand-new design under the target bead type, and switches
-// the editor into it — leaving the source design's own record untouched.
+// clones the open design's current layers/colorways (fresh ids throughout,
+// same "original never touched" treatment as duplicateDesign's own layerIdMap/
+// colorwayIdMap — see .work/feature-layers-plan.md) with colors remapped
+// through that table into a brand-new design under the target bead type, and
+// switches the editor into it — leaving the source design's own record
+// untouched.
 async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
   const mappingTable = new Map();
   for (const mapping of mappings) {
@@ -248,12 +268,27 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
   }
 
   const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
-  const sourceColorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
-    cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+  const sourceLayers = appState.layers.map((layer) =>
+    layer.id === appState.activeLayerId ? { ...layer, shapeEntries } : layer
   );
-  const idMap = new Map(sourceColorways.map((cw) => [cw.id, generateId()]));
-  const newColorways = remapColorwayColorIds(sourceColorways, mappingTable).map((cw) => ({ ...cw, id: idMap.get(cw.id) }));
-  const newActiveColorwayId = idMap.get(appState.activeColorwayId);
+  const sourceColorways = pruneColorwayLayerToShape(appState.colorways, appState.activeLayerId, shapeEntries).map((cw) =>
+    cw.id === appState.activeColorwayId
+      ? { ...cw, layerColorEntries: { ...cw.layerColorEntries, [appState.activeLayerId]: colorEntries }, updatedAt: Date.now() }
+      : cw
+  );
+
+  const layerIdMap = new Map(sourceLayers.map((layer) => [layer.id, generateId()]));
+  const colorwayIdMap = new Map(sourceColorways.map((cw) => [cw.id, generateId()]));
+  const newLayers = sourceLayers.map((layer) => ({ ...layer, id: layerIdMap.get(layer.id) }));
+  const newColorways = remapColorwayColorIds(sourceColorways, mappingTable).map((cw) => ({
+    ...cw,
+    id: colorwayIdMap.get(cw.id),
+    layerColorEntries: Object.fromEntries(
+      Object.entries(cw.layerColorEntries).map(([layerId, entries]) => [layerIdMap.get(layerId), entries])
+    ),
+  }));
+  const newActiveLayerId = layerIdMap.get(appState.activeLayerId);
+  const newActiveColorwayId = colorwayIdMap.get(appState.activeColorwayId);
 
   const originalDesign = appState.designs.find((d) => d.id === appState.currentDesignId);
 
@@ -279,8 +314,9 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
     rows: appState.rows,
     cols: appState.cols,
     staggerFlipped: appState.staggerFlipped,
-    shapeEntries,
+    layers: newLayers,
     colorways: newColorways,
+    activeLayerId: newActiveLayerId,
     activeColorwayId: newActiveColorwayId,
   });
   appState.designs.push(newDesign);
@@ -298,17 +334,33 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
 // Stitch-type conversion (.work/feature-square-stitch-plan.md) — a trimmed copy
 // of handleBeadTypeConvertConfirmed above (same flush-then-clone-then-reopen
 // sequence) minus the color-mapping step: the palette itself never changes
-// (same bead type, same colors), only geometry does, so shapeEntries/colorways
-// carry over completely unchanged into the new design under the target
+// (same bead type, same colors), only geometry does, so every layer's
+// shapeEntries/every colorway's layerColorEntries carry over completely
+// unchanged (fresh ids throughout) into the new design under the target
 // stitchType. The source design's own record is left completely untouched.
 async function handleStitchTypeConvertConfirmed(targetStitchType) {
   const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
-  const sourceColorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
-    cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+  const sourceLayers = appState.layers.map((layer) =>
+    layer.id === appState.activeLayerId ? { ...layer, shapeEntries } : layer
   );
-  const idMap = new Map(sourceColorways.map((cw) => [cw.id, generateId()]));
-  const newColorways = sourceColorways.map((cw) => ({ ...cw, id: idMap.get(cw.id) }));
-  const newActiveColorwayId = idMap.get(appState.activeColorwayId);
+  const sourceColorways = pruneColorwayLayerToShape(appState.colorways, appState.activeLayerId, shapeEntries).map((cw) =>
+    cw.id === appState.activeColorwayId
+      ? { ...cw, layerColorEntries: { ...cw.layerColorEntries, [appState.activeLayerId]: colorEntries }, updatedAt: Date.now() }
+      : cw
+  );
+
+  const layerIdMap = new Map(sourceLayers.map((layer) => [layer.id, generateId()]));
+  const colorwayIdMap = new Map(sourceColorways.map((cw) => [cw.id, generateId()]));
+  const newLayers = sourceLayers.map((layer) => ({ ...layer, id: layerIdMap.get(layer.id) }));
+  const newColorways = sourceColorways.map((cw) => ({
+    ...cw,
+    id: colorwayIdMap.get(cw.id),
+    layerColorEntries: Object.fromEntries(
+      Object.entries(cw.layerColorEntries).map(([layerId, entries]) => [layerIdMap.get(layerId), entries])
+    ),
+  }));
+  const newActiveLayerId = layerIdMap.get(appState.activeLayerId);
+  const newActiveColorwayId = colorwayIdMap.get(appState.activeColorwayId);
 
   const originalDesign = appState.designs.find((d) => d.id === appState.currentDesignId);
 
@@ -336,8 +388,9 @@ async function handleStitchTypeConvertConfirmed(targetStitchType) {
     // is correct for a design switching to/staying at square stitch, and this
     // is exactly what the source design already has for peyote either way.
     staggerFlipped: appState.staggerFlipped,
-    shapeEntries,
+    layers: newLayers,
     colorways: newColorways,
+    activeLayerId: newActiveLayerId,
     activeColorwayId: newActiveColorwayId,
   });
   appState.designs.push(newDesign);
@@ -441,10 +494,13 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   appState.rows = design.rows;
   appState.cols = design.cols;
   appState.staggerFlipped = design.staggerFlipped ?? false;
+  appState.layers = design.layers;
+  appState.activeLayerId = design.activeLayerId;
   appState.colorways = design.colorways;
   appState.activeColorwayId = colorwayId;
   const activeColorway = design.colorways.find((cw) => cw.id === colorwayId);
-  appState.cells = materializeColorwayCells(design.shapeEntries, activeColorway.colorEntries);
+  const activeLayer = design.layers.find((l) => l.id === design.activeLayerId);
+  appState.cells = materializeLayerCells(activeLayer, activeColorway);
   appState.units = appState.preferences.units;
   // !== false rather than a straight read: an existing stored preferences row from
   // before this field existed has it as undefined, which should mean "on" (the
@@ -549,6 +605,10 @@ async function pushBackupIfConnected() {
     showAxisMigrationReviewBanner(async () => backupController.open());
     return;
   }
+  if (meta.pendingLayerMigrationReview) {
+    showLayerMigrationReviewBanner(async () => backupController.open());
+    return;
+  }
   if (!driveClient.isConnected()) {
     showReconnectBanner(reconnectDrive);
     return;
@@ -600,7 +660,7 @@ async function handleRequestColorwayPreviews(designId) {
     name: cw.name,
     thumbnailDataUrl: renderThumbnailDataUrl(
       gridParams,
-      materializeColorwayCells(design.shapeEntries, cw.colorEntries),
+      composeVisibleLayers(design.layers, cw),
       (colorId) => resolveSwatchAppearance(customColors, colorId),
       COLORWAY_PREVIEW_MAX_SIZE_PX,
       bead.cornerRadiusFraction ?? 0,
@@ -743,20 +803,25 @@ async function attemptPreMigrationDriveBackup() {
   );
 }
 
-// Shows the axis-migration-review banner immediately at boot if it's still
-// pending — independent of Drive connection state or whether this device has
-// ever backed up at all. The underlying concern ("go check your patterns
-// still look right") applies to every user whose data just got migrated, not
-// just ones with a Drive backup to protect — a device with no Drive
-// relationship has nothing pushBackupIfConnected() would ever protect, so
-// without this it would never see the notice at all. Drive-specific
+// Shows the axis- or layer-migration-review banner immediately at boot if
+// either is still pending — independent of Drive connection state or whether
+// this device has ever backed up at all. The underlying concern ("go check
+// your patterns still look right") applies to every user whose data just got
+// migrated, not just ones with a Drive backup to protect — a device with no
+// Drive relationship has nothing pushBackupIfConnected() would ever protect,
+// so without this it would never see the notice at all. Drive-specific
 // protection (holding the automatic design-close push) still lives in
 // pushBackupIfConnected() and stays gated on deviceName there, since that
 // part genuinely has nothing to do until a Drive push would otherwise happen.
-async function showAxisMigrationReviewBannerIfNeeded() {
+// Axis-migration review takes priority when both are pending — the two
+// banner variants share one singleton slot (see driveReconnectBanner.js), so
+// only one can show at a time anyway.
+async function showMigrationReviewBannerIfNeeded() {
   const meta = await getDriveSyncMeta(appState.db);
   if (meta.pendingAxisMigrationReview) {
     showAxisMigrationReviewBanner(async () => backupController.open());
+  } else if (meta.pendingLayerMigrationReview) {
+    showLayerMigrationReviewBanner(async () => backupController.open());
   }
 }
 
@@ -806,11 +871,15 @@ async function boot() {
 
   appState.db = await openDatabase();
   appState.preferences = await getPreferences(appState.db);
-  const { designs, ranAxisMigration } = await listDesignsSortedWithMigrationInfo(appState.db);
+  const { designs, ranAxisMigration, ranLayersMigration } = await listDesignsSortedWithMigrationInfo(appState.db);
   appState.designs = designs;
-  if (ranAxisMigration) {
+  if (ranAxisMigration || ranLayersMigration) {
     const meta = await getDriveSyncMeta(appState.db);
-    await saveDriveSyncMeta(appState.db, { ...meta, pendingAxisMigrationReview: true });
+    await saveDriveSyncMeta(appState.db, {
+      ...meta,
+      pendingAxisMigrationReview: meta.pendingAxisMigrationReview || ranAxisMigration,
+      pendingLayerMigrationReview: meta.pendingLayerMigrationReview || ranLayersMigration,
+    });
   }
   await seedDefaultBeadCatalog(appState.db);
   appState.beadCatalog = await listBeadCatalogSorted(appState.db);
@@ -841,7 +910,7 @@ async function boot() {
   // Axis-migration review takes priority — driveReconnectBanner.js only ever
   // shows one banner at a time, so if this one shows, the reconnect banner
   // below correctly no-ops instead of replacing it.
-  await showAxisMigrationReviewBannerIfNeeded();
+  await showMigrationReviewBannerIfNeeded();
   showReconnectBannerIfNeeded();
   retryPendingBackupIfAny();
 }

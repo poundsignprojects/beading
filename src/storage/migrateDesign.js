@@ -1,4 +1,4 @@
-// Design records get migrated on read, in five independent steps, oldest first:
+// Design records get migrated on read, in six independent steps, oldest first:
 //   1. migrateLegacyColorways — Phase 4/5 designs saved as flat cellEntries (no
 //      colorways field) get wrapped into a single default colorway.
 //   2. migrateAxisConvention — pre-refactor designs (see
@@ -16,7 +16,14 @@
 //   5. migrateDropCount — every design before multi-drop peyote existed was
 //      implicitly 1-drop; this stamps that explicitly (see .work/feature-
 //      multi-drop-peyote-plan.md).
-// All five steps are idempotent: a record already past a given step passes
+//   6. migrateLayers — every design before layers existed was implicitly
+//      single-layer; this folds the design's own shapeEntries into a single
+//      default layer and every colorway's flat colorEntries into that layer's
+//      slot of a new per-layer layerColorEntries map (see
+//      .work/feature-layers-plan.md). Appended outermost so it always runs
+//      against an already-fully-normalized old-shape record — no earlier step
+//      ever needs to learn about layers.
+// All six steps are idempotent: a record already past a given step passes
 // through unchanged. designStore.js's listDesignsSorted re-saves any record
 // any step changed, so migration happens once per design, system-wide.
 
@@ -104,6 +111,26 @@ function migrateDropCount(record) {
   return { ...record, dropCount: 1 };
 }
 
+// Every design saved before layers existed was, implicitly, single-layer —
+// its whole shapeEntries becomes that one layer's shapeEntries, and every
+// colorway's flat colorEntries becomes that same layer's slot in a new
+// layerColorEntries map. Gated on field presence, same convention as every
+// other step above.
+function migrateLayers(record) {
+  if (record.layers) return record;
+  const defaultLayerId = generateId();
+  const { shapeEntries, ...rest } = record;
+  return {
+    ...rest,
+    layers: [{ id: defaultLayerId, name: 'Layer 1', visible: true, order: 0, shapeEntries }],
+    activeLayerId: defaultLayerId,
+    colorways: record.colorways.map(({ colorEntries, ...cw }) => ({
+      ...cw,
+      layerColorEntries: { [defaultLayerId]: colorEntries },
+    })),
+  };
+}
+
 export function migrateDesign(record) {
-  return migrateDropCount(migrateStitchType(migrateStaggerFlip(migrateAxisConvention(migrateLegacyColorways(record)))));
+  return migrateLayers(migrateDropCount(migrateStitchType(migrateStaggerFlip(migrateAxisConvention(migrateLegacyColorways(record))))));
 }

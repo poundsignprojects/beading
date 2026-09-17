@@ -121,6 +121,7 @@ function zoomToAnchor(viewport, anchorWorld, screenPoint, scaleFactor) {
 export function attachPointerRouter(canvas, viewport, {
   getGridParams,
   getCells,
+  getDisplayCells,
   getTool,
   getColorId,
   getClipboard,
@@ -215,6 +216,12 @@ export function attachPointerRouter(canvas, viewport, {
   // cells, so there's nothing to commit through onStrokeCommitted. A tapped cell
   // that's empty, or occupied but unassigned (colorId: null, see Phase 6's
   // shared-shape colorways), has no color to pick and is a silent no-op either way.
+  // Deliberately samples getDisplayCells() (the composited, visible-layers-only
+  // view — see .work/feature-layers-plan.md), not getCells() (the active layer
+  // alone): a user picking a color naturally means "the color I'm looking at,"
+  // which could visually belong to a different, non-active layer — matching
+  // Photoshop's own default eyedropper behavior (samples the merged image).
+  // Every other tool keeps using getCells() (the active layer) unchanged.
   function performEyedropperAction(point) {
     const worldPoint = screenToWorld(point.x, point.y, viewport);
     const gridParams = getGridParams();
@@ -222,7 +229,7 @@ export function attachPointerRouter(canvas, viewport, {
     const engine = resolveGridEngine(gridParams.stitchType);
     const hit = engine.cellAtPoint(worldPoint.xMm, worldPoint.yMm, gridParams);
     if (!hit) return;
-    const cell = getCells().get(cellKey(hit.row, hit.col));
+    const cell = getDisplayCells().get(cellKey(hit.row, hit.col));
     if (!cell || cell.colorId == null) return;
     onColorPicked(cell.colorId);
   }

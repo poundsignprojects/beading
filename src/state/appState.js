@@ -72,7 +72,7 @@ export function createAppState() {
     // null is a real "nothing picked yet" state, not just Phase 6's "unassigned cell".
     selectedColorId: null,
     customColors: [], // current beadTypeKey's user-built palette only — see customColorStore.js
-    cells: new Map(), // row,col -> { colorId } — materialized *active* colorway, see src/state/cellStore.js
+    cells: new Map(), // row,col -> { colorId } — materialized cells for the active layer, within the active colorway (see src/state/cellStore.js, src/state/colorwaySync.js)
     history: createHistory(),
 
     // Phase 6 (colorways): in-memory mirror of the open design's colorway list —
@@ -81,6 +81,14 @@ export function createAppState() {
     // needed, so there's nowhere for a separate copy to drift out of sync.
     colorways: [],
     activeColorwayId: null,
+
+    // Layers (.work/feature-layers-plan.md): in-memory mirror of the open
+    // design's layer list — same role appState.colorways plays for colorways.
+    // A layer's own shapeEntries is shared across every colorway (it lives on
+    // the layer object, not inside any colorway) — switching colorways never
+    // changes which cells are filled on a layer, only what color fills them.
+    layers: [],
+    activeLayerId: null,
 
     // Phase 7: editor-session state layered on top of appState.cells — none of
     // these follow the shared-shape colorway model, and none are part of a

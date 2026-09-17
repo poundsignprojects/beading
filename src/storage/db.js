@@ -2,13 +2,16 @@
 // designStore.js/preferencesStore.js are the shape-specific layers on top.
 
 const DB_NAME = 'bead-pattern-designer';
-// Bumped 8 -> 9 for the dropCount field added by multi-drop peyote (see
-// .work/feature-multi-drop-peyote-plan.md) — no new object store is needed
-// for this migration (it's a record-shape change, handled entirely by
-// migrateDesign.js on read), but the version bump alone still trips main.js's
-// attemptPreMigrationDriveBackup() pre-migration warning, the same safety net
-// every prior schema version bump has gotten.
-const DB_VERSION = 9;
+// Bumped 9 -> 10 for the layers feature (see .work/feature-layers-plan.md) —
+// a genuine destructive restructuring of shapeEntries/colorEntries into
+// layers/layerColorEntries, the same class of change the row/col axis
+// refactor was. No new object store is needed (layers live inline in the
+// design record, handled entirely by migrateDesign.js on read), but unlike
+// some of the more recent additive-only bumps, this one *must* bump — its
+// only job is to trip main.js's attemptPreMigrationDriveBackup() pre-migration
+// warning, the same safety net every prior destructive schema change has
+// gotten.
+const DB_VERSION = 10;
 
 export function openDatabase() {
   return new Promise((resolve, reject) => {

@@ -1,11 +1,15 @@
-// The shared-shape/per-colorway-color split (see .work/phase-6-implementation-plan.md)
-// lives entirely in this module. Every other module keeps treating appState.cells as
-// a plain Map<cellKey,{colorId}> — this is the only place that knows a persisted
-// design has more than one of those. Pure, plain-data-in/plain-data-out.
+// The per-layer-shape/per-(layer,colorway)-color split (see
+// .work/feature-layers-plan.md, generalizing Phase 6's shared-shape/per-
+// colorway-color split from "per design" to "per layer") lives entirely in
+// this module. Every other module keeps treating appState.cells as a plain
+// Map<cellKey,{colorId}> — this is the only place that knows a persisted
+// design has more than one of those, and more than one layer of those. Pure,
+// plain-data-in/plain-data-out.
 
-// Rebuilds a colorway's materialized cells Map from the shared shape (every
-// occupied cell key) and that colorway's own color assignments. A shape key with
-// no entry in colorEntries materializes as { colorId: null } — occupied, unassigned.
+// Rebuilds a colorway's materialized cells Map from a shape (every occupied
+// cell key) and that colorway's own color assignments. A shape key with no
+// entry in colorEntries materializes as { colorId: null } — occupied,
+// unassigned.
 export function materializeColorwayCells(shapeEntries, colorEntries) {
   const colorMap = new Map(colorEntries);
   const cells = new Map();
@@ -28,13 +32,50 @@ export function decomposeCellsForSave(cells) {
   return { shapeEntries, colorEntries };
 }
 
-// After a shape edit (draw adds a key, erase removes one), every colorway's stored
-// colorEntries needs to agree with the new shape — erased cells must not leave a
-// stale color behind that could resurface if the same key is ever redrawn.
-export function pruneColorwaysToShape(colorways, shapeEntries) {
+// Rebuilds one layer's materialized cells against a specific colorway's
+// stored per-layer colors.
+export function materializeLayerCells(layer, colorway) {
+  return materializeColorwayCells(layer.shapeEntries, colorway.layerColorEntries[layer.id] ?? []);
+}
+
+// Composites every visible layer (bottom of stack to top, by `order`) into one
+// flat cells Map for a given colorway — the topmost visible layer's bead wins
+// at any cell more than one layer occupies (confirmed with the user — layers
+// may freely overlap, top-of-stack wins, matching Photoshop). This is the one
+// place "as if flattened" actually happens; nothing downstream of it
+// (canvasRenderer/thumbnailRenderer/wordChart/printView) needs to know layers
+// exist at all — they just get an ordinary flat cells Map.
+//
+// overrideLayerId/overrideCells let the live editor substitute one layer's
+// current, not-yet-saved cells in place of what's actually persisted for it —
+// every other caller (a library preview, a design record freshly read from
+// storage) omits them and gets a pure function of the design record's own data.
+// visibleOnly: false includes every layer regardless of its own visible flag
+// (not currently used by any caller, kept for symmetry/possible future use).
+export function composeVisibleLayers(layers, colorway, { overrideLayerId, overrideCells, visibleOnly = true } = {}) {
+  const ordered = [...layers].sort((a, b) => a.order - b.order);
+  const flat = new Map();
+  for (const layer of ordered) {
+    if (visibleOnly && !layer.visible) continue;
+    const cells = layer.id === overrideLayerId ? overrideCells : materializeLayerCells(layer, colorway);
+    for (const [key, value] of cells) flat.set(key, value);
+  }
+  return flat;
+}
+
+// Prunes one layer's stored color entries, across every colorway, down to
+// that layer's own current shape — the layer-scoped generalization of the
+// pre-layers pruneColorwaysToShape. A cell erased from a layer must not leave
+// a stale color behind in some *other*, currently-inactive colorway either,
+// which is why this loops over every colorway, not just the active one — same
+// reasoning the function it replaces already had.
+export function pruneColorwayLayerToShape(colorways, layerId, shapeEntries) {
   const shapeSet = new Set(shapeEntries);
   return colorways.map((cw) => ({
     ...cw,
-    colorEntries: cw.colorEntries.filter(([key]) => shapeSet.has(key)),
+    layerColorEntries: {
+      ...cw.layerColorEntries,
+      [layerId]: (cw.layerColorEntries[layerId] ?? []).filter(([key]) => shapeSet.has(key)),
+    },
   }));
 }

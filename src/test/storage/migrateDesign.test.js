@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { migrateDesign } from '../../storage/migrateDesign.js';
 
-test('migrateDesign: a legacy cellEntries record produces a single colorway matching the old data exactly', () => {
+test('migrateDesign: a legacy cellEntries record produces a single colorway/single layer matching the old data exactly', () => {
   const record = {
     id: 'd1',
     name: 'Legacy',
@@ -14,19 +14,22 @@ test('migrateDesign: a legacy cellEntries record produces a single colorway matc
   };
   const migrated = migrateDesign(record);
 
-  assert.deepEqual(migrated.shapeEntries, ['0,0', '1,1']);
+  assert.equal(migrated.layers.length, 1);
+  assert.deepEqual(migrated.layers[0].shapeEntries, ['0,0', '1,1']);
+  assert.equal(migrated.activeLayerId, migrated.layers[0].id);
   assert.equal(migrated.colorways.length, 1);
-  assert.deepEqual(migrated.colorways[0].colorEntries, [['0,0', 'red'], ['1,1', 'blue']]);
+  assert.deepEqual(migrated.colorways[0].layerColorEntries[migrated.activeLayerId], [['0,0', 'red'], ['1,1', 'blue']]);
   assert.equal(migrated.activeColorwayId, migrated.colorways[0].id);
   assert.equal(migrated.cellEntries, undefined);
+  assert.equal(migrated.shapeEntries, undefined);
   assert.equal(migrated.name, 'Legacy');
 });
 
-test('migrateDesign: an empty legacy design migrates to a colorway with empty colorEntries and an empty shape', () => {
+test('migrateDesign: an empty legacy design migrates to a colorway/layer with empty entries and an empty shape', () => {
   const record = { id: 'd3', name: 'Empty', beadTypeKey: 'delica11', rows: 5, cols: 5, cellEntries: [], order: 0 };
   const migrated = migrateDesign(record);
-  assert.deepEqual(migrated.shapeEntries, []);
-  assert.deepEqual(migrated.colorways[0].colorEntries, []);
+  assert.deepEqual(migrated.layers[0].shapeEntries, []);
+  assert.deepEqual(migrated.colorways[0].layerColorEntries[migrated.activeLayerId], []);
 });
 
 // axisVersion: 2 marks a record already past the row/col-axis rename (see
@@ -55,13 +58,13 @@ test('migrateDesign: a pre-refactor record (no axisVersion, already has colorway
 
   assert.equal(migrated.rows, 20);
   assert.equal(migrated.cols, 7);
-  assert.deepEqual(migrated.shapeEntries, ['0,0', '5,2', '19,6']);
-  assert.deepEqual(migrated.colorways[0].colorEntries, [['0,0', 'red'], ['5,2', 'blue']]);
+  assert.deepEqual(migrated.layers[0].shapeEntries, ['0,0', '5,2', '19,6']);
+  assert.deepEqual(migrated.colorways[0].layerColorEntries[migrated.activeLayerId], [['0,0', 'red'], ['5,2', 'blue']]);
   assert.equal(migrated.axisVersion, 2);
   assert.equal(migrated.staggerFlipped, true); // post-swap cols is 7, odd
 });
 
-test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlipped set, stitchType set, dropCount set) passes through with rows/cols/keys/flip/stitchType/dropCount untouched', () => {
+test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlipped/stitchType/dropCount/layers set) passes through with everything untouched', () => {
   const record = {
     id: 'd5',
     rows: 20,
@@ -69,8 +72,9 @@ test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlip
     staggerFlipped: true,
     stitchType: 'square',
     dropCount: 1,
-    shapeEntries: ['0,0', '5,2'],
-    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    layers: [{ id: 'l1', name: 'Layer 1', visible: true, order: 0, shapeEntries: ['0,0', '5,2'] }],
+    activeLayerId: 'l1',
+    colorways: [{ id: 'cw1', name: 'Colorway 1', layerColorEntries: { l1: [['0,0', 'red']] }, createdAt: 1, updatedAt: 1 }],
     activeColorwayId: 'cw1',
     axisVersion: 2,
   };
@@ -78,7 +82,7 @@ test('migrateDesign: a record already fully migrated (axisVersion 2, staggerFlip
   assert.deepEqual(migrated, record);
 });
 
-test('migrateDesign: running the migration twice on the same pre-refactor record is idempotent (no double-swap, no re-flip)', () => {
+test('migrateDesign: running the migration twice on the same pre-refactor record is idempotent (no double-swap, no re-flip, no re-wrap into layers)', () => {
   const record = {
     id: 'd6',
     rows: 7,
@@ -92,11 +96,11 @@ test('migrateDesign: running the migration twice on the same pre-refactor record
   assert.deepEqual(twice, once);
   assert.equal(twice.rows, 20);
   assert.equal(twice.cols, 7);
-  assert.deepEqual(twice.shapeEntries, ['4,3']);
+  assert.deepEqual(twice.layers[0].shapeEntries, ['4,3']);
   assert.equal(twice.staggerFlipped, true); // post-swap cols is 7, odd
 });
 
-test('migrateDesign: a legacy cellEntries record (no colorways at all) gets the colorway wrap, axis swap, and stagger flip all applied, in that order', () => {
+test('migrateDesign: a legacy cellEntries record (no colorways at all) gets the colorway wrap, axis swap, stagger flip, and layer wrap all applied, in that order', () => {
   const record = {
     id: 'd7',
     name: 'Legacy asymmetric',
@@ -110,11 +114,12 @@ test('migrateDesign: a legacy cellEntries record (no colorways at all) gets the 
 
   // Legacy-wrap runs first (shapeEntries/colorways now exist), then the axis
   // swap operates on the now-current shapeEntries/colorways shape, then the
-  // stagger flip is computed from the post-swap cols value.
+  // stagger flip is computed from the post-swap cols value, then the layer
+  // wrap folds shapeEntries into a single default layer.
   assert.equal(migrated.rows, 20);
   assert.equal(migrated.cols, 7);
-  assert.deepEqual(migrated.shapeEntries, ['0,0', '5,2']);
-  assert.deepEqual(migrated.colorways[0].colorEntries, [['0,0', 'red'], ['5,2', 'blue']]);
+  assert.deepEqual(migrated.layers[0].shapeEntries, ['0,0', '5,2']);
+  assert.deepEqual(migrated.colorways[0].layerColorEntries[migrated.activeLayerId], [['0,0', 'red'], ['5,2', 'blue']]);
   assert.equal(migrated.axisVersion, 2);
   assert.equal(migrated.cellEntries, undefined);
   assert.equal(migrated.staggerFlipped, true); // post-swap cols is 7, odd
@@ -164,8 +169,9 @@ test('migrateDesign: staggerFlipped explicitly false is left alone, not recomput
     staggerFlipped: false,
     stitchType: 'peyote',
     dropCount: 1,
-    shapeEntries: ['0,0'],
-    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 }],
+    layers: [{ id: 'l1', name: 'Layer 1', visible: true, order: 0, shapeEntries: ['0,0'] }],
+    activeLayerId: 'l1',
+    colorways: [{ id: 'cw1', name: 'Colorway 1', layerColorEntries: { l1: [['0,0', 'red']] }, createdAt: 1, updatedAt: 1 }],
     activeColorwayId: 'cw1',
     axisVersion: 2,
   };
@@ -293,5 +299,75 @@ test('migrateDesign: running the migration twice is idempotent for dropCount too
   const once = migrateDesign(record);
   const twice = migrateDesign(once);
   assert.equal(once.dropCount, 1);
+  assert.deepEqual(twice, once);
+});
+
+// migrateLayers specifically (.work/feature-layers-plan.md): gated on
+// layers' own presence, independent of every other step's own gate — a
+// record can already be fully migrated on every earlier step before this one
+// existed.
+
+test('migrateDesign: a record with no layers field folds shapeEntries into a single default layer and every colorway\'s colorEntries into that layer\'s slot', () => {
+  const record = {
+    id: 'd18',
+    rows: 5,
+    cols: 8,
+    staggerFlipped: false,
+    stitchType: 'peyote',
+    dropCount: 1,
+    shapeEntries: ['0,0', '1,1'],
+    colorways: [
+      { id: 'cw1', name: 'Colorway 1', colorEntries: [['0,0', 'red']], createdAt: 1, updatedAt: 1 },
+      { id: 'cw2', name: 'Colorway 2', colorEntries: [['0,0', 'blue'], ['1,1', 'green']], createdAt: 1, updatedAt: 1 },
+    ],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+
+  assert.equal(migrated.layers.length, 1);
+  assert.equal(migrated.layers[0].name, 'Layer 1');
+  assert.equal(migrated.layers[0].visible, true);
+  assert.equal(migrated.layers[0].order, 0);
+  assert.deepEqual(migrated.layers[0].shapeEntries, ['0,0', '1,1']);
+  assert.equal(migrated.activeLayerId, migrated.layers[0].id);
+  assert.equal(migrated.shapeEntries, undefined);
+
+  const layerId = migrated.activeLayerId;
+  assert.deepEqual(migrated.colorways[0].layerColorEntries, { [layerId]: [['0,0', 'red']] });
+  assert.deepEqual(migrated.colorways[1].layerColorEntries, { [layerId]: [['0,0', 'blue'], ['1,1', 'green']] });
+  assert.equal(migrated.colorways[0].colorEntries, undefined);
+});
+
+test('migrateDesign: an explicit layers array is left alone, not re-wrapped', () => {
+  const record = {
+    id: 'd19',
+    rows: 5,
+    cols: 8,
+    staggerFlipped: false,
+    stitchType: 'peyote',
+    dropCount: 1,
+    layers: [{ id: 'l1', name: 'My Layer', visible: false, order: 5, shapeEntries: ['0,0'] }],
+    activeLayerId: 'l1',
+    colorways: [{ id: 'cw1', name: 'Colorway 1', layerColorEntries: { l1: [['0,0', 'red']] }, createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+    axisVersion: 2,
+  };
+  const migrated = migrateDesign(record);
+  assert.deepEqual(migrated, record);
+});
+
+test('migrateDesign: running the migration twice is idempotent for layers too', () => {
+  const record = {
+    id: 'd20',
+    rows: 7,
+    cols: 20,
+    shapeEntries: ['3,4'],
+    colorways: [{ id: 'cw1', name: 'Colorway 1', colorEntries: [['3,4', 'red']], createdAt: 1, updatedAt: 1 }],
+    activeColorwayId: 'cw1',
+  };
+  const once = migrateDesign(record);
+  const twice = migrateDesign(once);
+  assert.equal(once.layers.length, 1);
   assert.deepEqual(twice, once);
 });

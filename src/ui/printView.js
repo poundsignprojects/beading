@@ -10,6 +10,7 @@ import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../expor
 import { assignColorCodes } from '../export/colorCodes.js';
 import { MISSING_COLOR_FALLBACK_HEX, resolveSwatchAppearance } from '../palette/colorLibrary.js';
 import { renderThumbnailDataUrl } from '../render/thumbnailRenderer.js';
+import { composeVisibleLayers } from '../state/colorwaySync.js';
 
 // Deliberately bigger than the library's own THUMBNAIL_MAX_SIZE_PX (200, main.js)
 // — a printout is read from further away / at lower effective DPI than a UI
@@ -46,11 +47,18 @@ function buildHeader(appState, designName) {
   return header;
 }
 
-function buildMaterials(chart, codes, customColors) {
+// hiddenLayerNames: names of every currently-hidden layer that still has at
+// least one occupied cell — checked conservatively (regardless of whether
+// that content would have been covered by a layer above it anyway, since a
+// false-positive warning is harmless and a missed one isn't). See
+// .work/feature-layers-plan.md — print/export mirrors exactly what the canvas
+// currently shows (visible layers only), so this is the "something you can't
+// see here still exists" notice.
+function buildMaterials(chart, codes, customColors, hiddenLayerNames) {
   const section = document.createElement('section');
   section.id = 'print-materials';
 
-  if (chart.totalBeadCount === 0) {
+  if (chart.totalBeadCount === 0 && hiddenLayerNames.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'print-empty-message';
     empty.textContent = 'No beads placed yet — nothing to print.';
@@ -60,6 +68,22 @@ function buildMaterials(chart, codes, customColors) {
 
   const heading = document.createElement('h3');
   heading.textContent = 'Materials';
+  section.append(heading);
+
+  if (hiddenLayerNames.length > 0) {
+    const hiddenWarning = document.createElement('p');
+    hiddenWarning.className = 'print-warning';
+    hiddenWarning.textContent = `⚠ ${hiddenLayerNames.length} layer${hiddenLayerNames.length === 1 ? ' is' : 's are'} hidden and not included in this printout: ${hiddenLayerNames.join(', ')}.`;
+    section.append(hiddenWarning);
+  }
+
+  if (chart.totalBeadCount === 0) {
+    const empty = document.createElement('p');
+    empty.className = 'print-empty-message';
+    empty.textContent = 'No visible beads to print — the only placed beads are on the hidden layer(s) above.';
+    section.append(empty);
+    return section;
+  }
 
   if (chart.unassignedCount > 0) {
     const warning = document.createElement('p');
@@ -104,7 +128,7 @@ function buildMaterials(chart, codes, customColors) {
   tbody.append(totalRow);
 
   table.append(thead, tbody);
-  section.append(heading, table);
+  section.append(table);
   return section;
 }
 
@@ -173,7 +197,29 @@ export function mountPrintView(appState, hooks) {
   const referenceImageToggleButton = document.getElementById('print-reference-image-toggle');
 
   const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? '';
-  const chart = buildWordChart(appState.cells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount);
+
+  // Composited from every *visible* layer only (see .work/feature-layers-
+  // plan.md — "what you see is what prints," matching how the live canvas
+  // already renders, with zero separate print-only toggle to keep in sync).
+  // overrideLayerId/overrideCells substitute the active layer's live,
+  // not-yet-saved cells in place of what's actually persisted for it.
+  const activeColorway = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
+  const displayCells = composeVisibleLayers(appState.layers, activeColorway, {
+    overrideLayerId: appState.activeLayerId,
+    overrideCells: appState.cells,
+  });
+
+  // Every currently-hidden layer that still has at least one occupied cell —
+  // checked conservatively (see buildMaterials' own comment on this param).
+  const hiddenLayerNames = appState.layers
+    .filter((layer) => {
+      if (layer.visible) return false;
+      const shapeEntries = layer.id === appState.activeLayerId ? Array.from(appState.cells.keys()) : layer.shapeEntries;
+      return shapeEntries.length > 0;
+    })
+    .map((layer) => layer.name);
+
+  const chart = buildWordChart(displayCells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount);
   const codes = assignColorCodes(chart.colorCounts);
 
   // Rendered once at mount, not per renderContent() call — appState.cells can't
@@ -184,7 +230,7 @@ export function mountPrintView(appState, hooks) {
   const referenceImageDataUrl = hasContent
     ? renderThumbnailDataUrl(
         appState.gridParams,
-        appState.cells,
+        displayCells,
         (colorId) => resolveSwatchAppearance(appState.customColors, colorId),
         PRINT_REFERENCE_IMAGE_MAX_SIZE_PX,
         findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0
@@ -202,7 +248,7 @@ export function mountPrintView(appState, hooks) {
 
     const sections = [
       buildHeader(appState, designName),
-      buildMaterials(chart, codes, appState.customColors),
+      buildMaterials(chart, codes, appState.customColors, hiddenLayerNames),
       buildChart(chart, codes, startsReversed),
     ];
     if (includeReferenceImage) {

@@ -13,9 +13,12 @@
 //     plan.md's Backup Safety section) — holds until an explicit manual Back
 //     Up Now, which is what actually resolves it (backupDialog.js clears the
 //     underlying flag there), not clicking this banner's own action button.
+//   - Layer-migration-review banner: the same idea, tripped instead by the
+//     layers feature's own destructive restructuring (see
+//     .work/feature-layers-plan.md's Backup Safety section).
 //
 // Only one banner shows at a time (a second call while one is already
-// showing is a no-op) — the two variants are never expected to be relevant
+// showing is a no-op) — the variants are never expected to be relevant
 // simultaneously in practice, and stacking dismissible banners is its own UX
 // problem not worth solving here.
 
@@ -54,6 +57,18 @@ export function showReconnectBanner(onConnectClick) {
 export function showAxisMigrationReviewBanner(onOpenBackupDialog) {
   showBanner({
     message: 'This update changed how patterns are stored — check that your patterns still look right, then back up manually when ready.',
+    actionLabel: 'Open Backup & Sync',
+    onActionClick: onOpenBackupDialog,
+    hideOnAction: false,
+  });
+}
+
+// Same non-hide-on-action treatment as showAxisMigrationReviewBanner above —
+// opening the Backup & Sync dialog doesn't itself resolve anything, only a
+// real Back Up Now inside it does (backupDialog.js hides this banner then).
+export function showLayerMigrationReviewBanner(onOpenBackupDialog) {
+  showBanner({
+    message: 'This update added layers and changed how patterns are stored — check that your patterns still look right, then back up manually when ready.',
     actionLabel: 'Open Backup & Sync',
     onActionClick: onOpenBackupDialog,
     hideOnAction: false,

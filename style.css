@@ -968,6 +968,89 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
+/* Layers panel (.work/feature-layers-plan.md) — structurally a close cousin
+   of .color-manage-row: drag handle, a visibility toggle, a clickable name
+   (activates the layer), rename/delete actions right-aligned. */
+#layer-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.layer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid #e8e8e8;
+  background: #fff;
+}
+
+.layer-row.dragging {
+  opacity: 0.6;
+  background: #eef4ff;
+}
+
+.layer-row-active {
+  background: #eef4ff;
+}
+
+.layer-drag-handle {
+  touch-action: none;
+  background: none;
+  border: none;
+  color: #999;
+  cursor: grab;
+  flex-shrink: 0;
+}
+
+.layer-visibility-toggle {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.layer-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0;
+}
+
+.layer-row-active .layer-name {
+  font-weight: 600;
+}
+
+.layer-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.layer-action {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+}
+
+.layer-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 #print-view {
   position: fixed;
   inset: 0;

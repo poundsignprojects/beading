@@ -117,14 +117,15 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     if (!deviceName) return; // user cancelled the name prompt
     refreshDeviceRow();
     // An explicit Back Up Now click is the one thing that resolves a pending
-    // axis-migration review (see .work/refactor-row-col-axis-naming-plan.md's
-    // Backup Safety section) — cleared here, at the moment of the click
-    // itself, not gated on the push actually succeeding: the whole point was
-    // to make sure a human looked and chose to proceed, which clicking this
-    // button already means.
+    // axis-migration or layer-migration review (see .work/refactor-row-col-
+    // axis-naming-plan.md's and .work/feature-layers-plan.md's Backup Safety
+    // sections) — cleared here, at the moment of the click itself, not gated
+    // on the push actually succeeding: the whole point was to make sure a
+    // human looked and chose to proceed, which clicking this button already
+    // means.
     const meta = await getDriveSyncMeta(appState.db);
-    if (meta.pendingAxisMigrationReview) {
-      await saveDriveSyncMeta(appState.db, { ...meta, pendingAxisMigrationReview: false });
+    if (meta.pendingAxisMigrationReview || meta.pendingLayerMigrationReview) {
+      await saveDriveSyncMeta(appState.db, { ...meta, pendingAxisMigrationReview: false, pendingLayerMigrationReview: false });
     }
     hideReconnectBanner(); // in case either banner variant was showing
     setMessage('Backing up…');

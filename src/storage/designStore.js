@@ -17,15 +17,17 @@ const STORE = 'designs';
 export async function listDesignsSortedWithMigrationInfo(db) {
   const designs = await getAll(db, STORE);
   let ranAxisMigration = false;
+  let ranLayersMigration = false;
   const migrated = await Promise.all(
     designs.map(async (design) => {
       if (design.axisVersion !== 2) ranAxisMigration = true;
+      if (!design.layers) ranLayersMigration = true;
       const result = migrateDesign(design);
       if (result !== design) await put(db, STORE, result);
       return result;
     })
   );
-  return { designs: migrated.sort((a, b) => a.order - b.order), ranAxisMigration };
+  return { designs: migrated.sort((a, b) => a.order - b.order), ranAxisMigration, ranLayersMigration };
 }
 
 export async function listDesignsSorted(db) {
@@ -37,6 +39,7 @@ export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
   const activeColorwayId = generateId();
+  const defaultLayerId = generateId();
   const design = {
     id: generateId(),
     name,
@@ -48,8 +51,12 @@ export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote
     dropCount,
     rows,
     cols,
-    shapeEntries: [],
-    colorways: [{ id: activeColorwayId, name: 'Colorway 1', colorEntries: [], createdAt: now, updatedAt: now }],
+    // A brand-new design starts with exactly one default layer, matching how
+    // colorway count isn't a creation-time choice either — layers are built
+    // up during editing (see .work/feature-layers-plan.md).
+    layers: [{ id: defaultLayerId, name: 'Layer 1', visible: true, order: 0, shapeEntries: [] }],
+    activeLayerId: defaultLayerId,
+    colorways: [{ id: activeColorwayId, name: 'Colorway 1', layerColorEntries: { [defaultLayerId]: [] }, createdAt: now, updatedAt: now }],
     activeColorwayId,
     thumbnailDataUrl: null,
     order: existing.length === 0 ? 0 : maxOrder + 1,
@@ -65,24 +72,27 @@ export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote
   return design;
 }
 
-// Creates a new, independent design record from an already-resolved shape/
+// Creates a new, independent design record from an already-resolved layers/
 // colorways — the output of the Convert Bead Type flow (Part C of
 // .work/feature-bead-catalog-and-conversion-plan.md's clone-based conversion:
 // same pattern, new bead type, colors resolved per the user's chosen mapping,
 // leaving the source design completely untouched). Same shape/defaults as
 // createDesign/duplicateDesign (fresh id, order = maxOrder + 1, thumbnailDataUrl:
-// null) but takes shapeEntries/colorways/activeColorwayId directly rather than
-// starting empty or copying another record verbatim. staggerFlipped/stitchType
-// are passed through from the source design by default (same shape, so it must
-// render under the same stagger/stitch convention as what's being converted) —
-// dropCount defaults to 1 (matching createDesign's own default) but every
-// real caller passes it explicitly per .work/feature-multi-drop-peyote-plan.md
-// (bead-type conversion always preserves it; stitch-type conversion preserves
-// it only when converting to peyote, resets to 1 for square stitch). A
-// stitch-type conversion (see .work/feature-square-stitch-plan.md) is the one
-// caller that overrides stitchType explicitly, since that's the one field the
-// conversion is actually changing.
-export async function createConvertedDesign(db, { name, beadTypeKey, stitchType = 'peyote', dropCount = 1, rows, cols, staggerFlipped = false, shapeEntries, colorways, activeColorwayId }) {
+// null) but takes layers/colorways/activeLayerId/activeColorwayId directly
+// rather than starting empty or copying another record verbatim — the caller
+// (main.js) is responsible for producing a fully independent layer/colorway
+// structure (fresh ids throughout), exactly as it already is for colorway ids.
+// staggerFlipped/stitchType are passed through from the source design by
+// default (same shape, so it must render under the same stagger/stitch
+// convention as what's being converted) — dropCount defaults to 1 (matching
+// createDesign's own default) but every real caller passes it explicitly per
+// .work/feature-multi-drop-peyote-plan.md (bead-type conversion always
+// preserves it; stitch-type conversion preserves it only when converting to
+// peyote, resets to 1 for square stitch). A stitch-type conversion (see
+// .work/feature-square-stitch-plan.md) is the one caller that overrides
+// stitchType explicitly, since that's the one field the conversion is
+// actually changing.
+export async function createConvertedDesign(db, { name, beadTypeKey, stitchType = 'peyote', dropCount = 1, rows, cols, staggerFlipped = false, layers, colorways, activeLayerId, activeColorwayId }) {
   const existing = await getAll(db, STORE);
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
@@ -95,7 +105,8 @@ export async function createConvertedDesign(db, { name, beadTypeKey, stitchType 
     rows,
     cols,
     staggerFlipped,
-    shapeEntries,
+    layers,
+    activeLayerId,
     colorways,
     activeColorwayId,
     thumbnailDataUrl: null,
@@ -130,24 +141,37 @@ export async function duplicateDesign(db, id) {
   const maxOrder = existing.reduce((max, d) => Math.max(max, d.order), -Infinity);
   const now = Date.now();
 
-  // Every colorway gets a fresh id — a duplicate must not share identity with the
-  // original's colorways, even though its contents start out identical.
-  const idMap = new Map(original.colorways.map((cw) => [cw.id, generateId()]));
+  // Every layer and every colorway gets a fresh id — a duplicate must not
+  // share identity with the original's, even though its contents start out
+  // identical (see .work/feature-layers-plan.md — layerIdMap mirrors the
+  // pre-existing colorway idMap treatment exactly).
+  const layerIdMap = new Map(original.layers.map((layer) => [layer.id, generateId()]));
+  const colorwayIdMap = new Map(original.colorways.map((cw) => [cw.id, generateId()]));
   const copy = {
     ...original,
     id: generateId(),
     // An unnamed original stays unnamed — no "copy" suffix with nothing to
     // suffix (see main.js's handleCreate for why a design can be unnamed).
     name: original.name ? `${original.name} copy` : '',
-    shapeEntries: [...original.shapeEntries],
+    layers: original.layers.map((layer) => ({
+      ...layer,
+      id: layerIdMap.get(layer.id),
+      shapeEntries: [...layer.shapeEntries],
+    })),
+    activeLayerId: layerIdMap.get(original.activeLayerId),
     colorways: original.colorways.map((cw) => ({
       ...cw,
-      id: idMap.get(cw.id),
-      colorEntries: cw.colorEntries.map(([key, colorId]) => [key, colorId]),
+      id: colorwayIdMap.get(cw.id),
+      layerColorEntries: Object.fromEntries(
+        Object.entries(cw.layerColorEntries).map(([layerId, entries]) => [
+          layerIdMap.get(layerId),
+          entries.map(([key, colorId]) => [key, colorId]),
+        ])
+      ),
       createdAt: now,
       updatedAt: now,
     })),
-    activeColorwayId: idMap.get(original.activeColorwayId),
+    activeColorwayId: colorwayIdMap.get(original.activeColorwayId),
     order: maxOrder + 1,
     createdAt: now,
     updatedAt: now,

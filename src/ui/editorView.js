@@ -82,11 +82,11 @@ import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
 import { pushPatch, pushGeometryChange, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
 import {
-  resizeCells, resizeColorEntries, boundingBoxForCells, cropCells, cropColorEntries,
+  resizeCells, resizeKeyList, resizeColorEntries, boundingBoxForCells, cropCells, cropKeyList, cropColorEntries,
   axisOffset, compensatedStaggerFlipped,
 } from '../state/resizeGrid.js';
-import { rotatedDimensions, rotateCells, rotateColorEntries, rotateSelection180 } from '../state/rotateGrid.js';
-import { materializeColorwayCells, decomposeCellsForSave, pruneColorwaysToShape } from '../state/colorwaySync.js';
+import { rotatedDimensions, rotateCells, rotateKeyList, rotateColorEntries, rotateSelection180 } from '../state/rotateGrid.js';
+import { materializeLayerCells, composeVisibleLayers, decomposeCellsForSave, pruneColorwayLayerToShape } from '../state/colorwaySync.js';
 import { defaultPhotoPlacement, PHOTO_ROTATE_STEP_DEG, normalizeRotationDeg } from '../state/photoTrace.js';
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
@@ -167,6 +167,8 @@ export function mountEditorView(appState, hooks) {
   const colorwayNewButton = document.getElementById('colorway-new');
   const colorwayRenameButton = document.getElementById('colorway-rename');
   const colorwayDeleteButton = document.getElementById('colorway-delete');
+  const layerListEl = document.getElementById('layer-list');
+  const layerNewButton = document.getElementById('layer-new');
   const selectionControlsEl = document.getElementById('selection-controls');
   const selectionCopyButton = document.getElementById('selection-copy');
   const selectionCutButton = document.getElementById('selection-cut');
@@ -195,6 +197,7 @@ export function mountEditorView(appState, hooks) {
   let lastCssSize = { cssWidth: 0, cssHeight: 0 };
   let manageMode = false; // Manage Colors list vs. swatch grid — ephemeral UI state, not persisted
   let colorDrag = null; // { pointerId, rowEl, colorId } or null, mirrors libraryView.js's drag shape
+  let layerDrag = null; // { pointerId, rowEl, layerId } or null, same drag-reorder shape as colorDrag
   let calibrationFactor = 1; // working value while the Preferences dialog is open — not written to preferences until Save
   let viewModeBeforePreferencesOpen = 'fit'; // restored on Close-without-Save
   let calibrationSavedThisOpen = false; // Save sets this so the 'close' handler below knows not to revert
@@ -222,6 +225,20 @@ export function mountEditorView(appState, hooks) {
     };
   }
 
+  // Composites every visible layer (top of stack wins per cell) into one flat
+  // cells Map for the active colorway — the one place "as if flattened"
+  // happens for display purposes; substitutes the active layer's live,
+  // not-yet-saved cells in place of what's actually persisted for it. See
+  // .work/feature-layers-plan.md. No caching, recomputed on every call —
+  // consistent with this codebase's "no dirty tracking" philosophy elsewhere.
+  function composedCellsForDisplay() {
+    const colorway = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
+    return composeVisibleLayers(appState.layers, colorway, {
+      overrideLayerId: appState.activeLayerId,
+      overrideCells: appState.cells,
+    });
+  }
+
   function render() {
     lastCssSize = resizeCanvasForDisplay(canvas, ctx);
     const bead = findBeadType(appState.beadCatalog, appState.beadTypeKey);
@@ -231,7 +248,7 @@ export function mountEditorView(appState, hooks) {
       lastCssSize.cssHeight,
       appState.gridParams,
       appState.viewport,
-      appState.cells,
+      composedCellsForDisplay(),
       resolveColor,
       appState.photoTrace,
       bead.cornerRadiusFraction ?? 0,
@@ -586,13 +603,29 @@ export function mountEditorView(appState, hooks) {
     if (!hasPhoto && appState.tool === 'move-photo') setTool('draw');
   }
 
-  // Clearing/regenerating wipes every colorway's colors, not just the one visible —
-  // say so explicitly when there's more than one to lose (Phase 6 plan), otherwise
-  // this is a silent scope change from what "Clear" meant in Phases 2-5.
+  // Clearing/regenerating wipes every colorway's colors for the active layer,
+  // not just the one visible — say so explicitly when there's more than one
+  // to lose (Phase 6 plan), otherwise this is a silent scope change from what
+  // "Clear" meant in Phases 2-5. Also names the active layer when there's more
+  // than one, since Clear only ever affects it — see .work/feature-layers-
+  // plan.md ("editing tools stay scoped to the active layer").
   function confirmClearMessage() {
-    return appState.colorways.length > 1
-      ? `This will clear beads across all ${appState.colorways.length} colorways. Continue?`
-      : CLEAR_CONFIRM_MESSAGE;
+    const activeLayer = appState.layers.find((l) => l.id === appState.activeLayerId);
+    const layerNote = appState.layers.length > 1 && activeLayer ? ` on layer "${activeLayer.name}"` : '';
+    if (appState.colorways.length > 1) {
+      return `This will clear beads${layerNote} across all ${appState.colorways.length} colorways. Continue?`;
+    }
+    return layerNote ? `This layer has beads placed. Clear them?` : CLEAR_CONFIRM_MESSAGE;
+  }
+
+  // True when every layer of this design is empty (the active layer's live
+  // cells plus every other layer's own stored shape) — used in place of a
+  // plain appState.cells.size check wherever "is there anything to lose"
+  // needs to consider the whole design, not just the layer currently on
+  // screen (see .work/feature-layers-plan.md).
+  function isDesignEmpty() {
+    if (appState.cells.size > 0) return false;
+    return appState.layers.every((layer) => layer.id === appState.activeLayerId || layer.shapeEntries.length === 0);
   }
 
   function rebuildGridParams() {
@@ -622,23 +655,31 @@ export function mountEditorView(appState, hooks) {
     updateSizeReadout();
     renderColorPalette();
     updateColorwaySelect();
+    renderLayerList();
     scheduleRedraw();
   }
 
   // Regenerating changes the grid geometry underneath any existing cell coordinates
   // (partial pattern migration across a geometry change is out of scope), so this
-  // always clears cells — guarded by confirm() when there's something to lose,
-  // consistent with prior-app pain point #4 (never lose state silently).
+  // always clears cells (every layer's, not just the active one — a raw geometry
+  // reset with no anchor-based remapping has nothing meaningful to preserve on any
+  // layer) — guarded by confirm() when there's something to lose, consistent with
+  // prior-app pain point #4 (never lose state silently).
   function regenerateGrid() {
-    if (appState.cells.size > 0 && !window.confirm(confirmClearMessage())) return;
+    if (!isDesignEmpty() && !window.confirm(confirmClearMessage())) return;
 
     appState.rows = Math.max(1, parseInt(rowsInput.value, 10) || 1);
     appState.cols = Math.max(1, parseInt(colsInput.value, 10) || 1);
     rebuildGridParams();
     appState.cells.clear();
-    // A geometry change invalidates every colorway's colors, not just the active
-    // one — the colorway list itself (names/count) survives, only contents clear.
-    appState.colorways = appState.colorways.map((cw) => ({ ...cw, colorEntries: [] }));
+    // A geometry change invalidates every layer's shape and every colorway's
+    // colors, not just the active ones — the layer/colorway lists themselves
+    // (names/count/order) survive, only contents clear.
+    appState.layers = appState.layers.map((layer) => ({ ...layer, shapeEntries: [] }));
+    appState.colorways = appState.colorways.map((cw) => ({
+      ...cw,
+      layerColorEntries: Object.fromEntries(appState.layers.map((layer) => [layer.id, []])),
+    }));
     appState.selection = null; // coordinates are meaningless against the new geometry
     appState.pastePreview = null; // coordinates meaningless against the new geometry
     if (appState.tool === 'paste') setTool('draw');
@@ -650,6 +691,7 @@ export function mountEditorView(appState, hooks) {
     updateSizeReadout();
     renderColorPalette();
     updateColorwaySelect();
+    renderLayerList();
     scheduleRedraw();
     hooks.onPreferencesChanged({
       defaultBeadTypeKey: appState.beadTypeKey,
@@ -673,26 +715,40 @@ export function mountEditorView(appState, hooks) {
       rows: appState.rows,
       cols: appState.cols,
       staggerFlipped: appState.staggerFlipped,
-      cellEntries: [...appState.cells.entries()],
+      cellEntries: [...appState.cells.entries()], // active layer's live cells
       // setCell always creates a fresh {colorId} value rather than mutating one in
-      // place (see cellStore.js), so a shallow copy of the entries/colorEntries
+      // place (see cellStore.js), so a shallow copy of the entries/layerColorEntries
       // pairs is enough — no need to also clone each cell's value object.
-      colorways: appState.colorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+      layers: appState.layers.map((l) => ({ ...l, shapeEntries: [...l.shapeEntries] })),
+      colorways: appState.colorways.map((cw) => ({
+        ...cw,
+        layerColorEntries: Object.fromEntries(
+          Object.entries(cw.layerColorEntries).map(([layerId, entries]) => [layerId, [...entries]])
+        ),
+      })),
     };
   }
 
   // Commits a geometry snapshot as the design's current state and refreshes every
-  // dependent piece of UI — called directly by applyResize/applyCrop below for the
-  // "after" state, and later by historyStore's undo/redo (via the apply function
-  // passed to pushGeometryChange) to replay either side of the change. Never
-  // touches history itself — only the two call sites that decide whether a push is
-  // warranted (applyResize/applyCrop) do that.
+  // dependent piece of UI — called directly by applyResize/applyCrop/applyRotate
+  // below for the "after" state, and later by historyStore's undo/redo (via the
+  // apply function passed to pushGeometryChange) to replay either side of the
+  // change. Never touches history itself — only the call sites that decide
+  // whether a push is warranted do that. appState.activeLayerId/activeColorwayId
+  // never change across a resize/crop/rotate (or its undo/redo) — no snapshot
+  // field needed for either.
   function commitGeometrySnapshot(snapshot) {
     appState.rows = snapshot.rows;
     appState.cols = snapshot.cols;
     appState.staggerFlipped = snapshot.staggerFlipped;
     appState.cells = new Map(snapshot.cellEntries);
-    appState.colorways = snapshot.colorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] }));
+    appState.layers = snapshot.layers.map((l) => ({ ...l, shapeEntries: [...l.shapeEntries] }));
+    appState.colorways = snapshot.colorways.map((cw) => ({
+      ...cw,
+      layerColorEntries: Object.fromEntries(
+        Object.entries(cw.layerColorEntries).map(([layerId, entries]) => [layerId, [...entries]])
+      ),
+    }));
     appState.selection = null; // coordinates are meaningless against the new geometry
     appState.pastePreview = null; // coordinates meaningless against the new geometry
     if (appState.tool === 'paste') setTool('draw');
@@ -702,13 +758,14 @@ export function mountEditorView(appState, hooks) {
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
+    renderLayerList();
     rowsInput.value = String(appState.rows);
     colsInput.value = String(appState.cols);
     scheduleRedraw();
-    // Covers applyResize/applyCrop's own "after" apply AND undo/redo replaying
-    // either one, since both funnel through this one function — a resize/crop
-    // (or undoing/redoing one) is always a genuine content change relative to
-    // what's on disk.
+    // Covers applyResize/applyCrop/applyRotate's own "after" apply AND undo/redo
+    // replaying any of them, since all funnel through this one function — a
+    // resize/crop/rotate (or undoing/redoing one) is always a genuine content
+    // change relative to what's on disk.
     hooks.onDesignContentChanged();
     hooks.onImmediateSave();
   }
@@ -716,18 +773,29 @@ export function mountEditorView(appState, hooks) {
   // Applies a resolved rows/cols change: remaps existing cells per the chosen
   // anchors (see resizeGrid.js) instead of discarding them, since — unlike a bead
   // type change — the stitch structure the cells were drawn against still applies,
-  // just with a different row/col count.
+  // just with a different row/col count. Every layer gets the identical anchor
+  // offsets applied (the active layer via its own freshly-resized cells, every
+  // other layer via resizeKeyList/resizeColorEntries directly on its stored
+  // shapeEntries/layerColorEntries — see .work/feature-layers-plan.md), not just
+  // the active one — otherwise switching to an untouched layer or colorway after
+  // a resize would show content at pre-resize coordinates that no longer line up
+  // with the new shape.
   function applyResize(newRows, newCols, rowAnchor, colAnchor) {
     const before = captureGeometrySnapshot();
 
     const newCells = resizeCells(appState.cells, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor);
-    // Every colorway's stored colors get the identical anchor offsets applied, not
-    // just the active cells Map — otherwise switching to an untouched colorway
-    // after a resize would show colors at pre-resize coordinates that no longer
-    // line up with the new shape.
+    const newLayers = appState.layers.map((layer) => ({
+      ...layer,
+      shapeEntries: layer.id === appState.activeLayerId
+        ? Array.from(newCells.keys())
+        : resizeKeyList(layer.shapeEntries, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor),
+    }));
     const newColorways = appState.colorways.map((cw) => ({
       ...cw,
-      colorEntries: resizeColorEntries(cw.colorEntries, appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor),
+      layerColorEntries: Object.fromEntries(appState.layers.map((layer) => [
+        layer.id,
+        resizeColorEntries(cw.layerColorEntries[layer.id] ?? [], appState.rows, appState.cols, newRows, newCols, rowAnchor, colAnchor),
+      ])),
     }));
     // A col anchor other than 'start' shifts every existing cell's col index —
     // see resizeGrid.js's compensatedStaggerFlipped for why an odd shift needs
@@ -744,7 +812,8 @@ export function mountEditorView(appState, hooks) {
       cols: newCols,
       staggerFlipped: newStaggerFlipped,
       cellEntries: [...newCells.entries()],
-      colorways: newColorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+      layers: newLayers,
+      colorways: newColorways,
     };
 
     commitGeometrySnapshot(after);
@@ -760,21 +829,31 @@ export function mountEditorView(appState, hooks) {
   // Rotates the whole design 90°/270°/180° — reuses the exact same geometry-
   // snapshot undo/redo machinery applyResize/applyCrop already established
   // (rotation is a change of the same *kind*: rows, cols, staggerFlipped, every
-  // colorway's colors all move together), so it slots in with no new undo
-  // infrastructure. Unlike a resize, rotation never drops a cell — it's a pure
-  // bijection over the whole grid (see rotateGrid.js) — so there's no confirm
-  // dialog, the same reasoning applyCrop already uses. staggerFlipped is reset
-  // to false rather than compensated for: a rotation is a wholesale new set of
-  // coordinates, not a shift, so there's no prior stagger registration to stay
-  // continuous with (see rotateGrid.js's header comment).
+  // layer's shape and every colorway's colors all move together), so it slots
+  // in with no new undo infrastructure. Unlike a resize, rotation never drops a
+  // cell — it's a pure bijection over the whole grid (see rotateGrid.js) — so
+  // there's no confirm dialog, the same reasoning applyCrop already uses.
+  // staggerFlipped is reset to false rather than compensated for: a rotation is
+  // a wholesale new set of coordinates, not a shift, so there's no prior
+  // stagger registration to stay continuous with (see rotateGrid.js's header
+  // comment).
   function applyRotate(direction) {
     const before = captureGeometrySnapshot();
 
     const { rows: newRows, cols: newCols } = rotatedDimensions(appState.rows, appState.cols, direction);
     const newCells = rotateCells(appState.cells, appState.rows, appState.cols, direction);
+    const newLayers = appState.layers.map((layer) => ({
+      ...layer,
+      shapeEntries: layer.id === appState.activeLayerId
+        ? Array.from(newCells.keys())
+        : rotateKeyList(layer.shapeEntries, appState.rows, appState.cols, direction),
+    }));
     const newColorways = appState.colorways.map((cw) => ({
       ...cw,
-      colorEntries: rotateColorEntries(cw.colorEntries, appState.rows, appState.cols, direction),
+      layerColorEntries: Object.fromEntries(appState.layers.map((layer) => [
+        layer.id,
+        rotateColorEntries(cw.layerColorEntries[layer.id] ?? [], appState.rows, appState.cols, direction),
+      ])),
     }));
 
     const after = {
@@ -782,7 +861,8 @@ export function mountEditorView(appState, hooks) {
       cols: newCols,
       staggerFlipped: false,
       cellEntries: [...newCells.entries()],
-      colorways: newColorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+      layers: newLayers,
+      colorways: newColorways,
     };
 
     commitGeometrySnapshot(after);
@@ -806,7 +886,7 @@ export function mountEditorView(appState, hooks) {
     const newCols = Math.max(1, parseInt(colsInput.value, 10) || 1);
     if (newRows === appState.rows && newCols === appState.cols) return;
 
-    if (appState.cells.size === 0) {
+    if (isDesignEmpty()) {
       applyResize(newRows, newCols, 'start', 'start');
       return;
     }
@@ -830,9 +910,20 @@ export function mountEditorView(appState, hooks) {
   // Shrinks the grid to the smallest bounding box containing every placed bead,
   // trimming only genuinely empty border rows/cols. Unlike a manual resize this
   // never loses a bead — the box is derived from the beads themselves — so there's
-  // nothing to confirm, no anchor to choose, and no resize dialog.
+  // nothing to confirm, no anchor to choose, and no resize dialog. The bounding box
+  // is computed from the UNION of every layer's occupied cells, visible or not
+  // (substituting the active layer's live keys) — a crop is a whole-design
+  // geometry operation, and content on a currently-hidden layer is still real
+  // content this must never silently clip away just because it isn't on screen
+  // right now (see .work/feature-layers-plan.md).
   function applyCrop() {
-    const box = boundingBoxForCells(appState.cells);
+    const activeLayerLiveKeys = Array.from(appState.cells.keys());
+    const unionKeys = new Set();
+    for (const layer of appState.layers) {
+      const keys = layer.id === appState.activeLayerId ? activeLayerLiveKeys : layer.shapeEntries;
+      for (const key of keys) unionKeys.add(key);
+    }
+    const box = boundingBoxForCells(unionKeys);
     if (!box) {
       window.alert('No beads placed yet — nothing to crop to.');
       return;
@@ -845,11 +936,21 @@ export function mountEditorView(appState, hooks) {
     const before = captureGeometrySnapshot();
 
     const newCells = cropCells(appState.cells, box);
-    // Every colorway's stored colors get the identical crop offset applied, not
-    // just the active cells Map — same reasoning as applyResize above.
+    // Every layer's shape and every colorway's stored colors get the identical
+    // crop offset applied, not just the active layer — same reasoning as
+    // applyResize above.
+    const newLayers = appState.layers.map((layer) => ({
+      ...layer,
+      shapeEntries: layer.id === appState.activeLayerId
+        ? Array.from(newCells.keys())
+        : cropKeyList(layer.shapeEntries, box),
+    }));
     const newColorways = appState.colorways.map((cw) => ({
       ...cw,
-      colorEntries: cropColorEntries(cw.colorEntries, box),
+      layerColorEntries: Object.fromEntries(appState.layers.map((layer) => [
+        layer.id,
+        cropColorEntries(cw.layerColorEntries[layer.id] ?? [], box),
+      ])),
     }));
     // The crop's own col shift (-box.minCol) is exactly as capable of flipping
     // pre-existing content's raised/recessed look as a resize's col anchor is —
@@ -863,7 +964,8 @@ export function mountEditorView(appState, hooks) {
       cols: box.cols,
       staggerFlipped: newStaggerFlipped,
       cellEntries: [...newCells.entries()],
-      colorways: newColorways.map((cw) => ({ ...cw, colorEntries: [...cw.colorEntries] })),
+      layers: newLayers,
+      colorways: newColorways,
     };
 
     commitGeometrySnapshot(after);
@@ -875,20 +977,253 @@ export function mountEditorView(appState, hooks) {
     // with.
   }
 
-  // Fold whatever's currently drawn back into the colorway list before leaving it,
-  // then materialize the target colorway against the (now up to date) shared
-  // shape. No design remount — canvas/tools/palette stay mounted, only
-  // cells/history/the select's value change.
+  // --- Layers (.work/feature-layers-plan.md) -------------------------------
+  // Structurally parallel to the colorway controls directly below: a layer's
+  // own shapeEntries is shared across every colorway, so switching the active
+  // layer folds the live cells back into appState.layers (the shape) and the
+  // active colorway's own slice of layerColorEntries (the colors), then
+  // materializes the incoming layer against the (now up-to-date) active
+  // colorway. No design remount — canvas/tools/palette stay mounted, only
+  // cells/history/the layer list's highlight change.
+
+  function switchLayer(newLayerId) {
+    if (newLayerId === appState.activeLayerId) return;
+
+    const leavingLayerId = appState.activeLayerId;
+    const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
+    appState.layers = appState.layers.map((layer) =>
+      layer.id === leavingLayerId ? { ...layer, shapeEntries } : layer
+    );
+    appState.colorways = pruneColorwayLayerToShape(appState.colorways, leavingLayerId, shapeEntries).map((cw) =>
+      cw.id === appState.activeColorwayId
+        ? { ...cw, layerColorEntries: { ...cw.layerColorEntries, [leavingLayerId]: colorEntries }, updatedAt: Date.now() }
+        : cw
+    );
+
+    const newLayer = appState.layers.find((layer) => layer.id === newLayerId);
+    const activeColorway = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
+    appState.cells = materializeLayerCells(newLayer, activeColorway);
+    appState.activeLayerId = newLayerId;
+
+    // Old undo/redo patches' before/after colors belong to the layer that was
+    // just left — a patch's meaning is only valid against the context it was
+    // recorded under (same reasoning colorway/design switches and resize
+    // already apply).
+    clearHistory(appState.history);
+    updateHistoryButtons();
+
+    renderLayerList();
+    scheduleRedraw();
+    hooks.onImmediateSave();
+  }
+
+  // Deliberately does NOT copy any content — unlike a new colorway (an
+  // explicit duplicate of the active one's appearance), a new layer's whole
+  // purpose is fresh, empty space to draw on. Every colorway gains an empty
+  // slot for it, since a colorway must be able to hold colors for every layer
+  // that exists, even ones with nothing drawn on them yet.
+  function handleLayerNew() {
+    const maxOrder = appState.layers.reduce((max, l) => Math.max(max, l.order), -Infinity);
+    const newLayer = { id: generateId(), name: `Layer ${appState.layers.length + 1}`, visible: true, order: maxOrder + 1, shapeEntries: [] };
+    appState.layers = [...appState.layers, newLayer];
+    appState.colorways = appState.colorways.map((cw) => ({
+      ...cw,
+      layerColorEntries: { ...cw.layerColorEntries, [newLayer.id]: [] },
+    }));
+    hooks.onDesignContentChanged();
+    switchLayer(newLayer.id);
+  }
+
+  function handleLayerRename(id) {
+    const layer = appState.layers.find((l) => l.id === id);
+    if (!layer) return;
+    const newName = window.prompt('Rename layer', layer.name);
+    if (!newName || !newName.trim()) return;
+    appState.layers = appState.layers.map((l) => (l.id === id ? { ...l, name: newName.trim() } : l));
+    renderLayerList();
+    hooks.onDesignContentChanged();
+    hooks.onImmediateSave();
+  }
+
+  // A design always has at least one layer; deleting the last one is blocked
+  // (the delete button is disabled in that case — see buildLayerRow). Any
+  // live, not-yet-saved edits on the deleted layer are discarded along with
+  // it — they belonged only to the layer that's going away. Deleting the
+  // active layer switches to another remaining one first.
+  function handleLayerDelete(id) {
+    if (appState.layers.length <= 1) return;
+    if (!window.confirm('Delete this layer? This cannot be undone.')) return;
+
+    const wasActive = id === appState.activeLayerId;
+    appState.layers = appState.layers.filter((l) => l.id !== id);
+    appState.colorways = appState.colorways.map((cw) => {
+      const { [id]: _removed, ...rest } = cw.layerColorEntries;
+      return { ...cw, layerColorEntries: rest };
+    });
+
+    if (wasActive) {
+      const next = appState.layers[0];
+      const activeColorway = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
+      appState.cells = materializeLayerCells(next, activeColorway);
+      appState.activeLayerId = next.id;
+      clearHistory(appState.history);
+      updateHistoryButtons();
+    }
+
+    renderLayerList();
+    scheduleRedraw();
+    hooks.onDesignContentChanged();
+    hooks.onImmediateSave();
+  }
+
+  // A view-state toggle, not a content edit (same category as
+  // showBeadOutlines/panel-collapse) — never touches appState.cells/history,
+  // but is persisted immediately since it's part of this design's own record.
+  function handleLayerVisibilityToggle(id) {
+    appState.layers = appState.layers.map((l) => (l.id === id ? { ...l, visible: !l.visible } : l));
+    renderLayerList();
+    scheduleRedraw();
+    hooks.onImmediateSave();
+  }
+
+  // Drag-reorder, not undo-tracked — same convention as the design-library/
+  // Manage-Colors/Bead-Catalog drag-reorders, none of which push an undo step
+  // or bump the design's own "content changed" flag either.
+  function handleLayerReordered(id, newOrder) {
+    appState.layers = appState.layers.map((l) => (l.id === id ? { ...l, order: newOrder } : l));
+    renderLayerList();
+    scheduleRedraw();
+    hooks.onImmediateSave();
+  }
+
+  function buildLayerRow(layer) {
+    const row = document.createElement('li');
+    row.className = 'layer-row';
+    row.dataset.layerId = layer.id;
+    row.classList.toggle('layer-row-active', layer.id === appState.activeLayerId);
+
+    const handle = document.createElement('button');
+    handle.type = 'button';
+    handle.className = 'icon-btn layer-drag-handle';
+    handle.setAttribute('aria-label', 'Reorder');
+    handle.title = 'Drag to reorder';
+    handle.append(createIcon('grip-vertical'));
+
+    const visibilityButton = document.createElement('button');
+    visibilityButton.type = 'button';
+    visibilityButton.className = 'icon-btn layer-visibility-toggle';
+    visibilityButton.setAttribute('aria-label', layer.visible ? 'Hide layer' : 'Show layer');
+    visibilityButton.title = layer.visible ? 'Hide layer' : 'Show layer';
+    visibilityButton.append(createIcon(layer.visible ? 'eye' : 'eye-off'));
+    visibilityButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleLayerVisibilityToggle(layer.id);
+    });
+
+    const name = document.createElement('button');
+    name.type = 'button';
+    name.className = 'layer-name';
+    name.textContent = layer.name;
+    name.addEventListener('click', () => switchLayer(layer.id));
+
+    const renameButton = document.createElement('button');
+    renameButton.type = 'button';
+    renameButton.className = 'icon-btn layer-action';
+    renameButton.setAttribute('aria-label', 'Rename layer');
+    renameButton.title = 'Rename';
+    renameButton.append(createIcon('pencil'));
+    renameButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleLayerRename(layer.id);
+    });
+
+    const deleteButton = document.createElement('button');
+    deleteButton.type = 'button';
+    deleteButton.className = 'icon-btn layer-action';
+    deleteButton.setAttribute('aria-label', 'Delete layer');
+    deleteButton.title = 'Delete';
+    deleteButton.append(createIcon('trash-2'));
+    deleteButton.disabled = appState.layers.length <= 1;
+    deleteButton.addEventListener('click', (e) => {
+      e.stopPropagation();
+      handleLayerDelete(layer.id);
+    });
+
+    const actions = document.createElement('div');
+    actions.className = 'layer-actions';
+    actions.append(renameButton, deleteButton);
+
+    row.append(handle, visibilityButton, name, actions);
+    return row;
+  }
+
+  // Top of the list = top of the stack (frontmost) = highest order — matches
+  // a Photoshop layers panel and colorwaySync.js's own order convention.
+  function renderLayerList() {
+    const stacked = [...appState.layers].sort((a, b) => b.order - a.order);
+    layerListEl.replaceChildren(...stacked.map(buildLayerRow));
+  }
+
+  function handleLayerListPointerDown(e) {
+    const handle = e.target.closest('.layer-drag-handle');
+    if (!handle) return;
+    const rowEl = handle.closest('.layer-row');
+    if (!rowEl) return;
+    layerDrag = { pointerId: e.pointerId, rowEl, layerId: rowEl.dataset.layerId };
+    layerListEl.setPointerCapture(e.pointerId);
+    rowEl.classList.add('dragging');
+  }
+  function handleLayerListPointerMove(e) {
+    if (!layerDrag || e.pointerId !== layerDrag.pointerId) return;
+    const siblings = [...layerListEl.querySelectorAll('.layer-row')].filter((r) => r !== layerDrag.rowEl);
+    const target = siblings.find((sibling) => {
+      const rect = sibling.getBoundingClientRect();
+      return e.clientY < rect.top + rect.height / 2;
+    });
+    if (target) layerListEl.insertBefore(layerDrag.rowEl, target);
+    else layerListEl.appendChild(layerDrag.rowEl);
+  }
+  function handleLayerListPointerUp(e) {
+    if (!layerDrag || e.pointerId !== layerDrag.pointerId) return;
+    const { rowEl, layerId } = layerDrag;
+    rowEl.classList.remove('dragging');
+    if (layerListEl.hasPointerCapture?.(e.pointerId)) layerListEl.releasePointerCapture(e.pointerId);
+    layerDrag = null;
+
+    // The list renders top-of-stack (highest order) first — the reverse of
+    // orderForInsertAt's own ascending convention — so the drop position is
+    // inverted against the ascending (excluding-dragged) list before computing
+    // the new fractional order.
+    const domIndex = [...layerListEl.querySelectorAll('.layer-row')].indexOf(rowEl);
+    const ascending = [...appState.layers].sort((a, b) => a.order - b.order).filter((l) => l.id !== layerId);
+    const newOrder = orderForInsertAt(ascending, ascending.length - domIndex);
+    handleLayerReordered(layerId, newOrder);
+  }
+
+  // --- Colorways -------------------------------------------------------------
+
+  // Fold whatever's currently drawn back into the active layer's shape and
+  // this colorway's own slice of layerColorEntries before leaving it, then
+  // materialize the target colorway's colors against the *same* active layer
+  // (colorways never change which layer is active, only what colors that
+  // layer's colorway-view holds). No design remount — canvas/tools/palette
+  // stay mounted, only cells/history/the select's value change.
   function switchColorway(newColorwayId) {
     if (newColorwayId === appState.activeColorwayId) return;
 
     const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
-    appState.colorways = pruneColorwaysToShape(appState.colorways, shapeEntries).map((cw) =>
-      cw.id === appState.activeColorwayId ? { ...cw, colorEntries, updatedAt: Date.now() } : cw
+    appState.layers = appState.layers.map((layer) =>
+      layer.id === appState.activeLayerId ? { ...layer, shapeEntries } : layer
+    );
+    appState.colorways = pruneColorwayLayerToShape(appState.colorways, appState.activeLayerId, shapeEntries).map((cw) =>
+      cw.id === appState.activeColorwayId
+        ? { ...cw, layerColorEntries: { ...cw.layerColorEntries, [appState.activeLayerId]: colorEntries }, updatedAt: Date.now() }
+        : cw
     );
 
     const target = appState.colorways.find((cw) => cw.id === newColorwayId);
-    appState.cells = materializeColorwayCells(shapeEntries, target.colorEntries);
+    const activeLayer = appState.layers.find((l) => l.id === appState.activeLayerId);
+    appState.cells = materializeLayerCells(activeLayer, target);
     appState.activeColorwayId = newColorwayId;
 
     // Old undo/redo patches' before/after colors belong to the colorway that was
@@ -907,15 +1242,23 @@ export function mountEditorView(appState, hooks) {
   }
 
   // Creating a colorway always seeds it as a copy of the currently active
-  // colorway's colors (never a blank slate) — so there's no separate "duplicate"
-  // action, create is duplicate, scoped to one pattern.
+  // colorway's colors — across every layer, not just the active one (never a
+  // blank slate) — so there's no separate "duplicate" action, create is
+  // duplicate, scoped to one pattern. Deep-copies the active colorway's
+  // layerColorEntries, then overwrites just the active layer's slice with the
+  // freshly-decomposed live colors, so an edit not yet reconciled into
+  // appState.colorways isn't lost.
   function handleColorwayNew() {
     const { colorEntries } = decomposeCellsForSave(appState.cells);
+    const activeColorway = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
     const now = Date.now();
     const newColorway = {
       id: generateId(),
       name: `Colorway ${appState.colorways.length + 1}`,
-      colorEntries,
+      layerColorEntries: {
+        ...Object.fromEntries(Object.entries(activeColorway.layerColorEntries).map(([layerId, entries]) => [layerId, [...entries]])),
+        [appState.activeLayerId]: colorEntries,
+      },
       createdAt: now,
       updatedAt: now,
     };
@@ -947,9 +1290,13 @@ export function mountEditorView(appState, hooks) {
     if (!window.confirm('Delete this colorway? This cannot be undone.')) return;
 
     const shapeEntries = Array.from(appState.cells.keys());
+    appState.layers = appState.layers.map((layer) =>
+      layer.id === appState.activeLayerId ? { ...layer, shapeEntries } : layer
+    );
     appState.colorways = appState.colorways.filter((cw) => cw.id !== appState.activeColorwayId);
     const next = appState.colorways[0];
-    appState.cells = materializeColorwayCells(shapeEntries, next.colorEntries);
+    const activeLayer = appState.layers.find((l) => l.id === appState.activeLayerId);
+    appState.cells = materializeLayerCells(activeLayer, next);
     appState.activeColorwayId = next.id;
 
     clearHistory(appState.history);
@@ -986,7 +1333,7 @@ export function mountEditorView(appState, hooks) {
     const targetBeadTypeKey = beadTypeSelect.value;
     if (targetBeadTypeKey === appState.beadTypeKey) return;
 
-    if (appState.cells.size === 0) {
+    if (isDesignEmpty()) {
       appState.beadTypeKey = targetBeadTypeKey;
       // Custom colors are scoped per bead type — must be refreshed before
       // regenerateGrid() renders the palette, or it'd briefly show the old
@@ -1036,7 +1383,7 @@ export function mountEditorView(appState, hooks) {
     const targetStitchType = stitchTypeSelect.value;
     if (targetStitchType === appState.stitchType) return;
 
-    if (appState.cells.size === 0) {
+    if (isDesignEmpty()) {
       appState.stitchType = targetStitchType;
       rebuildGridParams();
       fitViewportToGrid();
@@ -1157,6 +1504,7 @@ export function mountEditorView(appState, hooks) {
       currentDesignId: appState.currentDesignId,
       colorways: appState.colorways,
       activeColorwayId: appState.activeColorwayId,
+      activeLayerId: appState.activeLayerId,
       cells: appState.cells,
     });
     if (usage.length > 0) {
@@ -1389,11 +1737,17 @@ export function mountEditorView(appState, hooks) {
     setTool('draw');
     renderColorPalette();
   }
+  // Clear is an editing tool like draw/erase/fill, so — per .work/feature-
+  // layers-plan.md's "editing tools stay scoped to the active layer" — it only
+  // ever clears the active layer, not every layer in the design.
   function handleClear() {
     if (appState.cells.size === 0) return;
     if (!window.confirm(confirmClearMessage())) return;
     appState.cells.clear();
-    appState.colorways = appState.colorways.map((cw) => ({ ...cw, colorEntries: [] }));
+    appState.colorways = appState.colorways.map((cw) => ({
+      ...cw,
+      layerColorEntries: { ...cw.layerColorEntries, [appState.activeLayerId]: [] },
+    }));
     clearHistory(appState.history);
     updateHistoryButtons();
     scheduleRedraw();
@@ -1690,6 +2044,11 @@ export function mountEditorView(appState, hooks) {
   colorManageList.addEventListener('pointermove', handleColorListPointerMove);
   colorManageList.addEventListener('pointerup', handleColorListPointerUp);
   colorManageList.addEventListener('pointercancel', handleColorListPointerUp);
+  layerNewButton.addEventListener('click', handleLayerNew);
+  layerListEl.addEventListener('pointerdown', handleLayerListPointerDown);
+  layerListEl.addEventListener('pointermove', handleLayerListPointerMove);
+  layerListEl.addEventListener('pointerup', handleLayerListPointerUp);
+  layerListEl.addEventListener('pointercancel', handleLayerListPointerUp);
   undoButton.addEventListener('click', handleUndo);
   redoButton.addEventListener('click', handleRedo);
   backButton.addEventListener('click', handleBack);
@@ -1724,6 +2083,7 @@ export function mountEditorView(appState, hooks) {
   const detachPointerRouter = attachPointerRouter(canvas, appState.viewport, {
     getGridParams: () => appState.gridParams,
     getCells: () => appState.cells,
+    getDisplayCells: composedCellsForDisplay,
     getTool: () => appState.tool,
     getColorId: () => appState.selectedColorId,
     getClipboard: () => appState.clipboard,
@@ -1819,6 +2179,11 @@ export function mountEditorView(appState, hooks) {
     colorManageList.removeEventListener('pointermove', handleColorListPointerMove);
     colorManageList.removeEventListener('pointerup', handleColorListPointerUp);
     colorManageList.removeEventListener('pointercancel', handleColorListPointerUp);
+    layerNewButton.removeEventListener('click', handleLayerNew);
+    layerListEl.removeEventListener('pointerdown', handleLayerListPointerDown);
+    layerListEl.removeEventListener('pointermove', handleLayerListPointerMove);
+    layerListEl.removeEventListener('pointerup', handleLayerListPointerUp);
+    layerListEl.removeEventListener('pointercancel', handleLayerListPointerUp);
     undoButton.removeEventListener('click', handleUndo);
     redoButton.removeEventListener('click', handleRedo);
     backButton.removeEventListener('click', handleBack);

@@ -105,6 +105,15 @@ export function cropColorEntries(colorEntries, box) {
   return remapEntriesByOffset(colorEntries, -box.minRow, -box.minCol, box.rows, box.cols);
 }
 
+// Crops a plain key list (a layer's own shapeEntries — see
+// .work/feature-layers-plan.md) to a bounding box from boundingBoxForCells —
+// same relationship cropCells has to a Map, generalized the same way
+// resizeKeyList generalizes resizeCells.
+export function cropKeyList(keys, box) {
+  const paired = keys.map((key) => [key, null]);
+  return remapEntriesByOffset(paired, -box.minRow, -box.minCol, box.rows, box.cols).map(([key]) => key);
+}
+
 // peyote.js's isRaised() pins which parity is "raised" (offset 0) vs "recessed"
 // (offset +half a bead-width) to a cell's own absolute col value — deliberately,
 // so a resize/crop that doesn't shift a cell's col at all can't silently re-flip
