@@ -33,10 +33,17 @@ export function applyEraseRegion(cells, selection) {
   return patch;
 }
 
-// Stamps clipboard content anchored with its top-left at (anchorRow, anchorCol).
-// Entries landing outside [0,rows)x[0,cols) are clipped, not shifted — same "drop
-// what doesn't fit" rule resizeGrid.js's remapEntries already uses, so a paste
-// stamped near an edge just doesn't fully land there.
+// Stamps clipboard content via computeTarget(relRow, relCol) => {row, col} —
+// a plain anchored paste is just `(relRow, relCol) => ({ row: anchorRow +
+// relRow, col: anchorCol + relCol })`; a caller can also apply something
+// other than a uniform anchor (e.g. the peyote "preserve pattern when
+// shifting" per-cell row compensation — see grid/peyote.js's
+// resolveColShift/colShiftRowDelta and moveTool.js's applyMove, which takes
+// the same kind of callback for the same reason), while this module stays
+// completely grid-agnostic. Entries landing outside [0,rows)x[0,cols) are
+// clipped, not shifted — same "drop what doesn't fit" rule resizeGrid.js's
+// remapEntries already uses, so a paste stamped near an edge just doesn't
+// fully land there.
 //
 // mode: 'front' (default, current behavior) overwrites whatever's already at each
 // target cell; 'behind' leaves an already-occupied target cell untouched (existing
@@ -44,11 +51,10 @@ export function applyEraseRegion(cells, selection) {
 // footprint. Either way, a clipboard cell that was itself absent at copy time was
 // never in clipboard.cells to begin with, so gaps *within* the footprint that the
 // clipboard also had gaps at are never touched — unchanged from Phase 7.
-export function applyPaste(cells, clipboard, anchorRow, anchorCol, rows, cols, mode = 'front') {
+export function applyPaste(cells, clipboard, computeTarget, rows, cols, mode = 'front') {
   const patch = [];
   for (const [relRow, relCol, colorId] of clipboard.cells) {
-    const row = anchorRow + relRow;
-    const col = anchorCol + relCol;
+    const { row, col } = computeTarget(relRow, relCol);
     if (row < 0 || row >= rows || col < 0 || col >= cols) continue;
     const key = cellKey(row, col);
     const before = cells.get(key);

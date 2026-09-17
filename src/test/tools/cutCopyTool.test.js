@@ -23,7 +23,7 @@ test('buildClipboard -> applyPaste round-trip at the same anchor reproduces the 
   const clipboard = buildClipboard(cells, selection);
 
   const target = new Map();
-  applyPaste(target, clipboard, 5, 5, 20, 20);
+  applyPaste(target, clipboard, (relRow, relCol) => ({ row: 5 + relRow, col: 5 + relCol }), 20, 20);
   assert.equal(target.get('5,5').colorId, 'red');
   assert.equal(target.get('6,6').colorId, 'blue');
   assert.equal(target.size, 2);
@@ -33,7 +33,7 @@ test('applyPaste: clips entries landing outside grid bounds without shifting the
   const clipboard = { rows: 2, cols: 2, cells: [[0, 0, 'red'], [1, 1, 'blue']] };
   const target = new Map();
   // Anchor so (1,1) relative lands at row 5 (out of a 5-row grid, valid rows 0-4).
-  const patch = applyPaste(target, clipboard, 4, 0, 5, 5);
+  const patch = applyPaste(target, clipboard, (relRow, relCol) => ({ row: 4 + relRow, col: 0 + relCol }), 5, 5);
   assert.equal(target.get('4,0').colorId, 'red');
   assert.equal(target.has('5,1'), false);
   assert.equal(patch.length, 1);
@@ -44,7 +44,7 @@ test('applyPaste: mode "behind" skips already-occupied targets, fills empty ones
   setCell(target, 4, 0, 'green'); // pre-existing, should survive untouched
   const clipboard = { rows: 2, cols: 2, cells: [[0, 0, 'red'], [0, 1, 'blue']] };
   // Anchor so relative (0,0) -> (4,0) [occupied] and (0,1) -> (4,1) [empty].
-  const patch = applyPaste(target, clipboard, 4, 0, 20, 20, 'behind');
+  const patch = applyPaste(target, clipboard, (relRow, relCol) => ({ row: 4 + relRow, col: 0 + relCol }), 20, 20, 'behind');
   assert.equal(target.get('4,0').colorId, 'green'); // untouched
   assert.equal(target.get('4,1').colorId, 'blue'); // filled
   assert.equal(patch.length, 1);
@@ -56,11 +56,22 @@ test('applyPaste: mode "front" (explicit and default) both overwrite an occupied
   for (const args of [[], ['front']]) {
     const target = new Map();
     setCell(target, 4, 0, 'green');
-    const patch = applyPaste(target, clipboard, 4, 0, 20, 20, ...args);
+    const patch = applyPaste(target, clipboard, (relRow, relCol) => ({ row: 4 + relRow, col: 0 + relCol }), 20, 20, ...args);
     assert.equal(target.get('4,0').colorId, 'red');
     assert.equal(patch.length, 1);
     assert.deepEqual(patch[0], { row: 4, col: 0, before: { colorId: 'green' }, after: { colorId: 'red' } });
   }
+});
+
+test('applyPaste: computeTarget can shift different clipboard cells by different amounts (per-cell compensation, not just a uniform anchor)', () => {
+  const clipboard = { rows: 1, cols: 2, cells: [[0, 0, 'red'], [0, 1, 'blue']] };
+  const target = new Map();
+  const computeTarget = (relRow, relCol) => ({ row: relRow + (relCol === 1 ? 1 : 0), col: 4 + relCol });
+  const patch = applyPaste(target, clipboard, computeTarget, 20, 20);
+  assert.equal(target.get('0,4').colorId, 'red'); // relCol 0 -> row unchanged
+  assert.equal(target.get('1,5').colorId, 'blue'); // relCol 1 -> row +1
+  assert.equal(target.size, 2);
+  assert.equal(patch.length, 2);
 });
 
 test('applyEraseRegion: only touches occupied cells within bounds, patch matches fixture', () => {
@@ -121,7 +132,7 @@ test('rotateClipboard -> applyPaste: a rotated clipboard still pastes correctly 
   assert.equal(rotated.rows, 2);
   assert.equal(rotated.cols, 1);
   const target = new Map();
-  applyPaste(target, rotated, 3, 3, 10, 10);
+  applyPaste(target, rotated, (relRow, relCol) => ({ row: 3 + relRow, col: 3 + relCol }), 10, 10);
   assert.equal(target.get('3,3').colorId, 'red');
   assert.equal(target.get('4,3').colorId, 'blue');
   assert.equal(target.size, 2);

@@ -1,4 +1,5 @@
 import { resolveGridEngine } from '../grid/gridEngine.js';
+import { colShiftRowDelta } from '../grid/peyote.js';
 import { worldToScreen } from './viewport.js';
 import { MISSING_COLOR_FALLBACK_HEX } from '../palette/colorLibrary.js';
 
@@ -20,12 +21,22 @@ export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pa
   if (!clipboard || !pastePreview) return;
   const { beadWidthMm, beadHeightMm } = gridParams;
   const engine = resolveGridEngine(gridParams.stitchType);
-  const { anchorRow, anchorCol } = pastePreview;
+  const { anchorRow, anchorCol, originAnchorCol, needsRowCompensation } = pastePreview;
+  const dropCount = gridParams.dropCount ?? 1;
+  // A clipboard cell's OWN starting column (for compensation purposes) is
+  // where it would sit if pasted back at originAnchorCol — see
+  // resolvePasteAnchorCol's comment in pointerRouter.js and handlePasteConfirm's
+  // matching use of the same formula, so the ghost always previews exactly
+  // where Confirm will actually stamp it.
+  const rowCompFor = (relCol) => colShiftRowDelta(
+    originAnchorCol + relCol, needsRowCompensation, gridParams.cols, gridParams.staggerFlipped, dropCount
+  );
 
   ctx.save();
   ctx.globalAlpha = PASTE_PREVIEW_ALPHA;
   for (const [relRow, relCol, colorId] of clipboard.cells) {
-    const originMm = engine.cellOrigin(anchorRow + relRow, anchorCol + relCol, gridParams);
+    const row = anchorRow + relRow + rowCompFor(relCol);
+    const originMm = engine.cellOrigin(row, anchorCol + relCol, gridParams);
     const topLeft = worldToScreen(originMm.xMm, originMm.yMm, viewport);
     const bottomRight = worldToScreen(originMm.xMm + beadHeightMm, originMm.yMm + beadWidthMm, viewport);
     ctx.fillStyle = resolveColor(colorId)?.hex ?? MISSING_COLOR_FALLBACK_HEX;
@@ -33,8 +44,23 @@ export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pa
   }
   ctx.restore();
 
-  const topLeftMm = engine.cellOrigin(anchorRow, anchorCol, gridParams);
-  const bottomRightMm = engine.cellOrigin(anchorRow + clipboard.rows - 1, anchorCol + clipboard.cols - 1, gridParams);
+  // The compensation only ever nudges a row by +1 for a "recessed"-starting
+  // column, never negative — so the outer bounding box's row range only ever
+  // needs to widen at the bottom (max), never the top (min); but computing
+  // both from the actual per-column compensation, rather than assuming that,
+  // keeps this correct even if colShiftRowDelta's own convention ever changes.
+  let minRowComp = 0, maxRowComp = 0;
+  if (needsRowCompensation) {
+    minRowComp = Infinity;
+    maxRowComp = -Infinity;
+    for (let relCol = 0; relCol < clipboard.cols; relCol++) {
+      const comp = rowCompFor(relCol);
+      minRowComp = Math.min(minRowComp, comp);
+      maxRowComp = Math.max(maxRowComp, comp);
+    }
+  }
+  const topLeftMm = engine.cellOrigin(anchorRow + minRowComp, anchorCol, gridParams);
+  const bottomRightMm = engine.cellOrigin(anchorRow + (clipboard.rows - 1) + maxRowComp, anchorCol + clipboard.cols - 1, gridParams);
   const topLeft = worldToScreen(topLeftMm.xMm, topLeftMm.yMm, viewport);
   const bottomRight = worldToScreen(bottomRightMm.xMm + beadHeightMm, bottomRightMm.yMm + beadWidthMm, viewport);
   ctx.save();

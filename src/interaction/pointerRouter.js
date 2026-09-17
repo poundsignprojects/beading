@@ -1,5 +1,6 @@
 import { screenToWorld } from '../render/viewport.js';
 import { resolveGridEngine } from '../grid/gridEngine.js';
+import { resolveColShift } from '../grid/peyote.js';
 import { cellKey } from '../state/cellStore.js';
 import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
@@ -8,7 +9,6 @@ import { applyColorReplace } from '../tools/colorReplaceTool.js';
 import { scalePhotoToAnchor, normalizeRotationDeg } from '../state/photoTrace.js';
 import { interpolatedWorldPoints } from './dragTrace.js';
 import { createStrokePatch, recordCellChange, strokePatchToArray } from '../state/strokePatch.js';
-import { collectMovingEntries, applyMove } from '../tools/moveTool.js';
 
 // Don't let a bead render under ~4px (illegible) or the scale balloon past filling
 // most of the viewport on a single bead. Tune once visible on a real device.
@@ -131,12 +131,16 @@ export function attachPointerRouter(canvas, viewport, {
   getClipboard,
   getPhotoTrace,
   getSelection,
+  getPastePreview,
+  getMovePreview,
+  getPreserveStaggerOnShift,
   onViewportChange,
   onCellsChanged,
   onStrokeCommitted,
   onSelectionChange,
   onPhotoTraceChange,
   onPastePreviewChange,
+  onMovePreviewChange,
   onColorPicked,
 }) {
   const pointers = new Map(); // pointerId -> { x, y, pointerType }
@@ -146,7 +150,13 @@ export function attachPointerRouter(canvas, viewport, {
   let selectionDrag = null; // { pointerId, startRow, startCol, moved, tapOutsideExisting } or null
   let photoDrag = null; // { pointerId, x, y } in canvas-local px, or null
   let pasteDrag = null; // { pointerId } or null
-  let moveDrag = null; // { pointerId, baseCells, movingEntries, bounds, startRow, startCol, touchedKeys, lastPatch } or null
+  // Move is now a position-then-confirm flow like paste (see appState.movePreview,
+  // editorView.js) — this only tracks THIS drag session's own pointer-start
+  // reference, never touches cells directly. startDeltaRow/startDeltaCol are the
+  // preview's already-accumulated offset at the moment this drag began, so a
+  // second separate drag (before Confirm) continues adding on top of the first
+  // rather than resetting it.
+  let moveDrag = null; // { pointerId, startRow, startCol, startDeltaRow, startDeltaCol } or null
   let edgePanRafId = null; // rAF handle for the select/paste edge auto-pan loop, or null
   let pendingTouchStart = null; // { pointerId, point, timerId } or null — see TOUCH_DRAW_DISAMBIGUATION_MS
   let spacePressed = false;
@@ -260,6 +270,26 @@ export function attachPointerRouter(canvas, viewport, {
     return engine.cellAtPointUnbounded(worldPoint.xMm, worldPoint.yMm, gridParams);
   }
 
+  // Resolves a raw column delta against grid/peyote.js's resolveColShift when
+  // the "preserve pattern" preference is on — never restricts which column
+  // delta is allowed (unlike an earlier version of this preference, which
+  // snapped to even deltas only and silently skipped every other column);
+  // instead reports whether per-cell row compensation is needed alongside the
+  // (possibly dropCount-snapped) column delta itself, leaving the actual
+  // per-cell application to the caller (colShiftRowDelta, applied at render
+  // time and at the eventual commit — see editorView.js/pastePreviewOverlay.js/
+  // movePreviewOverlay.js, all of which share this same shape). When the
+  // preference is off, or square stitch (no stagger concept to protect),
+  // returns the raw delta with no compensation needed at all. Shared by both
+  // Move (continueMoveDrag, relative to the drag's own accumulated delta) and
+  // Paste (resolvePasteAnchorCol below, relative to the preview's fixed origin).
+  function resolveColShiftIfEnabled(rawDeltaCol, gridParams) {
+    if (!getPreserveStaggerOnShift() || !gridParams || gridParams.stitchType === 'square') {
+      return { deltaCol: rawDeltaCol, needsRowCompensation: false };
+    }
+    return resolveColShift(rawDeltaCol, gridParams.dropCount ?? 1);
+  }
+
   // A plain tap (pointerdown -> pointerup with no movement) that lands outside the
   // selection already active when the gesture began clears it instead of leaving
   // the stray 1-cell box startSelectionDrag shows for live drag feedback — tracked
@@ -285,6 +315,27 @@ export function attachPointerRouter(canvas, viewport, {
     onSelectionChange(normalizeSelection({ row: selectionDrag.startRow, col: selectionDrag.startCol }, hit));
   }
 
+  // Resolves a raw hit-tested anchor column against the paste preview's own
+  // fixed reference point (appState.pastePreview.originAnchorCol, set once
+  // when the preview is first created and preserved across every later
+  // onPastePreviewChange update — see editorView.js) — that starting position
+  // is always trivially "correctly registered" (nothing has been dragged
+  // yet), so every later position only needs to resolve its distance from
+  // *that*, not from wherever this particular drag session happened to begin.
+  // Returns both the resolved anchorCol (dropCount-snapped, only relevant for
+  // dropCount>1) and whether the clipboard's own cells need per-cell row
+  // compensation from that origin — both get stored on appState.pastePreview
+  // so the ghost overlay and the eventual Confirm can apply the identical
+  // compensation without recomputing anything. Falls back to no compensation
+  // when there's no preview yet (the very first placement has nothing to be
+  // relative to) or the preference is off/square stitch.
+  function resolvePasteAnchorCol(rawCol, gridParams) {
+    const preview = getPastePreview();
+    const origin = preview?.originAnchorCol ?? rawCol;
+    const { deltaCol, needsRowCompensation } = resolveColShiftIfEnabled(rawCol - origin, gridParams);
+    return { anchorCol: origin + deltaCol, needsRowCompensation };
+  }
+
   // Direct hit-testing, not a relative pixel-delta drag: on every move, the anchor
   // snaps to whichever cell is currently under the pointer, treating that cell as
   // the clipboard footprint's top-left corner — same approach clampedHit already
@@ -297,47 +348,33 @@ export function attachPointerRouter(canvas, viewport, {
     const hit = unboundedHit(point);
     if (!hit) return;
     pasteDrag = { pointerId };
-    onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
+    onPastePreviewChange({ anchorRow: hit.row, ...resolvePasteAnchorCol(hit.col, getGridParams()) });
     startEdgePanLoop();
   }
 
   function continuePastePreviewDrag(point) {
     const hit = unboundedHit(point);
     if (!hit) return;
-    onPastePreviewChange({ anchorRow: hit.row, anchorCol: hit.col });
+    onPastePreviewChange({ anchorRow: hit.row, ...resolvePasteAnchorCol(hit.col, getGridParams()) });
   }
 
-  // Move: translates the active selection if one exists, else every occupied
-  // cell on the active layer (getCells() is already the active layer alone —
-  // see its own comment on the 'select'/'paste' branches above). Unlike paste's
-  // position-then-confirm flow, this mutates appState.cells live during the
-  // drag (same "commit once at the end" shape as a draw stroke — see
-  // commitStroke) so the moved content is visible in real time with no
-  // separate ghost overlay needed; a baseCells snapshot taken at drag start
-  // means every pointermove recomputes the move fresh (via applyMove) rather
-  // than drifting incrementally. Uses unboundedHit, not clampedHit, so content
-  // can be dragged fully off any edge while positioning, same as paste — it's
-  // simply clipped at whichever cells land outside the grid.
+  // Move is now a position-then-confirm flow like paste (appState.movePreview,
+  // editorView.js's handleToolMove/handleMoveConfirm/handleMoveCancel) — this
+  // never touches appState.cells at all, only reports an accumulated
+  // (deltaRow, deltaCol) via onMovePreviewChange for editorView.js to render as
+  // a ghost and eventually apply via applyMove at Confirm. getMovePreview()
+  // returning null means there's nothing to move (the entry point that creates
+  // a preview already guards the "empty layer/empty selection" case), so this
+  // is a no-op rather than something callers need to check themselves. Uses
+  // unboundedHit, not clampedHit, so content can be dragged fully off any edge
+  // while positioning, same as paste — it's simply clipped at whichever cells
+  // land outside the grid, at Confirm time.
   function startMoveDrag(pointerId, point) {
-    const gridParams = getGridParams();
-    if (!gridParams) return;
-    const cells = getCells();
-    if (cells.size === 0) return; // nothing on this layer to move
-    const selection = getSelection();
-    const bounds = selection
-      ? { rowStart: selection.rowStart, rowEnd: selection.rowEnd, colStart: selection.colStart, colEnd: selection.colEnd }
-      : null;
-    const baseCells = new Map(cells);
-    const movingEntries = collectMovingEntries(baseCells, bounds);
-    if (movingEntries.length === 0) return; // selection has no content — nothing to move
+    const preview = getMovePreview();
+    if (!preview) return;
     const hit = unboundedHit(point);
     if (!hit) return;
-    moveDrag = {
-      pointerId, baseCells, movingEntries, bounds,
-      startRow: hit.row, startCol: hit.col,
-      touchedKeys: new Set(), // accumulates across every call this drag makes — see applyMove's own contract
-      lastPatch: [],
-    };
+    moveDrag = { pointerId, startRow: hit.row, startCol: hit.col, startDeltaRow: preview.deltaRow, startDeltaCol: preview.deltaCol };
     startEdgePanLoop();
   }
 
@@ -346,36 +383,9 @@ export function attachPointerRouter(canvas, viewport, {
     if (!hit) return;
     const gridParams = getGridParams();
     if (!gridParams) return;
-    const deltaRow = hit.row - moveDrag.startRow;
-    const deltaCol = hit.col - moveDrag.startCol;
-    moveDrag.lastPatch = applyMove(
-      getCells(), moveDrag.baseCells, moveDrag.movingEntries, deltaRow, deltaCol,
-      gridParams.rows, gridParams.cols, moveDrag.touchedKeys
-    );
-    onCellsChanged();
-    // The selection marquee follows the moved content live, clamped into the
-    // grid — same "always keep a selection's bounds valid" rule clampedHit
-    // already enforces for an ordinary selection drag.
-    if (moveDrag.bounds) {
-      const clamp = (value, max) => Math.max(0, Math.min(max - 1, value));
-      onSelectionChange({
-        rowStart: clamp(moveDrag.bounds.rowStart + deltaRow, gridParams.rows),
-        rowEnd: clamp(moveDrag.bounds.rowEnd + deltaRow, gridParams.rows),
-        colStart: clamp(moveDrag.bounds.colStart + deltaCol, gridParams.cols),
-        colEnd: clamp(moveDrag.bounds.colEnd + deltaCol, gridParams.cols),
-      });
-    }
-  }
-
-  // Both places a move drag can end — a normal pointerup/cancel, and a second
-  // finger landing mid-drag (which aborts to pan/zoom) — commit whatever the
-  // last applyMove call already left in appState.cells as one undo-able patch,
-  // same shape as commitStroke. A tap with no movement leaves lastPatch empty
-  // (delta stayed 0,0), so nothing is pushed and nothing visibly changed.
-  function commitMoveDrag() {
-    if (!moveDrag) return;
-    if (moveDrag.lastPatch.length > 0) onStrokeCommitted(moveDrag.lastPatch);
-    moveDrag = null; // otherwise the last onSelectionChange already left the selection at its final value
+    const deltaRow = moveDrag.startDeltaRow + (hit.row - moveDrag.startRow);
+    const rawDeltaCol = moveDrag.startDeltaCol + (hit.col - moveDrag.startCol);
+    onMovePreviewChange({ deltaRow, ...resolveColShiftIfEnabled(rawDeltaCol, gridParams) });
   }
 
   // Auto-pans the viewport while a select/paste drag's pointer sits near or past
@@ -553,10 +563,10 @@ export function attachPointerRouter(canvas, viewport, {
       if (touchCount >= 2) {
         cancelPendingTouchStart(); // resolve the first finger's ambiguity as a pinch, not a tap
         commitStroke(); // second finger landed — hand off to pan/zoom, not a stray bead
-        commitMoveDrag(); // same reasoning — a move drag already mutated cells, so it must commit, not just null out
         selectionDrag = null; // last onSelectionChange already left the selection at its value
         photoDrag = null; // hand off to pinch-scale instead
         pasteDrag = null; // last onPastePreviewChange already left the preview at its value
+        moveDrag = null; // last onMovePreviewChange already left the preview at its value — nothing was ever mutated to commit
         stopEdgePanLoop();
       } else if (touchCount === 1) {
         // Pen (Apple Pencil) skips the disambiguation delay — it can't be one
@@ -658,7 +668,7 @@ export function attachPointerRouter(canvas, viewport, {
       stopEdgePanLoop();
     }
     if (moveDrag && moveDrag.pointerId === e.pointerId) {
-      commitMoveDrag();
+      moveDrag = null; // preview itself (appState.movePreview) persists until Confirm/Cancel
       stopEdgePanLoop();
     }
     if (touchLikePointers().length < 2) {

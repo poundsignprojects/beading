@@ -48,6 +48,15 @@ const DEFAULT_PREFERENCES = {
   // pick. See .work/feature-bead-finish-effects-mvp-plan.md.
   canvasBackgroundMode: 'white', // 'white' | 'dark' | 'checkerboard' | 'custom'
   canvasBackgroundHex: null,
+  // Whether Move/Paste snap a sideways shift to the nearest column delta that
+  // can't flip peyote's raised/recessed stagger for the moved content (see
+  // nearestParityPreservingColDelta in grid/peyote.js and pointerRouter.js's
+  // use of it). Defaults on, since an un-snapped odd-column shift silently
+  // distorts the pattern with no visual warning. Same "stored row saved before
+  // this field existed comes back undefined, not this default" gotcha as
+  // defaultDropCount above — read `prefs.preserveStaggerOnShift !== false`
+  // at consuming call sites, never trust the stored object already has it.
+  preserveStaggerOnShift: true,
 };
 
 // defaultRows/defaultCols ("last resize becomes the new default size") need the

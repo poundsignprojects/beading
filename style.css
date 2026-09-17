@@ -666,7 +666,8 @@ input[type="range"]::-moz-range-thumb {
 
 #tool-rail #tool-toggle,
 #tool-rail #selection-controls,
-#tool-rail #paste-controls {
+#tool-rail #paste-controls,
+#tool-rail #move-controls {
   flex-direction: column;
 }
 
@@ -690,6 +691,11 @@ input[type="range"]::-moz-range-thumb {
 }
 
 #paste-controls {
+  display: flex;
+  gap: 0.4rem;
+}
+
+#move-controls {
   display: flex;
   gap: 0.4rem;
 }

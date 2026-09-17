@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint, peyoteCellAtPointClamped, peyoteCellAtPointUnbounded, peyoteNeighbors, isRaised } from '../../grid/peyote.js';
+import { peyoteCellOriginMm, generatePeyoteGrid, peyoteCellAtPoint, peyoteCellAtPointClamped, peyoteCellAtPointUnbounded, peyoteNeighbors, isRaised, resolveColShift, colShiftRowDelta } from '../../grid/peyote.js';
 
 const BEAD_W = 1.6;
 const BEAD_H = 1.3;
@@ -467,6 +467,85 @@ test('peyoteNeighbors: dropCount=1 is byte-for-byte the original 6-neighbor form
         peyoteNeighbors(row, col, COLS, false, 1).map(String).sort(),
         peyoteNeighbors(row, col, COLS).map(String).sort()
       );
+    }
+  }
+});
+
+test('resolveColShift: dropCount=1 never snaps — every raw delta passes through exactly', () => {
+  for (let delta = -9; delta <= 9; delta++) {
+    assert.equal(resolveColShift(delta, 1).deltaCol, delta);
+  }
+});
+
+test('resolveColShift: needsRowCompensation is true iff the delta is an odd number of drop-group-steps', () => {
+  assert.equal(resolveColShift(0, 1).needsRowCompensation, false);
+  assert.equal(resolveColShift(1, 1).needsRowCompensation, true);
+  assert.equal(resolveColShift(-1, 1).needsRowCompensation, true);
+  assert.equal(resolveColShift(2, 1).needsRowCompensation, false);
+  assert.equal(resolveColShift(3, 1).needsRowCompensation, true);
+  assert.equal(resolveColShift(-3, 1).needsRowCompensation, true);
+});
+
+test('resolveColShift: dropCount=2 snaps a non-multiple-of-2 delta to the nearest multiple of 2, then reads compensation off the resulting group count', () => {
+  assert.deepEqual(resolveColShift(0, 2), { deltaCol: 0, needsRowCompensation: false });
+  assert.deepEqual(resolveColShift(2, 2), { deltaCol: 2, needsRowCompensation: true }); // 1 group-step, odd
+  assert.deepEqual(resolveColShift(4, 2), { deltaCol: 4, needsRowCompensation: false }); // 2 group-steps, even
+  assert.deepEqual(resolveColShift(1, 2), { deltaCol: 2, needsRowCompensation: true }); // Math.round(0.5) rounds up to 1 group-step
+  assert.deepEqual(resolveColShift(3, 2), { deltaCol: 4, needsRowCompensation: false });
+  assert.deepEqual(resolveColShift(-3, 2), { deltaCol: -2, needsRowCompensation: true }); // Math.round(-1.5) rounds up to -1 group-step
+});
+
+test('colShiftRowDelta: no compensation needed is always a no-op, regardless of the cell\'s own parity', () => {
+  assert.equal(colShiftRowDelta(4, false, 20), 0);
+  assert.equal(colShiftRowDelta(5, false, 20), 0);
+});
+
+test('colShiftRowDelta: with compensation needed, a raised starting column gets +0, a recessed one gets +1', () => {
+  // col 5 of 20 is raised, col 6 is recessed (see this file's other isRaised cases).
+  assert.equal(colShiftRowDelta(5, true, 20), 0);
+  assert.equal(colShiftRowDelta(6, true, 20), 1);
+});
+
+// This is the property the whole "preserve pattern when shifting" feature
+// depends on being exactly right: for ANY column delta (not just even ones —
+// that's the entire point of compensating instead of only allowing safe
+// deltas), applying resolveColShift's deltaCol plus colShiftRowDelta's
+// per-cell row nudge to every cell in a shape reproduces that shape's exact
+// original relative geometry (in real mm, via peyoteCellOriginMm directly —
+// not just isRaised in isolation), for arbitrary starting positions, drop
+// counts, and the flipped per-design constant. Verified against several
+// shapes spanning multiple rows/cols before this was ever wired into a tool.
+test('resolveColShift + colShiftRowDelta: preserves a shape\'s exact relative geometry for every column delta', () => {
+  const cols = 30;
+  const beadWidthMm = 1.6, beadHeightMm = 1.3;
+  const shapes = [
+    [[5, 5], [6, 5], [7, 5], [7, 6], [7, 7]],
+    [[0, 0], [0, 1], [0, 2], [1, 1], [2, 0], [2, 2]],
+    [[10, 10], [10, 11], [10, 12], [10, 13], [11, 10], [9, 13]],
+  ];
+  const relativeShape = (cellList, flipped, dropCount) => {
+    const origins = cellList.map(([row, col]) => peyoteCellOriginMm(row, col, beadWidthMm, beadHeightMm, cols, flipped, dropCount));
+    const [ox, oy] = [origins[0].xMm, origins[0].yMm];
+    return origins.map((o) => [+(o.xMm - ox).toFixed(6), +(o.yMm - oy).toFixed(6)]);
+  };
+  for (const dropCount of [1, 2, 3]) {
+    for (const flipped of [false, true]) {
+      for (const shape of shapes) {
+        const baseRel = relativeShape(shape, flipped, dropCount);
+        for (let rawDelta = -8; rawDelta <= 8; rawDelta++) {
+          if (rawDelta === 0) continue;
+          const { deltaCol, needsRowCompensation } = resolveColShift(rawDelta, dropCount);
+          const shifted = shape.map(([row, col]) => [
+            row + colShiftRowDelta(col, needsRowCompensation, cols, flipped, dropCount),
+            col + deltaCol,
+          ]);
+          assert.deepEqual(
+            relativeShape(shifted, flipped, dropCount),
+            baseRel,
+            `dropCount=${dropCount} flipped=${flipped} rawDelta=${rawDelta} shape=${JSON.stringify(shape)}`
+          );
+        }
+      }
     }
   }
 });

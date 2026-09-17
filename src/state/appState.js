@@ -105,6 +105,14 @@ export function createAppState() {
     // appState.tool, not persisted with the design. pastePreview holds the anchor
     // of a pending, not-yet-confirmed paste while the 'paste' tool is active.
     pasteMode: 'front', // 'front' | 'behind'
-    pastePreview: null, // { anchorRow, anchorCol } or null
+    pastePreview: null, // { anchorRow, anchorCol, originAnchorCol, needsRowCompensation } or null
+
+    // Position-then-confirm move, mirroring pastePreview's own shape — set once
+    // when the Move tool is entered (capturing what's being moved and its
+    // pristine starting colors), then only deltaRow/deltaCol/needsRowCompensation
+    // change as the content is dragged; nothing in appState.cells/layers is
+    // touched until Confirm actually applies it (see editorView.js's
+    // handleToolMove/handleMoveConfirm/handleMoveCancel).
+    movePreview: null, // { baseCells, movingEntries, bounds, deltaRow, deltaCol, needsRowCompensation } or null
   };
 }

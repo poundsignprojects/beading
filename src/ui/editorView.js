@@ -73,10 +73,12 @@ import { resolveSwatchAppearance } from '../palette/colorLibrary.js';
 import { alphaOverWhite } from '../palette/colorConversion.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
 import { resolveGridEngine, stitchTypeLabel } from '../grid/gridEngine.js';
+import { colShiftRowDelta } from '../grid/peyote.js';
 import { resizeCanvasForDisplay, drawGrid } from '../render/canvasRenderer.js';
 import { renderThumbnailDataUrl } from '../render/thumbnailRenderer.js';
 import { drawSelectionOverlay } from '../render/selectionOverlay.js';
 import { drawPastePreviewOverlay } from '../render/pastePreviewOverlay.js';
+import { drawMovePreviewOverlay } from '../render/movePreviewOverlay.js';
 import { drawRulerTop, drawRulerLeft } from '../render/rulerRenderer.js';
 import { screenToWorld } from '../render/viewport.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
@@ -92,7 +94,9 @@ import { defaultPhotoPlacement, PHOTO_ROTATE_STEP_DEG, normalizeRotationDeg } fr
 import { orderForInsertAt } from '../state/designOrder.js';
 import { generateId } from '../storage/id.js';
 import { buildClipboard, applyEraseRegion, applyPaste, rotateClipboard } from '../tools/cutCopyTool.js';
+import { collectMovingEntries, applyMove } from '../tools/moveTool.js';
 import { applyMirror, canMirrorHorizontally } from '../tools/mirrorTool.js';
+import { cellKey } from '../state/cellStore.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
 import { mountBeadCatalogDialog } from './beadCatalogDialog.js';
@@ -136,6 +140,7 @@ export function mountEditorView(appState, hooks) {
   const calibrationResetButton = document.getElementById('calibration-reset');
   const canvasBackgroundModeSelect = document.getElementById('canvas-background-mode');
   const canvasBackgroundCustomSwatchButton = document.getElementById('canvas-background-custom-swatch');
+  const preferencesPreserveStaggerToggleButton = document.getElementById('preferences-preserve-stagger-toggle');
   const beadTypeSelect = document.getElementById('bead-type');
   const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
   const stitchTypeSelect = document.getElementById('stitch-type');
@@ -188,6 +193,9 @@ export function mountEditorView(appState, hooks) {
   const pasteModeBehindButton = document.getElementById('paste-mode-behind');
   const pasteCancelButton = document.getElementById('paste-cancel');
   const pasteConfirmButton = document.getElementById('paste-confirm');
+  const moveControlsEl = document.getElementById('move-controls');
+  const moveCancelButton = document.getElementById('move-cancel');
+  const moveConfirmButton = document.getElementById('move-confirm');
   const photoTraceFileInput = document.getElementById('photo-trace-file');
   const photoTraceLoadButton = document.getElementById('photo-trace-load');
   const photoTraceOpacityLabel = document.getElementById('photo-trace-opacity-label');
@@ -235,11 +243,28 @@ export function mountEditorView(appState, hooks) {
   // not-yet-saved cells in place of what's actually persisted for it. See
   // .work/feature-layers-plan.md. No caching, recomputed on every call —
   // consistent with this codebase's "no dirty tracking" philosophy elsewhere.
+  //
+  // While a move preview is active, the moving cells' ORIGINAL positions are
+  // punched out of the active layer's contribution here (not just at render
+  // time) — appState.cells itself is never touched until Confirm, but the
+  // display (and the eyedropper, which also reads through this) should show
+  // the content as already "picked up," matching drawMovePreviewOverlay's own
+  // ghost at the destination. See handleToolMove/handleMoveConfirm/
+  // handleMoveCancel.
   function composedCellsForDisplay() {
+    const activeLayerCells = appState.movePreview
+      ? cellsWithHolesPunched(appState.cells, appState.movePreview.movingEntries)
+      : appState.cells;
     return composeVisibleLayers(appState.layers, {
       overrideLayerId: appState.activeLayerId,
-      overrideCells: appState.cells,
+      overrideCells: activeLayerCells,
     });
+  }
+
+  function cellsWithHolesPunched(cells, movingEntries) {
+    const holeCells = new Map(cells);
+    for (const [row, col] of movingEntries) holeCells.delete(cellKey(row, col));
+    return holeCells;
   }
 
   function render() {
@@ -260,6 +285,7 @@ export function mountEditorView(appState, hooks) {
     );
     drawSelectionOverlay(ctx, appState.viewport, appState.gridParams, appState.selection);
     drawPastePreviewOverlay(ctx, appState.viewport, appState.gridParams, appState.clipboard, appState.pastePreview, resolveColor);
+    drawMovePreviewOverlay(ctx, appState.viewport, appState.gridParams, appState.movePreview, resolveColor);
     if (appState.showRuler) {
       const topSize = resizeCanvasForDisplay(rulerTopCanvas, rulerTopCtx);
       drawRulerTop(rulerTopCtx, topSize.cssWidth, topSize.cssHeight, appState.viewport, appState.units);
@@ -501,6 +527,7 @@ export function mountEditorView(appState, hooks) {
     updateToolButtons();
     updateSelectionButtons();
     updatePasteControls();
+    updateMoveControls();
   }
 
   function updateToolButtons() {
@@ -588,19 +615,37 @@ export function mountEditorView(appState, hooks) {
     pasteConfirmButton.disabled = !appState.pastePreview;
   }
 
+  // Move-controls (Cancel/Confirm) mirror paste-controls exactly — visible
+  // only while the 'move' tool is active. Confirm stays disabled when
+  // appState.movePreview is null (nothing was actually captured to move —
+  // e.g. an empty selection or an empty active layer, see handleToolMove),
+  // same "nothing to confirm yet" convention as Paste's own Confirm button.
+  function updateMoveControls() {
+    const active = appState.tool === 'move';
+    moveControlsEl.hidden = !active;
+    moveConfirmButton.disabled = !appState.movePreview;
+  }
+
   // If a selection is currently active, anchor at its own top-left — reproduces
   // the old "paste in place" behavior as the starting position for the common
   // Copy-then-Paste flow. Otherwise (e.g. deselected after copying) default to
   // the cell nearest the viewport's center, so a first-time paste doesn't need
   // to be dragged in from a corner.
+  // originAnchorCol is the fixed reference point pointerRouter.js's
+  // resolvePasteAnchorCol resolves every later drag position relative to — a
+  // brand-new preview's own starting column is always the trivially "correct"
+  // registration for its content (nothing has been dragged yet, so there's
+  // nothing to compensate for), so both are stamped on here rather than left
+  // to be inferred later.
   function defaultPasteAnchor() {
     if (appState.selection) {
-      return { anchorRow: appState.selection.rowStart, anchorCol: appState.selection.colStart };
+      const anchorRow = appState.selection.rowStart, anchorCol = appState.selection.colStart;
+      return { anchorRow, anchorCol, originAnchorCol: anchorCol, needsRowCompensation: false };
     }
     const centerWorld = screenToWorld(lastCssSize.cssWidth / 2, lastCssSize.cssHeight / 2, appState.viewport);
     const engine = resolveGridEngine(appState.stitchType);
     const hit = engine.cellAtPointClamped(centerWorld.xMm, centerWorld.yMm, appState.gridParams);
-    return { anchorRow: hit.row, anchorCol: hit.col };
+    return { anchorRow: hit.row, anchorCol: hit.col, originAnchorCol: hit.col, needsRowCompensation: false };
   }
 
   function updatePhotoTraceControls() {
@@ -709,11 +754,13 @@ export function mountEditorView(appState, hooks) {
     appState.layers = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).layers;
     appState.selection = null; // coordinates are meaningless against the new geometry
     appState.pastePreview = null; // coordinates meaningless against the new geometry
-    if (appState.tool === 'paste') setTool('draw');
+    appState.movePreview = null; // baseCells/movingEntries coordinates meaningless against the new geometry
+    if (appState.tool === 'paste' || appState.tool === 'move') setTool('draw');
     clearHistory(appState.history);
     updateHistoryButtons();
     updateSelectionButtons();
     updatePasteControls();
+    updateMoveControls();
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
@@ -798,10 +845,12 @@ export function mountEditorView(appState, hooks) {
     appState.layers = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).layers;
     appState.selection = null; // coordinates are meaningless against the new geometry
     appState.pastePreview = null; // coordinates meaningless against the new geometry
-    if (appState.tool === 'paste') setTool('draw');
+    appState.movePreview = null; // baseCells/movingEntries coordinates meaningless against the new geometry
+    if (appState.tool === 'paste' || appState.tool === 'move') setTool('draw');
     rebuildGridParams();
     updateSelectionButtons();
     updatePasteControls();
+    updateMoveControls();
     fitViewportToGrid();
     updateSizeReadout();
     renderColorPalette();
@@ -1058,6 +1107,19 @@ export function mountEditorView(appState, hooks) {
   // for the "after" state, and later by historyStore's undo/redo (via the
   // apply function passed to pushGeometryChange) to replay either side.
   function commitViewSnapshot(snapshot) {
+    // A pending move's baseCells is a live snapshot of whichever layer/
+    // colorway was active when the move began — this is the one function
+    // every layer/colorway switch, create, and delete (plus undo/redo of any
+    // of them, since this is also what pushGeometryChange replays) funnels
+    // through to actually reassign appState.cells, so it's the single correct
+    // place to catch "the active layer/colorway is about to change out from
+    // under a pending move." Discarding it (not silently auto-confirming) —
+    // a layer/colorway change isn't something the user should be able to
+    // accidentally finalize a move through.
+    if (appState.movePreview) {
+      appState.movePreview = null;
+      if (appState.tool === 'move') setTool('draw');
+    }
     appState.colorways = snapshot.colorways.map((cw) => ({
       ...cw,
       layers: cw.layers.map((l) => ({ ...l, shapeEntries: [...l.shapeEntries], colorEntries: [...l.colorEntries] })),
@@ -1818,6 +1880,7 @@ export function mountEditorView(appState, hooks) {
     calibrationRangeInput.value = String(calibrationFactor * 100);
     updateCalibrationValueLabel();
     updateCanvasBackgroundControls();
+    updatePreserveStaggerToggleButton();
     appState.viewMode = 'actual';
     setViewportToActualSize(calibrationFactor);
     updateResetViewButton();
@@ -1914,6 +1977,26 @@ export function mountEditorView(appState, hooks) {
     scheduleRedraw(); // the ruler's tick spacing/labels depend on the unit too
     hooks.onPreferencesChanged({ units: appState.units });
   }
+  // Names what clicking will DO (same convention as updateUnitToggleButton) —
+  // reads appState.preferences directly rather than a promoted top-level
+  // field, since this is only consulted by pointerRouter.js mid-drag, not
+  // rendering, so it doesn't need the same hot-path treatment showBeadOutlines
+  // gets. `!== false` treats a preferences row saved before this preference
+  // existed as "on" (its default) rather than "off" — see preferencesStore.js.
+  function updatePreserveStaggerToggleButton() {
+    const on = appState.preferences.preserveStaggerOnShift !== false;
+    preferencesPreserveStaggerToggleButton.textContent = on
+      ? 'Allow Any Sideways Shift'
+      : 'Keep Pattern Aligned When Shifting';
+  }
+  function handlePreserveStaggerToggle() {
+    const next = !(appState.preferences.preserveStaggerOnShift !== false);
+    // onPreferencesChanged mutates appState.preferences synchronously (same
+    // guarantee handleCanvasBackgroundModeChange relies on) — call it before
+    // reading the new state back into the button label.
+    hooks.onPreferencesChanged({ preserveStaggerOnShift: next });
+    updatePreserveStaggerToggleButton();
+  }
   // Ruler visibility is a preference-backed session toggle, same pattern as
   // showBeadOutlines — collapsing/expanding its grid track changes the
   // canvas's available space, so this also needs a redraw (resizeCanvasForDisplay
@@ -1952,8 +2035,71 @@ export function mountEditorView(appState, hooks) {
   // Moves the active selection if one exists, else the whole active layer
   // (dragged directly on canvas via pointerRouter.js's startMoveDrag/
   // continueMoveDrag) — see .work/feature-requests-and-bugs.md.
+  // Move is a position-then-confirm flow like Paste: clicking the tool
+  // captures a pristine snapshot of what's being moved right away (the active
+  // selection's own occupied cells, or every occupied cell on the active
+  // layer if nothing's selected — same "which layer" non-question Paste's
+  // own getCells()-is-already-the-active-layer reasoning already covers) at
+  // zero delta, so dragging always continues from a trivially-correct
+  // starting position. Nothing in appState.cells is touched here or during
+  // the drag — only Confirm (handleMoveConfirm) actually applies it. A
+  // no-op if already on the move tool (avoids discarding an in-progress,
+  // not-yet-confirmed position if this fires again, e.g. a redundant click).
   function handleToolMove() {
+    if (appState.tool === 'move') return;
+    const bounds = appState.selection
+      ? {
+          rowStart: appState.selection.rowStart, rowEnd: appState.selection.rowEnd,
+          colStart: appState.selection.colStart, colEnd: appState.selection.colEnd,
+        }
+      : null;
+    const baseCells = new Map(appState.cells);
+    const movingEntries = collectMovingEntries(baseCells, bounds);
+    // An empty selection or an empty active layer has nothing to move —
+    // movePreview stays null (Confirm disabled, per updateMoveControls),
+    // matching how Paste's own Confirm stays disabled with no pastePreview.
+    appState.movePreview = movingEntries.length > 0
+      ? { baseCells, movingEntries, bounds, deltaRow: 0, deltaCol: 0, needsRowCompensation: false }
+      : null;
     setTool('move');
+    scheduleRedraw();
+  }
+  // Confirm applies the accumulated shift as one undo-able patch (via
+  // applyMove — same per-cell "preserve pattern" compensation Paste's own
+  // Confirm applies, see colShiftRowDelta), then ends the move session
+  // entirely: clears the preview, clears the now-stale selection (it would
+  // otherwise sit over the empty hole the content just vacated), and drops
+  // back to Draw — one-and-done, matching Paste's own Confirm exactly. A
+  // repeat move means clicking the Move tool again.
+  function handleMoveConfirm() {
+    if (!appState.movePreview) return;
+    const { baseCells, movingEntries, deltaRow, deltaCol, needsRowCompensation } = appState.movePreview;
+    const computeTarget = (row, col) => ({
+      row: row + deltaRow + colShiftRowDelta(
+        col, needsRowCompensation, appState.gridParams.cols, appState.gridParams.staggerFlipped, appState.gridParams.dropCount ?? 1
+      ),
+      col: col + deltaCol,
+    });
+    const patch = applyMove(appState.cells, baseCells, movingEntries, computeTarget, appState.gridParams.rows, appState.gridParams.cols, new Set());
+    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    appState.movePreview = null;
+    appState.selection = null;
+    updateSelectionButtons();
+    setTool('draw');
+    scheduleRedraw();
+    if (patch.length > 0) {
+      refreshActiveColorwayThumbnail();
+      hooks.onCellsChanged();
+    }
+  }
+  // Discards the preview outright — since nothing was ever mutated during
+  // positioning, this is a pure no-op on the actual design, unlike the old
+  // live-mutating Move which needed applyMove's own touchedKeys machinery to
+  // undo a mid-drag change.
+  function handleMoveCancel() {
+    appState.movePreview = null;
+    setTool('draw');
+    scheduleRedraw();
   }
   // Fired by pointerRouter.js when the eyedropper tool taps an occupied,
   // color-assigned cell. Guards against a dangling colorId (a cell referencing a
@@ -2083,9 +2229,20 @@ export function mountEditorView(appState, hooks) {
   // Draw. One-and-done — a repeat stamp means clicking Paste again.
   function handlePasteConfirm() {
     if (!appState.pastePreview || !appState.clipboard) return;
-    const { anchorRow, anchorCol } = appState.pastePreview;
+    const { anchorRow, anchorCol, originAnchorCol, needsRowCompensation } = appState.pastePreview;
+    // A clipboard cell's OWN starting column (for compensation purposes) is
+    // where it would sit if pasted back at originAnchorCol — the position
+    // it's registered correctly at, per resolvePasteAnchorCol's own comment
+    // in pointerRouter.js — not wherever it's actually landing now.
+    const computeTarget = (relRow, relCol) => ({
+      row: anchorRow + relRow + colShiftRowDelta(
+        originAnchorCol + relCol, needsRowCompensation,
+        appState.gridParams.cols, appState.gridParams.staggerFlipped, appState.gridParams.dropCount ?? 1
+      ),
+      col: anchorCol + relCol,
+    });
     const patch = applyPaste(
-      appState.cells, appState.clipboard, anchorRow, anchorCol,
+      appState.cells, appState.clipboard, computeTarget,
       appState.gridParams.rows, appState.gridParams.cols, appState.pasteMode
     );
     if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
@@ -2122,6 +2279,7 @@ export function mountEditorView(appState, hooks) {
       // reasoning a text field's own undo already takes precedence over the
       // app's undo shortcut.
       if (appState.pastePreview) handlePasteCancel();
+      else if (appState.movePreview) handleMoveCancel();
       else handleDeselect();
       return;
     }
@@ -2258,6 +2416,7 @@ export function mountEditorView(appState, hooks) {
   calibrationResetButton.addEventListener('click', handleCalibrationResetDefault);
   canvasBackgroundModeSelect.addEventListener('change', handleCanvasBackgroundModeChange);
   canvasBackgroundCustomSwatchButton.addEventListener('click', handleCanvasBackgroundCustomSwatchClick);
+  preferencesPreserveStaggerToggleButton.addEventListener('click', handlePreserveStaggerToggle);
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   stitchTypeSelect.addEventListener('change', handleStitchTypeChange);
@@ -2306,6 +2465,8 @@ export function mountEditorView(appState, hooks) {
   pasteModeBehindButton.addEventListener('click', handlePasteModeBehindClick);
   pasteCancelButton.addEventListener('click', handlePasteCancel);
   pasteConfirmButton.addEventListener('click', handlePasteConfirm);
+  moveCancelButton.addEventListener('click', handleMoveCancel);
+  moveConfirmButton.addEventListener('click', handleMoveConfirm);
   photoTraceLoadButton.addEventListener('click', handlePhotoTraceLoadClick);
   photoTraceFileInput.addEventListener('change', handlePhotoTraceFileChange);
   photoTraceOpacityInput.addEventListener('input', handlePhotoTraceOpacityInput);
@@ -2325,6 +2486,9 @@ export function mountEditorView(appState, hooks) {
     getClipboard: () => appState.clipboard,
     getPhotoTrace: () => appState.photoTrace,
     getSelection: () => appState.selection,
+    getPastePreview: () => appState.pastePreview,
+    getMovePreview: () => appState.movePreview,
+    getPreserveStaggerOnShift: () => appState.preferences.preserveStaggerOnShift !== false,
     onViewportChange: scheduleRedraw,
     onCellsChanged: () => {
       scheduleRedraw();
@@ -2344,8 +2508,23 @@ export function mountEditorView(appState, hooks) {
       hooks.onPhotoTraceChanged();
     },
     onPastePreviewChange: (preview) => {
-      appState.pastePreview = preview;
+      // originAnchorCol is the paste session's own fixed reference point for
+      // "preserve pattern" compensation (see pointerRouter.js's
+      // resolvePasteAnchorCol) — set once, when the preview is first created
+      // (below), and must survive every later drag update untouched, not be
+      // overwritten by whatever this particular update's anchorCol happens to
+      // be. needsRowCompensation, by contrast, is recomputed fresh on every
+      // drag update and passes straight through via the spread.
+      appState.pastePreview = { ...preview, originAnchorCol: appState.pastePreview?.originAnchorCol ?? preview.anchorCol };
       updatePasteControls();
+      scheduleRedraw();
+    },
+    onMovePreviewChange: (update) => {
+      // baseCells/movingEntries/bounds were captured once, in handleToolMove,
+      // and must survive every later drag update untouched — only
+      // deltaRow/deltaCol/needsRowCompensation change per frame.
+      appState.movePreview = { ...appState.movePreview, ...update };
+      updateMoveControls();
       scheduleRedraw();
     },
     onColorPicked: handleColorPicked,
@@ -2371,6 +2550,7 @@ export function mountEditorView(appState, hooks) {
   canvasArea.classList.toggle('ruler-hidden', !appState.showRuler);
   rulerToggleButton.setAttribute('aria-pressed', String(appState.showRuler));
   updateUnitToggleButton();
+  updatePreserveStaggerToggleButton();
 
   // Populate lastCssSize before fitViewportToGrid() divides by its dimensions.
   lastCssSize = resizeCanvasForDisplay(canvas, ctx);
@@ -2393,6 +2573,7 @@ export function mountEditorView(appState, hooks) {
     calibrationResetButton.removeEventListener('click', handleCalibrationResetDefault);
     canvasBackgroundModeSelect.removeEventListener('change', handleCanvasBackgroundModeChange);
     canvasBackgroundCustomSwatchButton.removeEventListener('click', handleCanvasBackgroundCustomSwatchClick);
+    preferencesPreserveStaggerToggleButton.removeEventListener('click', handlePreserveStaggerToggle);
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     stitchTypeSelect.removeEventListener('change', handleStitchTypeChange);
@@ -2440,6 +2621,8 @@ export function mountEditorView(appState, hooks) {
     pasteModeBehindButton.removeEventListener('click', handlePasteModeBehindClick);
     pasteCancelButton.removeEventListener('click', handlePasteCancel);
     pasteConfirmButton.removeEventListener('click', handlePasteConfirm);
+    moveCancelButton.removeEventListener('click', handleMoveCancel);
+    moveConfirmButton.removeEventListener('click', handleMoveConfirm);
     photoTraceLoadButton.removeEventListener('click', handlePhotoTraceLoadClick);
     photoTraceFileInput.removeEventListener('change', handlePhotoTraceFileChange);
     photoTraceOpacityInput.removeEventListener('input', handlePhotoTraceOpacityInput);

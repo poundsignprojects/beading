@@ -26,12 +26,19 @@ export function collectMovingEntries(baseCells, bounds) {
   return entries;
 }
 
-// Moves `movingEntries` (see collectMovingEntries) by (deltaRow, deltaCol)
-// against the pristine `baseCells` snapshot, writing the result into the live
-// `cells` Map — front semantics, the moved content always wins wherever it
-// lands (matches applyPaste's default). A destination outside
-// [0,rows)x[0,cols) is dropped, same "clip what doesn't fit" rule applyPaste
-// already uses.
+// Moves `movingEntries` (see collectMovingEntries) against the pristine
+// `baseCells` snapshot, writing the result into the live `cells` Map — front
+// semantics, the moved content always wins wherever it lands (matches
+// applyPaste's default). A destination outside [0,rows)x[0,cols) is dropped,
+// same "clip what doesn't fit" rule applyPaste already uses.
+//
+// `computeTarget(row, col) => {row, col}` replaces a flat (deltaRow, deltaCol)
+// pair so a caller can apply something other than a uniform shift — e.g. the
+// peyote "preserve pattern when shifting" per-cell row compensation (see
+// grid/peyote.js's resolveColShift/colShiftRowDelta) — while this module
+// itself stays completely grid-agnostic, with no idea any of that exists. A
+// plain uniform move is just `(row, col) => ({ row: row + deltaRow, col: col
+// + deltaCol })`.
 //
 // `touchedKeys` is a Set the caller creates once per drag (starting empty)
 // and passes into every call — mutated in place, accumulating every cell key
@@ -46,10 +53,15 @@ export function collectMovingEntries(baseCells, bounds) {
 // Returns the full patch — every touched cell whose final value differs from
 // baseCells — so the caller only pushes history once, at drag end, not once
 // per frame.
-export function applyMove(cells, baseCells, movingEntries, deltaRow, deltaCol, rows, cols, touchedKeys) {
-  for (const [row, col] of movingEntries) {
+export function applyMove(cells, baseCells, movingEntries, computeTarget, rows, cols, touchedKeys) {
+  const targets = movingEntries.map(([row, col]) => {
+    const target = computeTarget(row, col);
+    return [row, col, target.row, target.col];
+  });
+
+  for (const [row, col, targetRow, targetCol] of targets) {
     touchedKeys.add(cellKey(row, col));
-    touchedKeys.add(cellKey(row + deltaRow, col + deltaCol));
+    touchedKeys.add(cellKey(targetRow, targetCol));
   }
 
   // Reset every cell this drag has ever touched back to its pristine baseline.
@@ -60,13 +72,11 @@ export function applyMove(cells, baseCells, movingEntries, deltaRow, deltaCol, r
     else clearCell(cells, row, col);
   }
   // Pick up the source cells...
-  for (const [row, col] of movingEntries) {
+  for (const [row, col] of targets) {
     clearCell(cells, row, col);
   }
-  // ...and place them back shifted.
-  for (const [row, col] of movingEntries) {
-    const targetRow = row + deltaRow;
-    const targetCol = col + deltaCol;
+  // ...and place them back at their (possibly per-cell) target.
+  for (const [row, col, targetRow, targetCol] of targets) {
     if (targetRow < 0 || targetRow >= rows || targetCol < 0 || targetCol >= cols) continue;
     const base = baseCells.get(cellKey(row, col));
     setCell(cells, targetRow, targetCol, base.colorId);

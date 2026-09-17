@@ -525,6 +525,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   appState.history = createHistory();
   appState.selection = null; // coordinates from a previous design's grid don't apply here
   appState.pastePreview = null; // a previous design's preview coordinates don't apply here
+  appState.movePreview = null; // a previous design's baseCells/movingEntries don't apply here
   appState.photoTrace = null; // loaded async below, once the editor is already mounted
   // Small/fast rows, unlike a multi-MB photo blob — awaited before mount rather
   // than loaded async afterward like the photo trace below.

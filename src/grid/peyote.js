@@ -146,6 +146,58 @@ export function peyoteCellAtPointUnbounded(xMm, yMm, beadWidthMm, beadHeightMm, 
 // Does not clamp to grid bounds — callers filter out-of-range results
 // themselves (flood fill already needs a bounds check per neighbor to stop the
 // search).
+// Moving or pasting content sideways by any column delta flips isRaised for
+// every cell in the moved region whenever the shift crosses an odd number of
+// drop groups — see the "preserve pattern" preference this powers
+// (.work/feature-requests-and-bugs.md). The flip is uniform across the whole
+// moved region (every cell shifts by the same delta, so every cell's
+// dropGroup parity flips together), which is exactly why it doesn't look like
+// scrambled noise on its own — it looks like the moved content's own
+// raised/recessed registration silently inverted relative to everything that
+// *didn't* move, which reads as beads bumped up or down half a bead where
+// they shouldn't be.
+//
+// Rather than *avoid* that flip by only allowing "safe" column deltas (which
+// would mean silently skipping every other column — a real usability
+// complaint, not just a cosmetic one), resolveColShift + colShiftRowDelta
+// below *compensate* for it directly: whenever a shift's the wrong parity,
+// every affected cell also gets nudged exactly one row in the one direction
+// that keeps it geometrically adjacent to where it started (the same
+// diagonal-neighbor relationship peyoteNeighbors already encodes for flood
+// fill) — which turns out to reproduce the moved content's exact original
+// relative shape for *every* column delta, not just even ones. Derived and
+// verified against peyoteCellOriginMm directly (see this file's own git
+// history) before ever wiring it into a tool: for an odd number of
+// drop-group-steps, offset(col+deltaCol) is the exact bitwise-complement of
+// offset(col) (dropCount=1: raised<->recessed swap outright), and solving
+// "what integer row keeps yMm(newRow, col+deltaCol) === yMm(row, col) + a
+// single shared constant across the whole moved region" comes out to exactly
+// +1 row for a cell that started recessed, +0 for one that started raised —
+// no other combination keeps every cell's row an integer at once.
+//
+// resolveColShift snaps deltaCol to the nearest multiple of dropCount first
+// (dropCount=1: always exact, no snapping needed at all — this is the
+// improvement over an earlier version of this preference that snapped to
+// 2*dropCount instead and silently skipped every other column) — a
+// non-multiple would split an N-drop group's own columns across two
+// different final groups, which no row nudge can repair, so that part still
+// has to be prevented rather than compensated for.
+export function resolveColShift(deltaCol, dropCount = 1) {
+  const snappedDeltaCol = Math.round(deltaCol / dropCount) * dropCount + 0; // +0 normalizes away a stray -0
+  const groupShift = snappedDeltaCol / dropCount;
+  return { deltaCol: snappedDeltaCol, needsRowCompensation: Math.abs(groupShift) % 2 === 1 };
+}
+
+// The per-cell half of resolveColShift's compensation: `col` is the cell's
+// OWN starting column (not its destination) — a cell that started raised
+// needs no row change; one that started recessed needs +1. Row deltas never
+// need any of this: isRaised depends only on col (see above), so a row-only
+// shift is always exactly safe on its own, with nothing to compensate for.
+export function colShiftRowDelta(col, needsRowCompensation, cols, flipped = false, dropCount = 1) {
+  if (!needsRowCompensation) return 0;
+  return isRaised(col, cols, flipped, dropCount) ? 0 : 1;
+}
+
 export function peyoteNeighbors(row, col, cols, flipped = false, dropCount = 1) {
   const sameGroup = (otherCol) => dropGroup(otherCol, dropCount) === dropGroup(col, dropCount);
   const [a, b] = isRaised(col, cols, flipped, dropCount) ? [row - 1, row] : [row, row + 1];

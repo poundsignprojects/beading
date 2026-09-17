@@ -80,6 +80,10 @@
           <button id="paste-cancel" type="button" class="icon-btn icon-btn-lg" data-icon="x" title="Cancel Paste" aria-label="Cancel Paste"></button>
           <button id="paste-confirm" type="button" class="icon-btn icon-btn-lg" data-icon="check" disabled title="Confirm Paste" aria-label="Confirm Paste"></button>
         </div>
+        <div id="move-controls" role="group" aria-label="Move placement" hidden>
+          <button id="move-cancel" type="button" class="icon-btn icon-btn-lg" data-icon="x" title="Cancel Move" aria-label="Cancel Move"></button>
+          <button id="move-confirm" type="button" class="icon-btn icon-btn-lg" data-icon="check" disabled title="Confirm Move" aria-label="Confirm Move"></button>
+        </div>
         <button id="clear-pattern" type="button" class="icon-btn icon-btn-lg" data-icon="trash-2" title="Clear pattern" aria-label="Clear pattern"></button>
       </div>
       <div id="canvas-area" class="ruler-hidden">
@@ -192,6 +196,11 @@
           </select>
           <button id="canvas-background-custom-swatch" type="button" hidden>Choose Color</button>
         </div>
+      </section>
+      <section id="preferences-move-paste-section" aria-label="Move and paste">
+        <h3>Move &amp; Paste</h3>
+        <p>Shifting content sideways by an odd number of beads flips which beads render raised vs. recessed, which can make the moved content look misaligned with the rest of the pattern. When this is on, every bead in the shifted content is nudged up or down as needed to keep it exactly aligned — you can still shift by any number of beads, none are skipped. Shifting straight up or down is always safe either way.</p>
+        <button id="preferences-preserve-stagger-toggle" type="button"></button>
       </section>
     </div>
   </dialog>
