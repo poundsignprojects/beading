@@ -1,11 +1,17 @@
 To do:
-- Can we get a color picker that is more like the mac native one?
 - add rotate
-- add drop options
+- Make drop menu a dropdown
 - copy color
-- Multiple palettes
 - Global preferences modal — consolidate the scattered preference toggles (units, panel-collapsed, library view mode, and the new print-start-direction) into one modal instead of buttons spread across the top bar/library header/print toolbar. Not scoped/planned yet.
 - Ability to Copy colors between rocaille and delica
 - Add a filter to library. Filter by bead type.
 - Add ability to move items in to folders or tag them
 - In library titles, put bead type on one line, stitch type on another line.
+- Ability to set stash amount per color and get an indicator when going over on a particular pattern.
+- Multiple named palettes (stash would apply across palettes, but not bead types)
+- Superduo patterns
+- Mixed bead design?
+- Working color palette
+- Magic wand select (areas or colors)
+- Move tool
+- single column select
