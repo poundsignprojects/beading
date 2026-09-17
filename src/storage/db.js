@@ -2,16 +2,16 @@
 // designStore.js/preferencesStore.js are the shape-specific layers on top.
 
 const DB_NAME = 'bead-pattern-designer';
-// Bumped 9 -> 10 for the layers feature (see .work/feature-layers-plan.md) —
-// a genuine destructive restructuring of shapeEntries/colorEntries into
-// layers/layerColorEntries, the same class of change the row/col axis
-// refactor was. No new object store is needed (layers live inline in the
-// design record, handled entirely by migrateDesign.js on read), but unlike
-// some of the more recent additive-only bumps, this one *must* bump — its
-// only job is to trip main.js's attemptPreMigrationDriveBackup() pre-migration
-// warning, the same safety net every prior destructive schema change has
-// gotten.
-const DB_VERSION = 10;
+// Bumped 10 -> 11 for making layers per-colorway (see .work/feature-per-
+// colorway-layers-plan.md) — another genuine destructive restructuring
+// (the shared `layers`/`activeLayerId` + per-colorway `layerColorEntries`
+// shape folds into each colorway owning its own `layers`/`activeLayerId`
+// directly), same class of change as the 9 -> 10 bump before it. No new
+// object store needed (still handled entirely by migrateDesign.js on read);
+// this bump exists purely to trip main.js's attemptPreMigrationDriveBackup()
+// pre-migration warning, same safety net every prior destructive schema
+// change has gotten.
+const DB_VERSION = 11;
 
 export function openDatabase() {
   return new Promise((resolve, reject) => {

@@ -1,4 +1,4 @@
-// Design records get migrated on read, in six independent steps, oldest first:
+// Design records get migrated on read, in seven independent steps, oldest first:
 //   1. migrateLegacyColorways — Phase 4/5 designs saved as flat cellEntries (no
 //      colorways field) get wrapped into a single default colorway.
 //   2. migrateAxisConvention — pre-refactor designs (see
@@ -20,10 +20,20 @@
 //      single-layer; this folds the design's own shapeEntries into a single
 //      default layer and every colorway's flat colorEntries into that layer's
 //      slot of a new per-layer layerColorEntries map (see
-//      .work/feature-layers-plan.md). Appended outermost so it always runs
-//      against an already-fully-normalized old-shape record — no earlier step
-//      ever needs to learn about layers.
-// All six steps are idempotent: a record already past a given step passes
+//      .work/feature-layers-plan.md).
+//   7. migrateLayersPerColorway — layers used to be shared across every
+//      colorway of a design (only their colors were per-colorway, via the
+//      layerColorEntries map step 6 introduced); now each colorway owns its
+//      own fully independent set of layers (see .work/feature-per-colorway-
+//      layers-plan.md — a layer created in one colorway never appears in
+//      another, and a new colorway's layers start as a disconnected copy of
+//      the colorway it was created from). This folds the old shared `layers`
+//      array + each colorway's own `layerColorEntries` slice into a `layers`
+//      array (each layer now carrying its own colorEntries directly) plus an
+//      `activeLayerId` stored ON each colorway. Appended outermost so it
+//      always runs against an already-fully-normalized old-shape record — no
+//      earlier step ever needs to learn about this.
+// All seven steps are idempotent: a record already past a given step passes
 // through unchanged. designStore.js's listDesignsSorted re-saves any record
 // any step changed, so migration happens once per design, system-wide.
 
@@ -114,10 +124,16 @@ function migrateDropCount(record) {
 // Every design saved before layers existed was, implicitly, single-layer —
 // its whole shapeEntries becomes that one layer's shapeEntries, and every
 // colorway's flat colorEntries becomes that same layer's slot in a new
-// layerColorEntries map. Gated on field presence, same convention as every
-// other step above.
+// layerColorEntries map. Gated on `record.layers` OR `record.shapeEntries`
+// being absent — not `record.layers` alone: a record already past
+// migrateLayersPerColorway (below) has no top-level `layers` field either
+// (it lives inside each colorway now), so `record.layers` alone can't tell
+// "genuinely pre-layers" apart from "already fully migrated." A record
+// genuinely needing this step always still has a flat top-level
+// shapeEntries to fold; one that doesn't is already past this step one way
+// or the other.
 function migrateLayers(record) {
-  if (record.layers) return record;
+  if (record.layers || record.shapeEntries === undefined) return record;
   const defaultLayerId = generateId();
   const { shapeEntries, ...rest } = record;
   return {
@@ -131,6 +147,33 @@ function migrateLayers(record) {
   };
 }
 
+// Every design saved before layers became per-colorway shared one `layers`
+// array (with each colorway holding only that array's colors, via
+// layerColorEntries) and a single top-level `activeLayerId`. Gated on the
+// top-level `layers` field's own presence — a record already migrated to
+// per-colorway layers has no such field (it was folded into each colorway),
+// so this is naturally idempotent and independent of every other step's gate.
+function migrateLayersPerColorway(record) {
+  if (!record.layers) return record;
+  const { layers: sharedLayers, activeLayerId, ...rest } = record;
+  return {
+    ...rest,
+    colorways: record.colorways.map((cw) => {
+      const { layerColorEntries, ...cwRest } = cw;
+      return {
+        ...cwRest,
+        activeLayerId,
+        layers: sharedLayers.map((layer) => ({
+          ...layer,
+          colorEntries: layerColorEntries[layer.id] ?? [],
+        })),
+      };
+    }),
+  };
+}
+
 export function migrateDesign(record) {
-  return migrateLayers(migrateDropCount(migrateStitchType(migrateStaggerFlip(migrateAxisConvention(migrateLegacyColorways(record))))));
+  return migrateLayersPerColorway(
+    migrateLayers(migrateDropCount(migrateStitchType(migrateStaggerFlip(migrateAxisConvention(migrateLegacyColorways(record))))))
+  );
 }

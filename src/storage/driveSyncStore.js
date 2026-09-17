@@ -38,6 +38,12 @@ const DEFAULT_META = {
   // reports it actually ran migrateLayers on at least one design; cleared
   // only by an explicit manual Back Up Now.
   pendingLayerMigrationReview: false,
+  // Same idea again, tripped by making layers per-colorway (see .work/feature-
+  // per-colorway-layers-plan.md's Backup Safety section). Set by boot() when
+  // listDesignsSortedWithMigrationInfo() reports at least one design was still
+  // on the old shared-layers shape; cleared only by an explicit manual Back Up
+  // Now.
+  pendingLayersPerColorwayMigrationReview: false,
 };
 
 // Merges over DEFAULT_META rather than returning a stored row verbatim — this

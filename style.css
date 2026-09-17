@@ -684,18 +684,6 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.25rem;
 }
 
-#colorway-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.25rem;
-}
-
-#colorway-controls button:disabled {
-  opacity: 0.4;
-  cursor: default;
-}
-
 #selection-controls {
   display: flex;
   gap: 0.4rem;
@@ -1047,6 +1035,85 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .layer-action:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Colorway panel (.work/feature-per-colorway-layers-plan.md) — deliberately
+   styled as a close cousin of #layer-list/.layer-row above: a clickable name
+   (activates the colorway), rename/delete actions right-aligned, plus a
+   thumbnail here (colorways are visually distinct patterns, worth previewing;
+   layers usually aren't on their own). No drag handle — colorways have no
+   stacking-order concept to reorder. */
+#colorway-list {
+  list-style: none;
+  margin: 0 0 0.5rem;
+  padding: 0;
+}
+
+.colorway-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+  border-bottom: 1px solid #e8e8e8;
+  background: #fff;
+}
+
+.colorway-row-active {
+  background: #eef4ff;
+}
+
+.colorway-thumb {
+  width: 2.5rem;
+  height: 2.5rem;
+  flex-shrink: 0;
+  border-radius: 4px;
+  overflow: hidden;
+  background: #eee;
+}
+
+.colorway-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.colorway-name {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  background: none;
+  border: none;
+  font-size: 0.9rem;
+  font-weight: inherit;
+  color: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0;
+}
+
+.colorway-row-active .colorway-name {
+  font-weight: 600;
+}
+
+.colorway-actions {
+  display: flex;
+  gap: 0.25rem;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.colorway-action {
+  background: none;
+  border: none;
+  color: #555;
+  cursor: pointer;
+}
+
+.colorway-action:disabled {
   opacity: 0.4;
   cursor: default;
 }

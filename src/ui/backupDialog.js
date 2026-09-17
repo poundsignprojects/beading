@@ -124,8 +124,13 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     // human looked and chose to proceed, which clicking this button already
     // means.
     const meta = await getDriveSyncMeta(appState.db);
-    if (meta.pendingAxisMigrationReview || meta.pendingLayerMigrationReview) {
-      await saveDriveSyncMeta(appState.db, { ...meta, pendingAxisMigrationReview: false, pendingLayerMigrationReview: false });
+    if (meta.pendingAxisMigrationReview || meta.pendingLayerMigrationReview || meta.pendingLayersPerColorwayMigrationReview) {
+      await saveDriveSyncMeta(appState.db, {
+        ...meta,
+        pendingAxisMigrationReview: false,
+        pendingLayerMigrationReview: false,
+        pendingLayersPerColorwayMigrationReview: false,
+      });
     }
     hideReconnectBanner(); // in case either banner variant was showing
     setMessage('Backing up…');

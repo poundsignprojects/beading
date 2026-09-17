@@ -16,6 +16,10 @@
 //   - Layer-migration-review banner: the same idea, tripped instead by the
 //     layers feature's own destructive restructuring (see
 //     .work/feature-layers-plan.md's Backup Safety section).
+//   - Per-colorway-layers-migration-review banner: the same idea again,
+//     tripped by making layers per-colorway instead of shared across a
+//     design's colorways (see .work/feature-per-colorway-layers-plan.md's
+//     Backup Safety section).
 //
 // Only one banner shows at a time (a second call while one is already
 // showing is a no-op) — the variants are never expected to be relevant
@@ -69,6 +73,16 @@ export function showAxisMigrationReviewBanner(onOpenBackupDialog) {
 export function showLayerMigrationReviewBanner(onOpenBackupDialog) {
   showBanner({
     message: 'This update added layers and changed how patterns are stored — check that your patterns still look right, then back up manually when ready.',
+    actionLabel: 'Open Backup & Sync',
+    onActionClick: onOpenBackupDialog,
+    hideOnAction: false,
+  });
+}
+
+// Same non-hide-on-action treatment as the other review banners above.
+export function showLayersPerColorwayMigrationReviewBanner(onOpenBackupDialog) {
+  showBanner({
+    message: 'This update made layers independent per colorway — check that your patterns still look right, then back up manually when ready.',
     actionLabel: 'Open Backup & Sync',
     onActionClick: onOpenBackupDialog,
     hideOnAction: false,

@@ -203,8 +203,9 @@ export function mountPrintView(appState, hooks) {
   // already renders, with zero separate print-only toggle to keep in sync).
   // overrideLayerId/overrideCells substitute the active layer's live,
   // not-yet-saved cells in place of what's actually persisted for it.
-  const activeColorway = appState.colorways.find((cw) => cw.id === appState.activeColorwayId);
-  const displayCells = composeVisibleLayers(appState.layers, activeColorway, {
+  // appState.layers is already scoped to the currently open colorway (see
+  // .work/feature-per-colorway-layers-plan.md) — no colorway lookup needed.
+  const displayCells = composeVisibleLayers(appState.layers, {
     overrideLayerId: appState.activeLayerId,
     overrideCells: appState.cells,
   });

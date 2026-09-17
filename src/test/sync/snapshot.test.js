@@ -4,9 +4,11 @@ import { assembleSnapshot, planRestore, SNAPSHOT_VERSION } from '../../sync/snap
 
 const designWithColorways = {
   id: 'd1', name: 'Already migrated', beadTypeKey: 'delica11', rows: 2, cols: 2,
-  layers: [{ id: 'l1', name: 'Layer 1', visible: true, order: 0, shapeEntries: ['0,0'] }],
-  activeLayerId: 'l1',
-  colorways: [{ id: 'cw1', name: 'Colorway 1', layerColorEntries: { l1: [['0,0', 'red']] }, createdAt: 1, updatedAt: 1 }],
+  colorways: [{
+    id: 'cw1', name: 'Colorway 1', activeLayerId: 'l1',
+    layers: [{ id: 'l1', name: 'Layer 1', visible: true, order: 0, shapeEntries: ['0,0'], colorEntries: [['0,0', 'red']] }],
+    createdAt: 1, updatedAt: 1,
+  }],
   activeColorwayId: 'cw1', order: 0, axisVersion: 2, staggerFlipped: false, stitchType: 'peyote', dropCount: 1,
 };
 
@@ -64,8 +66,9 @@ test('planRestore: a pre-axis-refactor design in the snapshot gets its rows/cols
   const migrated = plan.designsToCreate[0];
   assert.equal(migrated.rows, 12);
   assert.equal(migrated.cols, 5);
-  assert.deepEqual(migrated.layers[0].shapeEntries, ['0,0', '7,2']);
-  assert.deepEqual(migrated.colorways[0].layerColorEntries[migrated.activeLayerId], [['0,0', 'red'], ['7,2', 'blue']]);
+  const cw = migrated.colorways[0];
+  assert.deepEqual(cw.layers[0].shapeEntries, ['0,0', '7,2']);
+  assert.deepEqual(cw.layers[0].colorEntries, [['0,0', 'red'], ['7,2', 'blue']]);
   assert.equal(migrated.axisVersion, 2);
 });
 
@@ -75,9 +78,9 @@ test('planRestore: a legacy (pre-colorways) design in the snapshot is migrated b
   assert.equal(plan.designsToCreate.length, 1);
   const migrated = plan.designsToCreate[0];
   assert.ok(migrated.colorways, 'migrated design should have colorways');
-  assert.ok(migrated.layers, 'migrated design should have layers');
+  assert.ok(migrated.colorways[0].layers, 'migrated design\'s colorway should have layers');
   assert.equal(migrated.cellEntries, undefined);
-  assert.deepEqual(migrated.layers[0].shapeEntries, ['0,0']);
+  assert.deepEqual(migrated.colorways[0].layers[0].shapeEntries, ['0,0']);
 });
 
 test('planRestore: custom colors and bead catalog entries follow the same skip-existing-id rule', () => {
