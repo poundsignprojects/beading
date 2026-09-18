@@ -83,7 +83,7 @@ import { drawRulerTop, drawRulerLeft } from '../render/rulerRenderer.js';
 import { screenToWorld } from '../render/viewport.js';
 import { attachPointerRouter } from '../interaction/pointerRouter.js';
 import { formatLength } from '../units/convert.js';
-import { createHistory, pushPatch, pushGeometryChange, undo, redo, canUndo, canRedo, clearHistory } from '../state/historyStore.js';
+import { createHistory, pushPatch, pushGeometryChange, undo, redo, canUndo, canRedo, clearHistory, peekUndoContext, peekRedoContext } from '../state/historyStore.js';
 import {
   resizeCells, resizeKeyList, resizeColorEntries, boundingBoxForCells, cropCells, cropKeyList, cropColorEntries,
   axisOffset, compensatedStaggerFlipped,
@@ -545,6 +545,19 @@ export function mountEditorView(appState, hooks) {
   function updateHistoryButtons() {
     undoButton.disabled = !canUndo(appState.history);
     redoButton.disabled = !canRedo(appState.history);
+  }
+
+  // Every cell-patch push (draw/erase strokes, cut, mirror, rotate, move, paste)
+  // goes through this instead of calling historyStore's pushPatch directly, so
+  // every patch is stamped with which layer/colorway it was made on — see
+  // switchContext()/handleUndo()/handleRedo() below for why that's needed now
+  // that switching layers/colorways is no longer itself an undo step.
+  function pushCellPatch(patch) {
+    if (patch.length === 0) return false;
+    const context = { colorwayId: appState.activeColorwayId, layerId: appState.activeLayerId };
+    const pushed = pushPatch(appState.history, patch, context);
+    if (pushed) updateHistoryButtons();
+    return pushed;
   }
 
   // Renders one colorway's thumbnail from its own layers, composited exactly
@@ -1096,17 +1109,19 @@ export function mountEditorView(appState, hooks) {
     // with.
   }
 
-  // --- Shared undo/redo timeline for layer/colorway view changes ------------
-  // Switching, creating, or deleting a layer/colorway is pushed onto the SAME
-  // chronological undo/redo stack as cell edits and resize/crop/rotate — not
-  // a separate per-context history — per direct user request: undo may
-  // legitimately jump to a different layer/colorway (that's the point), it
-  // should just never lose the ability to undo something drawn before a
-  // switch happened. This reuses the exact "before/after snapshot + apply
-  // function" pattern captureGeometrySnapshot/commitGeometrySnapshot already
-  // established for resize/crop/rotate — see historyStore.js's own comment on
-  // why interleaving different kinds of entries on one stack still replays in
-  // correct chronological order regardless of how many kinds there are.
+  // --- Layer/colorway view state, and how it interacts with undo/redo -------
+  // Per direct user request: merely SWITCHING which layer/colorway is active is
+  // a purely visual action, never itself an undo/redo step — it shouldn't be
+  // possible to "undo" back onto a layer/colorway you deliberately navigated
+  // away from. CREATING or DELETING a layer/colorway is a real content change
+  // and stays undoable, pushed onto the same chronological stack as cell edits
+  // and resize/crop/rotate via pushGeometryChange (see historyStore.js's own
+  // comment on why interleaving different kinds of entries on one stack still
+  // replays in correct chronological order). Undoing/redoing a cell patch (a
+  // stroke, cut, mirror, move, paste, ...) still needs to land on whichever
+  // layer/colorway it was actually made on, even though getting there is no
+  // longer a step of its own — see switchContext() and handleUndo()/
+  // handleRedo() below for how that jump happens without being undoable itself.
 
   // Captures which colorway/layer is active, every colorway's own layers, and
   // the active layer's live cells — a colorway's `activeLayerId` field is
@@ -1123,10 +1138,12 @@ export function mountEditorView(appState, hooks) {
   }
 
   // Commits a view snapshot as the design's current state and refreshes every
-  // dependent piece of UI — called directly by switchLayer/switchColorway/
-  // handleLayerNew/handleLayerDelete/handleColorwayNew/handleColorwayDelete
-  // for the "after" state, and later by historyStore's undo/redo (via the
-  // apply function passed to pushGeometryChange) to replay either side.
+  // dependent piece of UI — called directly by switchContext (used by
+  // switchLayer/switchColorway, and by handleUndo/handleRedo's own context
+  // jump) for a plain, non-undoable switch; and by handleLayerNew/
+  // handleLayerDelete/handleColorwayNew/handleColorwayDelete for the "after"
+  // state of an undoable create/delete, later replayed by historyStore's
+  // undo/redo via the apply function passed to pushGeometryChange.
   function commitViewSnapshot(snapshot) {
     // A pending move's baseCells is a live snapshot of whichever layer/
     // colorway was active when the move began — this is the one function
@@ -1155,34 +1172,39 @@ export function mountEditorView(appState, hooks) {
     hooks.onImmediateSave();
   }
 
+  // Switches to a specific (colorwayId, layerId) pair with NO undo/redo entry
+  // — a plain visual navigation, never itself undoable (see the section header
+  // comment above). Folds the currently active layer's live cells back into
+  // its own slot first (foldedColorways()), same as every other view-changing
+  // action in this file. Used directly by switchLayer/switchColorway (an
+  // explicit click) and by handleUndo/handleRedo (jumping to whichever
+  // layer/colorway a patch being undone/redone actually belongs to, without
+  // that jump becoming a history entry of its own). No-op if already there.
+  function switchContext(newColorwayId, newLayerId) {
+    if (newColorwayId === appState.activeColorwayId && newLayerId === appState.activeLayerId) return;
+
+    const updatedColorways = foldedColorways();
+    const targetColorway = updatedColorways.find((cw) => cw.id === newColorwayId);
+    const targetLayer = targetColorway.layers.find((l) => l.id === newLayerId) ?? targetColorway.layers[0];
+    const newCells = materializeLayerCells(targetLayer);
+
+    commitViewSnapshot({
+      activeColorwayId: newColorwayId,
+      activeLayerId: targetLayer.id,
+      cellEntries: [...newCells.entries()],
+      colorways: updatedColorways.map((cw) =>
+        cw.id === newColorwayId ? { ...cw, activeLayerId: targetLayer.id } : cw
+      ),
+    });
+  }
+
   // --- Layers (.work/feature-layers-plan.md, .work/feature-per-colorway-
   // layers-plan.md) --------------------------------------------------------
   // A layer belongs to exactly one colorway — its own shapeEntries AND
   // colorEntries both live directly on the layer object.
 
   function switchLayer(newLayerId) {
-    if (newLayerId === appState.activeLayerId) return;
-    const before = captureViewSnapshot();
-
-    const { shapeEntries, colorEntries } = decomposeCellsForSave(appState.cells);
-    const newLayers = appState.layers.map((layer) =>
-      layer.id === appState.activeLayerId ? { ...layer, shapeEntries, colorEntries } : layer
-    );
-    const newLayer = newLayers.find((layer) => layer.id === newLayerId);
-    const newCells = materializeLayerCells(newLayer);
-
-    const after = {
-      activeColorwayId: appState.activeColorwayId,
-      activeLayerId: newLayerId,
-      cellEntries: [...newCells.entries()],
-      colorways: appState.colorways.map((cw) =>
-        cw.id === appState.activeColorwayId ? { ...cw, activeLayerId: newLayerId, layers: newLayers } : cw
-      ),
-    };
-
-    commitViewSnapshot(after);
-    pushGeometryChange(appState.history, before, after, commitViewSnapshot);
-    updateHistoryButtons();
+    switchContext(appState.activeColorwayId, newLayerId);
   }
 
   // Deliberately does NOT copy any content — unlike a new colorway (an
@@ -1404,23 +1426,13 @@ export function mountEditorView(appState, hooks) {
   // only cells/the layer list/the colorway list's highlight change.
   function switchColorway(newColorwayId) {
     if (newColorwayId === appState.activeColorwayId) return;
-    const before = captureViewSnapshot();
-
-    const updatedColorways = foldedColorways();
-    const target = updatedColorways.find((cw) => cw.id === newColorwayId);
+    // The target colorway's own stored data (nothing here is "live" — only the
+    // CURRENTLY active colorway's active layer has unfolded edits sitting in
+    // appState.cells) already has everything needed to resolve which layer to
+    // land on; switchContext() does the actual fold + switch.
+    const target = appState.colorways.find((cw) => cw.id === newColorwayId);
     const activeLayer = target.layers.find((l) => l.id === target.activeLayerId) ?? target.layers[0];
-    const newCells = materializeLayerCells(activeLayer);
-
-    const after = {
-      activeColorwayId: newColorwayId,
-      activeLayerId: activeLayer.id,
-      cellEntries: [...newCells.entries()],
-      colorways: updatedColorways,
-    };
-
-    commitViewSnapshot(after);
-    pushGeometryChange(appState.history, before, after, commitViewSnapshot);
-    updateHistoryButtons();
+    switchContext(newColorwayId, activeLayer.id);
   }
 
   // Creating a colorway always seeds it as a disconnected copy of the
@@ -2105,7 +2117,7 @@ export function mountEditorView(appState, hooks) {
       col: col + deltaCol,
     });
     const patch = applyMove(appState.cells, baseCells, movingEntries, computeTarget, appState.gridParams.rows, appState.gridParams.cols, new Set());
-    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    pushCellPatch(patch);
     appState.movePreview = null;
     appState.selection = null;
     updateSelectionButtons();
@@ -2154,7 +2166,18 @@ export function mountEditorView(appState, hooks) {
     hooks.onDesignContentChanged();
     hooks.onImmediateSave();
   }
+  // If the patch about to be undone was made on a different layer/colorway
+  // than the one currently active, jump there first (switchContext — not an
+  // undo step of its own) so the undo lands where it actually belongs. A
+  // geometry entry (resize/crop/rotate, or a layer/colorway create/delete)
+  // needs no jump — peekUndoContext returns null for those, since applying
+  // them already restores whichever layer/colorway was active as part of what
+  // they do.
   function handleUndo() {
+    const context = peekUndoContext(appState.history);
+    if (context && (context.colorwayId !== appState.activeColorwayId || context.layerId !== appState.activeLayerId)) {
+      switchContext(context.colorwayId, context.layerId);
+    }
     if (undo(appState.history, appState.cells)) {
       scheduleRedraw();
       updateHistoryButtons();
@@ -2163,6 +2186,10 @@ export function mountEditorView(appState, hooks) {
     }
   }
   function handleRedo() {
+    const context = peekRedoContext(appState.history);
+    if (context && (context.colorwayId !== appState.activeColorwayId || context.layerId !== appState.activeLayerId)) {
+      switchContext(context.colorwayId, context.layerId);
+    }
     if (redo(appState.history, appState.cells)) {
       scheduleRedraw();
       updateHistoryButtons();
@@ -2179,7 +2206,7 @@ export function mountEditorView(appState, hooks) {
     if (!appState.selection) return;
     appState.clipboard = buildClipboard(appState.cells, appState.selection);
     const patch = applyEraseRegion(appState.cells, appState.selection);
-    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    pushCellPatch(patch);
     updateSelectionButtons();
     scheduleRedraw();
     refreshActiveColorwayThumbnail();
@@ -2188,7 +2215,7 @@ export function mountEditorView(appState, hooks) {
   function handleMirror(axis) {
     if (!appState.selection) return;
     const patch = applyMirror(appState.cells, appState.selection, axis);
-    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    pushCellPatch(patch);
     scheduleRedraw();
     refreshActiveColorwayThumbnail();
     hooks.onCellsChanged();
@@ -2205,7 +2232,7 @@ export function mountEditorView(appState, hooks) {
   function handleSelectionRotate180() {
     if (!appState.selection) return;
     const patch = rotateSelection180(appState.cells, appState.selection);
-    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    pushCellPatch(patch);
     scheduleRedraw();
     refreshActiveColorwayThumbnail();
     hooks.onCellsChanged();
@@ -2276,7 +2303,7 @@ export function mountEditorView(appState, hooks) {
       appState.cells, appState.clipboard, computeTarget,
       appState.gridParams.rows, appState.gridParams.cols, appState.pasteMode
     );
-    if (patch.length > 0 && pushPatch(appState.history, patch)) updateHistoryButtons();
+    pushCellPatch(patch);
     appState.pastePreview = null;
     appState.selection = null;
     updateSelectionButtons();
@@ -2526,7 +2553,7 @@ export function mountEditorView(appState, hooks) {
       hooks.onCellsChanged();
     },
     onStrokeCommitted: (patch) => {
-      if (pushPatch(appState.history, patch)) updateHistoryButtons();
+      pushCellPatch(patch);
     },
     onSelectionChange: (selection) => {
       appState.selection = selection;

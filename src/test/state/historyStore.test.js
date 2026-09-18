@@ -9,6 +9,8 @@ import {
   undo,
   redo,
   clearHistory,
+  peekUndoContext,
+  peekRedoContext,
 } from '../../state/historyStore.js';
 
 test('pushPatch: no-ops on an empty patch', () => {
@@ -158,6 +160,57 @@ test('geometry entries and cell patches interleave on one stack in true chronolo
   redo(history, cells);
   assert.deepEqual(cells.get('1,1'), { colorId: 'blue' });
   assert.equal(canRedo(history), false);
+});
+
+test('peekUndoContext/peekRedoContext: null on an empty stack', () => {
+  const history = createHistory();
+  assert.equal(peekUndoContext(history), null);
+  assert.equal(peekRedoContext(history), null);
+});
+
+test('peekUndoContext: returns the context a patch was pushed with, without popping it', () => {
+  const history = createHistory();
+  const context = { colorwayId: 'cw1', layerId: 'l1' };
+  pushPatch(history, [{ row: 0, col: 0, before: undefined, after: { colorId: 'red' } }], context);
+  assert.deepEqual(peekUndoContext(history), context);
+  // Peeking must not consume the entry.
+  assert.deepEqual(peekUndoContext(history), context);
+  assert.equal(canUndo(history), true);
+});
+
+test('peekRedoContext: returns the context of the entry undo() just moved to the redo stack', () => {
+  const history = createHistory();
+  const context = { colorwayId: 'cw1', layerId: 'l1' };
+  const cells = new Map();
+  pushPatch(history, [{ row: 0, col: 0, before: undefined, after: { colorId: 'red' } }], context);
+  undo(history, cells);
+  assert.deepEqual(peekRedoContext(history), context);
+});
+
+test('peekUndoContext/peekRedoContext: null for a geometry entry (no layer/colorway jump needed)', () => {
+  const history = createHistory();
+  pushGeometryChange(history, { cols: 5 }, { cols: 8 }, () => {});
+  assert.equal(peekUndoContext(history), null);
+  undo(history, new Map());
+  assert.equal(peekRedoContext(history), null);
+});
+
+test('pushPatch: defaults to a null context when none is given', () => {
+  const history = createHistory();
+  pushPatch(history, [{ row: 0, col: 0, before: undefined, after: { colorId: 'red' } }]);
+  assert.equal(peekUndoContext(history), null);
+});
+
+test('a patch entry keeps its original context across an undo/redo round trip', () => {
+  const history = createHistory();
+  const context = { colorwayId: 'cw1', layerId: 'l1' };
+  const cells = new Map();
+  pushPatch(history, [{ row: 0, col: 0, before: undefined, after: { colorId: 'red' } }], context);
+  undo(history, cells);
+  redo(history, cells);
+  assert.deepEqual(peekRedoContext(history), null); // redo stack is now empty
+  undo(history, cells);
+  assert.deepEqual(peekRedoContext(history), context);
 });
 
 test('clearHistory: empties both stacks', () => {
