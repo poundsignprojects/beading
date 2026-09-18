@@ -53,8 +53,16 @@ async function ensureDeviceFolders(drive, deviceName) {
 // record (id.json in their own folder) rather than a single combined array —
 // makes a push additive/non-destructive record-by-record, which matters even
 // within one device's own folder (e.g. two rapid pushes racing).
-async function pushRecordsToFolder(drive, folderId, records) {
+//
+// tick() is called right before each record's upload starts, with that
+// record's own name — uploadJson itself does a findByName lookup plus the
+// actual multipart write (two round trips per file), so a library of any real
+// size can take a while over a phone/iPad connection with nothing else to
+// show for it; this is what lets the caller show real progress instead of a
+// single unchanging "Backing up…" message for the whole operation.
+async function pushRecordsToFolder(drive, folderId, records, tick) {
   for (const record of records) {
+    tick?.(record.name ?? record.id);
     await drive.uploadJson(`${record.id}.json`, folderId, record);
   }
 }
@@ -96,21 +104,35 @@ export async function listDeviceBackups(drive) {
 // earlier version of this file, which shared one pool across devices and had
 // to compare Drive's modifiedTime before every write; per-device folders make
 // that guard unnecessary rather than just harder to get right).
-export async function pushBackupToDrive(db, drive, deviceName) {
+//
+// onProgress({phase, index, total, label}), if given, is called throughout —
+// once per record about to upload, plus each of the fixed housekeeping steps
+// (folder setup, the two whole-library summary files) — so a caller can show
+// real "N of M, currently backing up X" progress instead of a single
+// unchanging message for the whole (often multi-request) operation.
+export async function pushBackupToDrive(db, drive, deviceName, onProgress) {
   const meta = await getDriveSyncMeta(db);
-  const { designsFolderId, customColorsFolderId, beadCatalogFolderId, deviceFolderId } = await ensureDeviceFolders(drive, deviceName);
   const { designs, preferences, customColors, beadCatalog } = await readAllStoreData(db);
 
-  await pushRecordsToFolder(drive, designsFolderId, designs);
+  const total = designs.length + customColors.length + beadCatalog.length + 3; // +3 = folder setup, library.json, preferences.json
+  let index = 0;
+  const tick = (phase, label) => onProgress?.({ phase, index: ++index, total, label });
+
+  tick('folders', 'Preparing Drive folders…');
+  const { designsFolderId, customColorsFolderId, beadCatalogFolderId, deviceFolderId } = await ensureDeviceFolders(drive, deviceName);
+
+  await pushRecordsToFolder(drive, designsFolderId, designs, (label) => tick('designs', label));
   const deletedDesignIds = await propagateDeletes(drive, designsFolderId, meta.deletedDesignIds);
 
-  await pushRecordsToFolder(drive, customColorsFolderId, customColors);
+  await pushRecordsToFolder(drive, customColorsFolderId, customColors, (label) => tick('customColors', label));
   const deletedCustomColorIds = await propagateDeletes(drive, customColorsFolderId, meta.deletedCustomColorIds);
 
-  await pushRecordsToFolder(drive, beadCatalogFolderId, beadCatalog);
+  await pushRecordsToFolder(drive, beadCatalogFolderId, beadCatalog, (label) => tick('beadCatalog', label));
   const deletedBeadTypeIds = await propagateDeletes(drive, beadCatalogFolderId, meta.deletedBeadTypeIds);
 
+  tick('library', 'Saving library order…');
   await drive.uploadJson('library.json', deviceFolderId, { designs: designs.map((d) => ({ id: d.id, order: d.order })) });
+  tick('preferences', 'Saving preferences…');
   await drive.uploadJson('preferences.json', deviceFolderId, preferences);
 
   await saveDriveSyncMeta(db, {
@@ -132,11 +154,11 @@ export async function pushBackupToDrive(db, drive, deviceName) {
 // right at the moment a design closes (the plan's "secondary risks" section).
 // main.js calls this (not pushBackupToDrive directly) for both the design-
 // close trigger and the on-boot retry-if-still-pending check.
-export async function pushBackupToDriveTracked(db, drive, deviceName) {
+export async function pushBackupToDriveTracked(db, drive, deviceName, onProgress) {
   const meta = await getDriveSyncMeta(db);
   await saveDriveSyncMeta(db, { ...meta, pendingBackup: true });
   try {
-    const result = await pushBackupToDrive(db, drive, deviceName);
+    const result = await pushBackupToDrive(db, drive, deviceName, onProgress);
     const latest = await getDriveSyncMeta(db);
     await saveDriveSyncMeta(db, { ...latest, pendingBackup: false });
     return result;

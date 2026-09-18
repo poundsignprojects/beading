@@ -35,11 +35,23 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
   const importInput = document.getElementById('backup-local-import-file');
   const importButton = document.getElementById('backup-local-import');
   const messageEl = document.getElementById('backup-message');
+  const progressEl = document.getElementById('backup-progress');
 
   function setMessage(text, isError = false) {
     messageEl.textContent = text;
     messageEl.classList.toggle('backup-message-error', isError);
     messageEl.hidden = !text;
+  }
+
+  function setProgress(progress) {
+    if (!progress) {
+      progressEl.hidden = true;
+      return;
+    }
+    progressEl.hidden = false;
+    progressEl.max = progress.total;
+    progressEl.value = progress.index;
+    setMessage(`Backing up… (${progress.index} of ${progress.total}) ${progress.label}`);
   }
 
   function summarizePlan(plan) {
@@ -78,6 +90,7 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
 
   async function open() {
     setMessage('');
+    setProgress(null);
     await refreshStatus();
     dialog.showModal();
   }
@@ -136,10 +149,12 @@ export function mountBackupDialog(appState, { driveClient, onDataRestored }) {
     setMessage('Backing up…');
     backupNowButton.disabled = true;
     try {
-      const { designCount } = await pushBackupToDriveTracked(appState.db, driveClient, deviceName);
+      const { designCount } = await pushBackupToDriveTracked(appState.db, driveClient, deviceName, setProgress);
       setMessage(`Backed up ${designCount} pattern(s) as "${deviceName}".`);
     } catch (err) {
       setMessage(err.message, true);
+    } finally {
+      setProgress(null);
     }
     await refreshStatus();
   });
