@@ -96,7 +96,7 @@ export function createAppState() {
     // at all; photoTrace persists separately, to its own store — see
     // src/storage/photoTraceStore.js).
     selection: null, // { rowStart, rowEnd, colStart, colEnd } (inclusive) or null
-    clipboard: null, // { rows, cols, cells: [[relRow, relCol, colorId], ...] } or null
+    clipboard: null, // { rows, cols, cells: [[relRow, relCol, colorId], ...], originCol } or null
     photoTrace: null, // { image, opacityPercent, xMm, yMm, widthMm, heightMm } or null
 
     // Draggable paste placement: which side wins where a pending paste overlaps
@@ -105,7 +105,10 @@ export function createAppState() {
     // appState.tool, not persisted with the design. pastePreview holds the anchor
     // of a pending, not-yet-confirmed paste while the 'paste' tool is active.
     pasteMode: 'front', // 'front' | 'behind'
-    pastePreview: null, // { anchorRow, anchorCol, originAnchorCol, needsRowCompensation } or null
+    // { anchorRow, anchorCol, needsRowCompensation } or null. "Preserve pattern"
+    // compensation is resolved against clipboard.originCol (see cutCopyTool.js's
+    // buildClipboard), not anything carried on the preview itself.
+    pastePreview: null,
 
     // Position-then-confirm move, mirroring pastePreview's own shape — set once
     // when the Move tool is entered (capturing what's being moved and its

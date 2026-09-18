@@ -73,7 +73,7 @@ import { resolveSwatchAppearance } from '../palette/colorLibrary.js';
 import { alphaOverWhite } from '../palette/colorConversion.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
 import { resolveGridEngine, stitchTypeLabel } from '../grid/gridEngine.js';
-import { colShiftRowDelta } from '../grid/peyote.js';
+import { colShiftRowDelta, resolveColShift } from '../grid/peyote.js';
 import { resizeCanvasForDisplay, drawGrid } from '../render/canvasRenderer.js';
 import { renderThumbnailDataUrl } from '../render/thumbnailRenderer.js';
 import { drawSelectionOverlay } from '../render/selectionOverlay.js';
@@ -631,21 +631,42 @@ export function mountEditorView(appState, hooks) {
   // Copy-then-Paste flow. Otherwise (e.g. deselected after copying) default to
   // the cell nearest the viewport's center, so a first-time paste doesn't need
   // to be dragged in from a corner.
-  // originAnchorCol is the fixed reference point pointerRouter.js's
-  // resolvePasteAnchorCol resolves every later drag position relative to — a
-  // brand-new preview's own starting column is always the trivially "correct"
-  // registration for its content (nothing has been dragged yet, so there's
-  // nothing to compensate for), so both are stamped on here rather than left
-  // to be inferred later.
+  //
+  // Whichever anchor is picked, it's resolved against appState.clipboard's own
+  // originCol (the column the content was actually copied FROM, fixed at copy
+  // time — see cutCopyTool.js's buildClipboard) rather than assumed correct by
+  // default: the active selection at Paste-click time isn't necessarily the
+  // same selection the clipboard was copied from (e.g. re-entering Paste after
+  // selecting something else), and the viewport-center fallback never is. If
+  // that starting point's parity already differs from the true origin, this
+  // placement needs compensation from the very first frame, not only once the
+  // user starts dragging — otherwise the initial paste can land visibly
+  // distorted relative to the source pattern with nothing having been "shifted"
+  // yet from the user's own perspective.
   function defaultPasteAnchor() {
-    if (appState.selection) {
-      const anchorRow = appState.selection.rowStart, anchorCol = appState.selection.colStart;
-      return { anchorRow, anchorCol, originAnchorCol: anchorCol, needsRowCompensation: false };
+    const raw = appState.selection
+      ? { anchorRow: appState.selection.rowStart, anchorCol: appState.selection.colStart }
+      : (() => {
+          const centerWorld = screenToWorld(lastCssSize.cssWidth / 2, lastCssSize.cssHeight / 2, appState.viewport);
+          const engine = resolveGridEngine(appState.stitchType);
+          const hit = engine.cellAtPointClamped(centerWorld.xMm, centerWorld.yMm, appState.gridParams);
+          return { anchorRow: hit.row, anchorCol: hit.col };
+        })();
+    return { ...raw, ...resolvePasteColFromOrigin(raw.anchorCol) };
+  }
+
+  // Mirrors pointerRouter.js's resolvePasteAnchorCol (same compensation rule,
+  // same "no known origin yet" fallback for a freshly rotated clipboard), just
+  // reading appState directly instead of through hook getters, since this runs
+  // outside the pointer-drag path.
+  function resolvePasteColFromOrigin(rawCol) {
+    const originCol = appState.clipboard?.originCol;
+    const preserveOn = appState.preferences.preserveStaggerOnShift !== false;
+    if (originCol == null || !preserveOn || appState.gridParams.stitchType === 'square') {
+      return { anchorCol: rawCol, needsRowCompensation: false };
     }
-    const centerWorld = screenToWorld(lastCssSize.cssWidth / 2, lastCssSize.cssHeight / 2, appState.viewport);
-    const engine = resolveGridEngine(appState.stitchType);
-    const hit = engine.cellAtPointClamped(centerWorld.xMm, centerWorld.yMm, appState.gridParams);
-    return { anchorRow: hit.row, anchorCol: hit.col, originAnchorCol: hit.col, needsRowCompensation: false };
+    const { deltaCol, needsRowCompensation } = resolveColShift(rawCol - originCol, appState.gridParams.dropCount ?? 1);
+    return { anchorCol: originCol + deltaCol, needsRowCompensation };
   }
 
   function updatePhotoTraceControls() {
@@ -1977,17 +1998,20 @@ export function mountEditorView(appState, hooks) {
     scheduleRedraw(); // the ruler's tick spacing/labels depend on the unit too
     hooks.onPreferencesChanged({ units: appState.units });
   }
-  // Names what clicking will DO (same convention as updateUnitToggleButton) —
-  // reads appState.preferences directly rather than a promoted top-level
-  // field, since this is only consulted by pointerRouter.js mid-drag, not
-  // rendering, so it doesn't need the same hot-path treatment showBeadOutlines
-  // gets. `!== false` treats a preferences row saved before this preference
-  // existed as "on" (its default) rather than "off" — see preferencesStore.js.
+  // A plain on/off switch (aria-pressed drives both the visual slide and
+  // assistive-tech state), not a button whose text names the next state —
+  // that convention (matching updateUnitToggleButton/Reset View) turned out
+  // unclear here specifically: it wasn't obvious what the button's *current*
+  // wording meant would happen on click. Reads appState.preferences directly
+  // rather than a promoted top-level field, since this is only consulted by
+  // pointerRouter.js mid-drag, not rendering, so it doesn't need the same
+  // hot-path treatment showBeadOutlines gets. `!== false` treats a
+  // preferences row saved before this preference existed as "on" (its
+  // default) rather than "off" — see preferencesStore.js.
   function updatePreserveStaggerToggleButton() {
     const on = appState.preferences.preserveStaggerOnShift !== false;
-    preferencesPreserveStaggerToggleButton.textContent = on
-      ? 'Allow Any Sideways Shift'
-      : 'Keep Pattern Aligned When Shifting';
+    preferencesPreserveStaggerToggleButton.setAttribute('aria-pressed', String(on));
+    preferencesPreserveStaggerToggleButton.setAttribute('aria-label', `Preserve Pattern Shape: ${on ? 'on' : 'off'}`);
   }
   function handlePreserveStaggerToggle() {
     const next = !(appState.preferences.preserveStaggerOnShift !== false);
@@ -2197,6 +2221,13 @@ export function mountEditorView(appState, hooks) {
     const clipboard = buildClipboard(appState.cells, appState.selection);
     appState.clipboard = rotateClipboard(clipboard, direction);
     appState.pastePreview = defaultPasteAnchor();
+    // rotateClipboard deliberately leaves originCol unset (a rotated shape has
+    // no prior on-grid position to stay faithful to) — now that the fresh
+    // clipboard's first placement is known (with no compensation applied to
+    // it, per resolvePasteColFromOrigin's originCol==null fallback above),
+    // that placement itself becomes the fixed baseline every later drag/
+    // Confirm compensates against.
+    appState.clipboard.originCol = appState.pastePreview.anchorCol;
     setTool('paste');
     updateSelectionButtons();
     scheduleRedraw();
@@ -2229,14 +2260,14 @@ export function mountEditorView(appState, hooks) {
   // Draw. One-and-done — a repeat stamp means clicking Paste again.
   function handlePasteConfirm() {
     if (!appState.pastePreview || !appState.clipboard) return;
-    const { anchorRow, anchorCol, originAnchorCol, needsRowCompensation } = appState.pastePreview;
+    const { anchorRow, anchorCol, needsRowCompensation } = appState.pastePreview;
     // A clipboard cell's OWN starting column (for compensation purposes) is
-    // where it would sit if pasted back at originAnchorCol — the position
-    // it's registered correctly at, per resolvePasteAnchorCol's own comment
-    // in pointerRouter.js — not wherever it's actually landing now.
+    // where it actually sat when copied — appState.clipboard.originCol, per
+    // cutCopyTool.js's buildClipboard — not wherever this particular paste
+    // session happened to start.
     const computeTarget = (relRow, relCol) => ({
       row: anchorRow + relRow + colShiftRowDelta(
-        originAnchorCol + relCol, needsRowCompensation,
+        appState.clipboard.originCol + relCol, needsRowCompensation,
         appState.gridParams.cols, appState.gridParams.staggerFlipped, appState.gridParams.dropCount ?? 1
       ),
       col: anchorCol + relCol,
@@ -2486,7 +2517,6 @@ export function mountEditorView(appState, hooks) {
     getClipboard: () => appState.clipboard,
     getPhotoTrace: () => appState.photoTrace,
     getSelection: () => appState.selection,
-    getPastePreview: () => appState.pastePreview,
     getMovePreview: () => appState.movePreview,
     getPreserveStaggerOnShift: () => appState.preferences.preserveStaggerOnShift !== false,
     onViewportChange: scheduleRedraw,
@@ -2508,14 +2538,12 @@ export function mountEditorView(appState, hooks) {
       hooks.onPhotoTraceChanged();
     },
     onPastePreviewChange: (preview) => {
-      // originAnchorCol is the paste session's own fixed reference point for
-      // "preserve pattern" compensation (see pointerRouter.js's
-      // resolvePasteAnchorCol) — set once, when the preview is first created
-      // (below), and must survive every later drag update untouched, not be
-      // overwritten by whatever this particular update's anchorCol happens to
-      // be. needsRowCompensation, by contrast, is recomputed fresh on every
-      // drag update and passes straight through via the spread.
-      appState.pastePreview = { ...preview, originAnchorCol: appState.pastePreview?.originAnchorCol ?? preview.anchorCol };
+      // No merge needed: pointerRouter.js's resolvePasteAnchorCol resolves
+      // compensation against appState.clipboard.originCol (fixed at copy
+      // time, see cutCopyTool.js's buildClipboard) rather than anything
+      // carried on the preview itself, so `preview` already has everything
+      // pastePreview needs.
+      appState.pastePreview = preview;
       updatePasteControls();
       scheduleRedraw();
     },

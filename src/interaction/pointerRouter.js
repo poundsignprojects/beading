@@ -131,7 +131,6 @@ export function attachPointerRouter(canvas, viewport, {
   getClipboard,
   getPhotoTrace,
   getSelection,
-  getPastePreview,
   getMovePreview,
   getPreserveStaggerOnShift,
   onViewportChange,
@@ -282,7 +281,8 @@ export function attachPointerRouter(canvas, viewport, {
   // preference is off, or square stitch (no stagger concept to protect),
   // returns the raw delta with no compensation needed at all. Shared by both
   // Move (continueMoveDrag, relative to the drag's own accumulated delta) and
-  // Paste (resolvePasteAnchorCol below, relative to the preview's fixed origin).
+  // Paste (resolvePasteAnchorCol below, relative to the clipboard's own fixed
+  // origin column, not wherever a particular paste session happened to start).
   function resolveColShiftIfEnabled(rawDeltaCol, gridParams) {
     if (!getPreserveStaggerOnShift() || !gridParams || gridParams.stitchType === 'square') {
       return { deltaCol: rawDeltaCol, needsRowCompensation: false };
@@ -315,25 +315,27 @@ export function attachPointerRouter(canvas, viewport, {
     onSelectionChange(normalizeSelection({ row: selectionDrag.startRow, col: selectionDrag.startCol }, hit));
   }
 
-  // Resolves a raw hit-tested anchor column against the paste preview's own
-  // fixed reference point (appState.pastePreview.originAnchorCol, set once
-  // when the preview is first created and preserved across every later
-  // onPastePreviewChange update — see editorView.js) — that starting position
-  // is always trivially "correctly registered" (nothing has been dragged
-  // yet), so every later position only needs to resolve its distance from
-  // *that*, not from wherever this particular drag session happened to begin.
-  // Returns both the resolved anchorCol (dropCount-snapped, only relevant for
-  // dropCount>1) and whether the clipboard's own cells need per-cell row
-  // compensation from that origin — both get stored on appState.pastePreview
-  // so the ghost overlay and the eventual Confirm can apply the identical
-  // compensation without recomputing anything. Falls back to no compensation
-  // when there's no preview yet (the very first placement has nothing to be
-  // relative to) or the preference is off/square stitch.
+  // Resolves a raw hit-tested anchor column against the clipboard's own true
+  // origin column (appState.clipboard.originCol — the absolute column the
+  // content was actually copied FROM, set once in cutCopyTool.js's
+  // buildClipboard/handleSelectionRotate90 and fixed for the clipboard's whole
+  // lifetime) rather than wherever a particular paste session happened to
+  // start — that's what keeps compensation correct across re-entering Paste
+  // from a different selection, or with none active at all (see
+  // buildClipboard's own comment for why the old preview-relative version was
+  // wrong). Returns both the resolved anchorCol (dropCount-snapped, only
+  // relevant for dropCount>1) and whether the clipboard's own cells need
+  // per-cell row compensation from that origin — both get stored on
+  // appState.pastePreview so the ghost overlay and the eventual Confirm can
+  // apply the identical compensation without recomputing anything. Falls back
+  // to no compensation when the clipboard has no known origin yet (a freshly
+  // rotated clipboard, before handleSelectionRotate90 stamps one on) or the
+  // preference is off/square stitch.
   function resolvePasteAnchorCol(rawCol, gridParams) {
-    const preview = getPastePreview();
-    const origin = preview?.originAnchorCol ?? rawCol;
-    const { deltaCol, needsRowCompensation } = resolveColShiftIfEnabled(rawCol - origin, gridParams);
-    return { anchorCol: origin + deltaCol, needsRowCompensation };
+    const originCol = getClipboard()?.originCol;
+    if (originCol == null) return { anchorCol: rawCol, needsRowCompensation: false };
+    const { deltaCol, needsRowCompensation } = resolveColShiftIfEnabled(rawCol - originCol, gridParams);
+    return { anchorCol: originCol + deltaCol, needsRowCompensation };
   }
 
   // Direct hit-testing, not a relative pixel-delta drag: on every move, the anchor

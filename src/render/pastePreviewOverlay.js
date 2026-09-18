@@ -21,15 +21,15 @@ export function drawPastePreviewOverlay(ctx, viewport, gridParams, clipboard, pa
   if (!clipboard || !pastePreview) return;
   const { beadWidthMm, beadHeightMm } = gridParams;
   const engine = resolveGridEngine(gridParams.stitchType);
-  const { anchorRow, anchorCol, originAnchorCol, needsRowCompensation } = pastePreview;
+  const { anchorRow, anchorCol, needsRowCompensation } = pastePreview;
   const dropCount = gridParams.dropCount ?? 1;
   // A clipboard cell's OWN starting column (for compensation purposes) is
-  // where it would sit if pasted back at originAnchorCol — see
-  // resolvePasteAnchorCol's comment in pointerRouter.js and handlePasteConfirm's
-  // matching use of the same formula, so the ghost always previews exactly
-  // where Confirm will actually stamp it.
+  // where it actually sat when copied — clipboard.originCol, per
+  // cutCopyTool.js's buildClipboard — matching handlePasteConfirm's identical
+  // formula in editorView.js, so the ghost always previews exactly where
+  // Confirm will actually stamp it.
   const rowCompFor = (relCol) => colShiftRowDelta(
-    originAnchorCol + relCol, needsRowCompensation, gridParams.cols, gridParams.staggerFlipped, dropCount
+    clipboard.originCol + relCol, needsRowCompensation, gridParams.cols, gridParams.staggerFlipped, dropCount
   );
 
   ctx.save();

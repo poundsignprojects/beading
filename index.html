@@ -199,8 +199,11 @@
       </section>
       <section id="preferences-move-paste-section" aria-label="Move and paste">
         <h3>Move &amp; Paste</h3>
-        <p>Shifting content sideways by an odd number of beads flips which beads render raised vs. recessed, which can make the moved content look misaligned with the rest of the pattern. When this is on, every bead in the shifted content is nudged up or down as needed to keep it exactly aligned — you can still shift by any number of beads, none are skipped. Shifting straight up or down is always safe either way.</p>
-        <button id="preferences-preserve-stagger-toggle" type="button"></button>
+        <p>Shifting content sideways by an odd number of beads can flip which beads render raised vs. recessed, distorting its shape. When on, beads are nudged up or down as needed to keep the original shape intact, no matter how far you shift sideways.</p>
+        <div id="preferences-preserve-stagger-row">
+          <span>Preserve Pattern Shape</span>
+          <button id="preferences-preserve-stagger-toggle" type="button" aria-pressed="true"></button>
+        </div>
       </section>
     </div>
   </dialog>

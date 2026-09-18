@@ -1339,6 +1339,54 @@ input[type="range"]::-moz-range-thumb {
   padding: 0.15rem 0.5rem;
 }
 
+/* A plain on/off switch, not a button whose only difference is text/color —
+   requested directly (2026-09-18) after a "names the next state" button
+   (matching Reset View's own convention) proved unclear here: it wasn't
+   obvious what clicking it would actually produce. min-height/min-width are
+   deliberately NOT the global 2.75rem touch-target floor (see the button/
+   select rule below) — a switch's own pill shape is the touch target. */
+#preferences-preserve-stagger-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+#preferences-preserve-stagger-toggle {
+  position: relative;
+  width: 3.25rem;
+  height: 1.85rem;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #ccc;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+
+#preferences-preserve-stagger-toggle::after {
+  content: '';
+  position: absolute;
+  top: 0.175rem;
+  left: 0.175rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease;
+}
+
+#preferences-preserve-stagger-toggle[aria-pressed="true"] {
+  background: #333;
+}
+
+#preferences-preserve-stagger-toggle[aria-pressed="true"]::after {
+  transform: translateX(1.4rem);
+}
+
 #backup-drive-actions,
 #backup-local-actions {
   display: flex;

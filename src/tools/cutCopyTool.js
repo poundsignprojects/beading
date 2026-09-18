@@ -4,6 +4,16 @@ import { rotatedDimensions, rotatedCoord } from '../state/rotateGrid.js';
 // Reads every occupied cell within `selection`'s bounds into a clipboard object,
 // coordinates relative to the selection's top-left corner. Absent cells inside the
 // bounds are simply not listed — same sparse convention cellsToEntries already uses.
+//
+// originCol is the absolute column the content was actually copied FROM — the one
+// true reference "preserve pattern when shifting" compensation needs (see grid/
+// peyote.js's resolveColShift/colShiftRowDelta) to know whether a given paste
+// anchor represents a real sideways shift relative to the source pattern, or just
+// a different starting point for positioning it. Fixed once here, at copy time, and
+// carried on the clipboard itself rather than derived from wherever a later paste
+// session happens to start (see editorView.js/pointerRouter.js) — that's what makes
+// compensation correct no matter how many times Paste is re-entered, or whether a
+// selection matching the original copy is still active when it is.
 export function buildClipboard(cells, selection) {
   const { rowStart, rowEnd, colStart, colEnd } = selection;
   const entries = [];
@@ -13,7 +23,7 @@ export function buildClipboard(cells, selection) {
       if (cell) entries.push([row - rowStart, col - colStart, cell.colorId]);
     }
   }
-  return { rows: rowEnd - rowStart + 1, cols: colEnd - colStart + 1, cells: entries };
+  return { rows: rowEnd - rowStart + 1, cols: colEnd - colStart + 1, cells: entries, originCol: colStart };
 }
 
 // The erase half of Cut — removes every occupied cell within selection's bounds,
@@ -75,6 +85,11 @@ export function applyPaste(cells, clipboard, computeTarget, rows, cols, mode = '
 // stamped back in place the way rotateSelection180 can, so it's routed
 // through this + the existing paste-preview flow instead (see
 // .work/feature-ruler-rotation-viewmode-datefix-plan.md §2).
+// Deliberately omits originCol: a rotated shape has no prior on-grid position to
+// stay faithful to (rotation itself already reshapes it), so there's no single
+// "true origin column" it makes sense to compensate against — the caller
+// (editorView.js's handleSelectionRotate90) stamps one on once it knows where the
+// rotated ghost will first appear, so later drags still have a stable baseline.
 export function rotateClipboard(clipboard, direction) {
   const { rows, cols, cells } = clipboard;
   const rotatedCells = cells.map(([relRow, relCol, colorId]) => {
