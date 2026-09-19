@@ -95,7 +95,12 @@ export function createAppState() {
     // design's saved shape/color data (clipboard and selection aren't persisted
     // at all; photoTrace persists separately, to its own store — see
     // src/storage/photoTraceStore.js).
-    selection: null, // { rowStart, rowEnd, colStart, colEnd } (inclusive) or null
+    // { rowStart, rowEnd, colStart, colEnd, mask? } (inclusive bounds) or null.
+    // mask (Set<cellKey>, optional — see tools/magicWandTool.js) marks a
+    // non-rectangular selection; rowStart/rowEnd/colStart/colEnd are always the
+    // bounding box of just the masked cells. Absent/null mask = an ordinary
+    // rectangular marquee selection, where every cell in the bounds applies.
+    selection: null,
     clipboard: null, // { rows, cols, cells: [[relRow, relCol, colorId], ...], originCol } or null
     photoTrace: null, // { image, opacityPercent, xMm, yMm, widthMm, heightMm } or null
 

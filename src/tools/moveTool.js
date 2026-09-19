@@ -8,13 +8,21 @@ import { cellKey, setCell, clearCell } from '../state/cellStore.js';
 // pattern's grid is empty, so a whole-layer move only ever touches cells that
 // are actually occupied. Computed once per drag (bounds/baseCells never
 // change mid-drag, only the delta does).
+//
+// bounds.mask (Set<cellKey>, optional — see tools/magicWandTool.js and
+// .work/feature-lasso-select-plan.md) restricts which cells within the
+// bounding box are actually picked up, same guard buildClipboard/
+// applyEraseRegion already apply — a rectangular marquee selection carries no
+// mask and every occupied cell in the bounds moves, unchanged from before.
 export function collectMovingEntries(baseCells, bounds) {
   const entries = [];
   if (bounds) {
-    const { rowStart, rowEnd, colStart, colEnd } = bounds;
+    const { rowStart, rowEnd, colStart, colEnd, mask } = bounds;
     for (let row = rowStart; row <= rowEnd; row++) {
       for (let col = colStart; col <= colEnd; col++) {
-        if (baseCells.has(cellKey(row, col))) entries.push([row, col]);
+        const key = cellKey(row, col);
+        if (mask && !mask.has(key)) continue;
+        if (baseCells.has(key)) entries.push([row, col]);
       }
     }
   } else {

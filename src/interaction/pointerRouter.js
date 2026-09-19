@@ -6,6 +6,7 @@ import { applyDrawAtCell } from '../tools/drawTool.js';
 import { applyEraseAtCell } from '../tools/eraseTool.js';
 import { applyFill } from '../tools/fillTool.js';
 import { applyColorReplace } from '../tools/colorReplaceTool.js';
+import { selectWandContiguous, selectWandGlobal } from '../tools/magicWandTool.js';
 import { scalePhotoToAnchor, normalizeRotationDeg } from '../state/photoTrace.js';
 import { interpolatedWorldPoints } from './dragTrace.js';
 import { createStrokePatch, recordCellChange, strokePatchToArray } from '../state/strokePatch.js';
@@ -40,16 +41,19 @@ const EDGE_PAN_MAX_SPEED_PX_PER_FRAME = 14;
 
 // draw/erase: continuous drag, interpolated between move events (unchanged from
 // Phase 2). fill/replace: one action per pointerdown, no interpolation — a flood
-// fill only makes sense at the tapped cell. paste is no longer a discrete tap-to-
-// stamp action — it's a drag-to-position preview, confirmed explicitly (see
-// startPastePreviewDrag/continuePastePreviewDrag below). eyedropper is its own
-// branch, not part of DISCRETE_TOOLS — unlike fill/replace it never mutates
-// cells, so it has no patch to commit through onStrokeCommitted. move is a
-// direct drag like draw/erase (mutates cells live, commits one patch at the
-// end) rather than a position-then-confirm flow like paste — see
-// startMoveDrag/continueMoveDrag below.
+// fill only makes sense at the tapped cell. wand-contiguous/wand-global are the
+// selection-producing counterparts of fill/replace (see tools/magicWandTool.js) —
+// same one-tap-per-action shape, but they call onSelectionChange with a masked
+// selection instead of onStrokeCommitted with a cell patch, since neither mutates
+// cells. paste is no longer a discrete tap-to-stamp action — it's a drag-to-position
+// preview, confirmed explicitly (see startPastePreviewDrag/continuePastePreviewDrag
+// below). eyedropper is its own branch, not part of DISCRETE_TOOLS — unlike fill/
+// replace it never mutates cells, so it has no patch to commit through
+// onStrokeCommitted. move is a direct drag like draw/erase (mutates cells live,
+// commits one patch at the end) rather than a position-then-confirm flow like
+// paste — see startMoveDrag/continueMoveDrag below.
 const STROKE_TOOLS = new Set(['draw', 'erase']);
-const DISCRETE_TOOLS = new Set(['fill', 'replace']);
+const DISCRETE_TOOLS = new Set(['fill', 'replace', 'wand-contiguous', 'wand-global']);
 
 function normalizeSelection(a, b) {
   return {
@@ -199,9 +203,13 @@ export function attachPointerRouter(canvas, viewport, {
     drawStroke = null;
   }
 
-  // One-shot action for fill/replace: hit-tests the tapped cell, applies the
-  // active discrete tool, and commits the result as a single undo-able patch via
-  // the same onStrokeCommitted path draw/erase strokes already use.
+  // One-shot action for fill/replace/magic-wand: hit-tests the tapped cell and
+  // applies the active discrete tool. fill/replace mutate cells and commit the
+  // result as a single undo-able patch via the same onStrokeCommitted path draw/
+  // erase strokes already use; wand-contiguous/wand-global instead resolve a
+  // masked selection (see tools/magicWandTool.js) and report it via
+  // onSelectionChange, exactly like a marquee drag would — they never touch
+  // cells, so there's nothing to commit.
   function performDiscreteAction(point) {
     const worldPoint = screenToWorld(point.x, point.y, viewport);
     const gridParams = getGridParams();
@@ -218,6 +226,15 @@ export function attachPointerRouter(canvas, viewport, {
       const source = cells.get(cellKey(hit.row, hit.col));
       if (!source) return; // tapped an empty cell — nothing to replace
       patch = applyColorReplace(cells, source.colorId, getColorId());
+    } else if (tool === 'wand-contiguous') {
+      const selection = selectWandContiguous(cells, hit.row, hit.col, gridParams.rows, gridParams.cols, (r, c) => engine.neighbors(r, c, gridParams));
+      onSelectionChange(selection);
+      return;
+    } else if (tool === 'wand-global') {
+      const source = cells.get(cellKey(hit.row, hit.col));
+      if (!source) return; // tapped an empty cell — nothing to select
+      onSelectionChange(selectWandGlobal(cells, source.colorId));
+      return;
     }
     if (patch && patch.length > 0) {
       onCellsChanged();

@@ -517,7 +517,14 @@ export function mountEditorView(appState, hooks) {
     toolFillButton.setAttribute('aria-pressed', String(appState.tool === 'fill'));
     toolReplaceButton.setAttribute('aria-pressed', String(appState.tool === 'replace'));
     toolEyedropperButton.setAttribute('aria-pressed', String(appState.tool === 'eyedropper'));
-    toolSelectButton.setAttribute('aria-pressed', String(appState.tool === 'select'));
+    // Pressed for the wand tools too — they're variants of Select reached via
+    // its long-press menu, waiting for a tap to resolve into an actual
+    // selection (which switches appState.tool to 'select' itself, see
+    // onSelectionChange below).
+    toolSelectButton.setAttribute(
+      'aria-pressed',
+      String(appState.tool === 'select' || appState.tool === 'wand-contiguous' || appState.tool === 'wand-global')
+    );
     toolMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move'));
     selectionPasteButton.setAttribute('aria-pressed', String(appState.tool === 'paste'));
     photoTraceMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move-photo'));
@@ -577,8 +584,16 @@ export function mountEditorView(appState, hooks) {
     selectionControlsEl.hidden = appState.tool !== 'select';
     const selection = appState.selection;
     const hasSelection = !!selection;
+    // A magic-wand-produced selection (see tools/magicWandTool.js) can be
+    // non-contiguous or irregularly shaped within its own bounding box —
+    // Mirror is a swap between geometrically-opposite cells, which has no
+    // well-defined result when only one side of a pair falls inside the mask
+    // (same reasoning .work/feature-lasso-select-plan.md already worked out
+    // for a polygon selection). Copy/Cut/Paste/Rotate-90° are unaffected —
+    // they already respect selection.mask via cutCopyTool.js.
+    const hasMask = hasSelection && !!selection.mask;
     const width = hasSelection ? selection.colEnd - selection.colStart + 1 : 0;
-    const blocksMirror = appState.stitchType === 'peyote' && hasSelection && !canMirrorHorizontally(width, appState.dropCount);
+    const blocksMirror = hasMask || (appState.stitchType === 'peyote' && hasSelection && !canMirrorHorizontally(width, appState.dropCount));
     selectionCopyButton.disabled = !hasSelection;
     selectionCutButton.disabled = !hasSelection;
     // Mirror/Rotate stay enabled whenever a selection exists at all — unlike
@@ -590,9 +605,11 @@ export function mountEditorView(appState, hooks) {
     // own comment: 180° swaps within the same footprint, 90°/270° never try to
     // fit rotated content back into the original footprint in the first place).
     selectionMirrorButton.disabled = !hasSelection;
-    selectionMirrorButton.title = blocksMirror
-      ? 'Mirror Horizontal needs a selection width compatible with this pattern\'s drop count — long-press or right-click for Mirror Vertical'
-      : 'Mirror Horizontal (long-press or right-click for Mirror Vertical)';
+    selectionMirrorButton.title = hasMask
+      ? 'Mirror isn\'t available for this selection\'s shape'
+      : blocksMirror
+        ? 'Mirror Horizontal needs a selection width compatible with this pattern\'s drop count — long-press or right-click for Mirror Vertical'
+        : 'Mirror Horizontal (long-press or right-click for Mirror Vertical)';
     selectionRotateButton.disabled = !hasSelection;
     selectionPasteButton.disabled = !appState.clipboard;
     selectionDeselectButton.disabled = !hasSelection;
@@ -2030,6 +2047,19 @@ export function mountEditorView(appState, hooks) {
   function handleToolSelect() {
     setTool('select');
   }
+  // Magic wand — two variants, reached via #tool-select's long-press/right-click
+  // menu rather than their own top-level tool buttons (see registerLongPressMenu
+  // below). Each is a one-tap discrete action (pointerRouter.js's
+  // performDiscreteAction) that resolves a masked selection instead of drawing —
+  // the tool switches to 'select' itself once onSelectionChange reports the
+  // result (see that hook, in attachPointerRouter's hooks object below), so
+  // #selection-controls appears with Copy/Cut/Paste ready to use immediately.
+  function handleToolWandContiguous() {
+    setTool('wand-contiguous');
+  }
+  function handleToolWandGlobal() {
+    setTool('wand-global');
+  }
   // Moves the active selection if one exists, else the whole active layer
   // (dragged directly on canvas via pointerRouter.js's startMoveDrag/
   // continueMoveDrag) — see .work/feature-requests-and-bugs.md.
@@ -2049,6 +2079,7 @@ export function mountEditorView(appState, hooks) {
       ? {
           rowStart: appState.selection.rowStart, rowEnd: appState.selection.rowEnd,
           colStart: appState.selection.colStart, colEnd: appState.selection.colEnd,
+          mask: appState.selection.mask, // magic-wand selections restrict which cells move — see collectMovingEntries
         }
       : null;
     const baseCells = new Map(appState.cells);
@@ -2195,6 +2226,10 @@ export function mountEditorView(appState, hooks) {
   // nothing.
   function handleMirrorDefaultTap() {
     if (!appState.selection) return;
+    if (appState.selection.mask) {
+      showToast('Mirror isn\'t available for a magic wand selection — its shape has no well-defined mirror image.');
+      return;
+    }
     const width = appState.selection.colEnd - appState.selection.colStart + 1;
     const blocksMirror = appState.stitchType === 'peyote' && !canMirrorHorizontally(width, appState.dropCount);
     if (blocksMirror) {
@@ -2500,17 +2535,39 @@ export function mountEditorView(appState, hooks) {
   // selection state with no separate "refresh the menu" call needed.
   registerLongPressMenu(selectionMirrorButton, () => {
     const selection = appState.selection;
+    // A magic-wand-produced (masked) selection blocks both mirror axes — see
+    // updateSelectionButtons' own comment on why a swap-based op has no
+    // well-defined result for an irregular shape.
+    const hasMask = !!selection?.mask;
     const width = selection ? selection.colEnd - selection.colStart + 1 : 0;
-    const blocksMirror = appState.stitchType === 'peyote' && !!selection && !canMirrorHorizontally(width, appState.dropCount);
+    const blocksHorizontal = hasMask || (appState.stitchType === 'peyote' && !!selection && !canMirrorHorizontally(width, appState.dropCount));
     return [
-      { label: 'Mirror Horizontal', icon: 'flip-horizontal-2', disabled: blocksMirror, onSelect: handleMirrorHorizontal },
-      { label: 'Mirror Vertical', icon: 'flip-vertical-2', onSelect: handleMirrorVertical },
+      { label: 'Mirror Horizontal', icon: 'flip-horizontal-2', disabled: blocksHorizontal, onSelect: handleMirrorHorizontal },
+      { label: 'Mirror Vertical', icon: 'flip-vertical-2', disabled: hasMask, onSelect: handleMirrorVertical },
     ];
   });
-  registerLongPressMenu(selectionRotateButton, () => [
-    { label: 'Rotate 90° CW', icon: 'rotate-cw', onSelect: handleSelectionRotate90Cw },
-    { label: 'Rotate 90° CCW', icon: 'rotate-ccw', onSelect: handleSelectionRotate90Ccw },
-    { label: 'Rotate 180°', icon: 'rotate-cw-square', onSelect: handleSelectionRotate180 },
+  registerLongPressMenu(selectionRotateButton, () => {
+    // 180° is an in-place swap like Mirror, so it's blocked by the same
+    // masked-selection restriction; 90°/270° route through Copy's own
+    // clipboard (already mask-aware, see cutCopyTool.js) and are unaffected.
+    const blocksInPlaceRotate = !!appState.selection?.mask;
+    return [
+      { label: 'Rotate 90° CW', icon: 'rotate-cw', onSelect: handleSelectionRotate90Cw },
+      { label: 'Rotate 90° CCW', icon: 'rotate-ccw', onSelect: handleSelectionRotate90Ccw },
+      { label: 'Rotate 180°', icon: 'rotate-cw-square', disabled: blocksInPlaceRotate, onSelect: handleSelectionRotate180 },
+    ];
+  });
+  registerLongPressMenu(toolSelectButton, () => [
+    {
+      label: 'Magic Wand: Color Area',
+      icon: 'wand-sparkles',
+      onSelect: handleToolWandContiguous,
+    },
+    {
+      label: 'Magic Wand: All of Color',
+      icon: 'wand-sparkles',
+      onSelect: handleToolWandGlobal,
+    },
   ]);
   pasteModeFrontButton.addEventListener('click', handlePasteModeFrontClick);
   pasteModeBehindButton.addEventListener('click', handlePasteModeBehindClick);
@@ -2550,7 +2607,16 @@ export function mountEditorView(appState, hooks) {
     },
     onSelectionChange: (selection) => {
       appState.selection = selection;
-      updateSelectionButtons();
+      // A magic-wand tap resolves a selection while appState.tool is still
+      // 'wand-contiguous'/'wand-global' — once it does, switch to 'select' so
+      // #selection-controls appears immediately with Copy/Cut/Paste ready,
+      // same as if the user had drawn a marquee (setTool already calls
+      // updateSelectionButtons internally).
+      if (selection && (appState.tool === 'wand-contiguous' || appState.tool === 'wand-global')) {
+        setTool('select');
+      } else {
+        updateSelectionButtons();
+      }
       scheduleRedraw();
     },
     onPhotoTraceChange: () => {

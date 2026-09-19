@@ -13,6 +13,16 @@ test('collectMovingEntries: with bounds, only occupied cells within them are pic
   assert.deepEqual(sorted, [[0, 0], [1, 1]].sort());
 });
 
+test('collectMovingEntries: a mask on bounds restricts to only the masked cells within the box', () => {
+  const cells = new Map();
+  setCell(cells, 0, 0, 'red');
+  setCell(cells, 0, 1, 'red'); // inside bounds, but NOT in the mask
+  setCell(cells, 1, 1, 'blue');
+  const bounds = { rowStart: 0, rowEnd: 1, colStart: 0, colEnd: 1, mask: new Set(['0,0', '1,1']) };
+  const entries = collectMovingEntries(cells, bounds).sort();
+  assert.deepEqual(entries, [[0, 0], [1, 1]].sort());
+});
+
 test('collectMovingEntries: with bounds null, every occupied cell is picked up (whole-layer move)', () => {
   const cells = new Map();
   setCell(cells, 0, 0, 'red');

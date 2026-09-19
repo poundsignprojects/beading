@@ -14,26 +14,35 @@ import { rotatedDimensions, rotatedCoord } from '../state/rotateGrid.js';
 // session happens to start (see editorView.js/pointerRouter.js) — that's what makes
 // compensation correct no matter how many times Paste is re-entered, or whether a
 // selection matching the original copy is still active when it is.
+//
+// selection.mask (Set<cellKey>, optional — see tools/magicWandTool.js and
+// .work/feature-lasso-select-plan.md) restricts which cells within the bounding
+// box actually belong to the selection; a rectangular marquee selection has no
+// mask at all and every cell in the bounds is fair game, unchanged from before.
 export function buildClipboard(cells, selection) {
-  const { rowStart, rowEnd, colStart, colEnd } = selection;
+  const { rowStart, rowEnd, colStart, colEnd, mask } = selection;
   const entries = [];
   for (let row = rowStart; row <= rowEnd; row++) {
     for (let col = colStart; col <= colEnd; col++) {
-      const cell = cells.get(cellKey(row, col));
+      const key = cellKey(row, col);
+      if (mask && !mask.has(key)) continue;
+      const cell = cells.get(key);
       if (cell) entries.push([row - rowStart, col - colStart, cell.colorId]);
     }
   }
   return { rows: rowEnd - rowStart + 1, cols: colEnd - colStart + 1, cells: entries, originCol: colStart };
 }
 
-// The erase half of Cut — removes every occupied cell within selection's bounds,
+// The erase half of Cut — removes every occupied cell within selection's bounds
+// (restricted to selection.mask, when present — see buildClipboard's comment),
 // returning the patch so it's undo-able exactly like any other multi-cell action.
 export function applyEraseRegion(cells, selection) {
-  const { rowStart, rowEnd, colStart, colEnd } = selection;
+  const { rowStart, rowEnd, colStart, colEnd, mask } = selection;
   const patch = [];
   for (let row = rowStart; row <= rowEnd; row++) {
     for (let col = colStart; col <= colEnd; col++) {
       const key = cellKey(row, col);
+      if (mask && !mask.has(key)) continue;
       const before = cells.get(key);
       if (!before) continue;
       patch.push({ row, col, before, after: undefined });

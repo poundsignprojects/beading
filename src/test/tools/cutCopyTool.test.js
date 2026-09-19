@@ -15,6 +15,20 @@ test('buildClipboard: mixed occupied/absent selection produces relative coords, 
   assert.deepEqual(sorted, [[0, 0, 'red'], [1, 1, 'blue']].sort());
 });
 
+test('buildClipboard: a mask restricts to only the masked cells within the bounding box', () => {
+  const cells = new Map();
+  setCell(cells, 5, 5, 'red');
+  setCell(cells, 5, 6, 'red'); // same color, inside the bounding box, but NOT in the mask
+  setCell(cells, 6, 6, 'blue');
+  const selection = {
+    rowStart: 5, rowEnd: 6, colStart: 5, colEnd: 6,
+    mask: new Set(['5,5', '6,6']), // an irregular (magic-wand-shaped) selection
+  };
+  const clipboard = buildClipboard(cells, selection);
+  const sorted = [...clipboard.cells].sort();
+  assert.deepEqual(sorted, [[0, 0, 'red'], [1, 1, 'blue']].sort());
+});
+
 test('buildClipboard -> applyPaste round-trip at the same anchor reproduces the region', () => {
   const cells = new Map();
   setCell(cells, 5, 5, 'red');
@@ -88,6 +102,26 @@ test('applyEraseRegion: only touches occupied cells within bounds, patch matches
   assert.equal(cells.has('0,0'), false);
   assert.equal(cells.has('1,1'), false);
   assert.equal(cells.get('9,9').colorId, 'green');
+});
+
+test('applyEraseRegion: a mask leaves an occupied cell inside the bounding box but outside the mask untouched', () => {
+  const cells = new Map();
+  setCell(cells, 0, 0, 'red');
+  setCell(cells, 0, 1, 'red'); // inside bounds, same color, NOT in the mask — must survive
+  setCell(cells, 1, 1, 'blue');
+  const selection = {
+    rowStart: 0, rowEnd: 1, colStart: 0, colEnd: 1,
+    mask: new Set(['0,0', '1,1']),
+  };
+  const patch = applyEraseRegion(cells, selection);
+  const sorted = patch.slice().sort((a, b) => a.row - b.row);
+  assert.deepEqual(sorted, [
+    { row: 0, col: 0, before: { colorId: 'red' }, after: undefined },
+    { row: 1, col: 1, before: { colorId: 'blue' }, after: undefined },
+  ]);
+  assert.equal(cells.has('0,0'), false);
+  assert.equal(cells.has('1,1'), false);
+  assert.equal(cells.get('0,1').colorId, 'red'); // untouched — outside the mask
 });
 
 test('rotateClipboard: cw swaps rows/cols dimensions and matches rotateGrid.js\'s hand-derived coordinates', () => {

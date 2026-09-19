@@ -12,5 +12,4 @@ To do:
 - Superduo patterns
 - Mixed bead design?
 - Working color palette
-- Magic wand select (areas or colors)
 - single column select
