@@ -19,6 +19,8 @@
 import { findPatternsUsingBeadType } from '../palette/beadTypeUsage.js';
 import { orderForInsertAt } from '../state/designOrder.js';
 import { createIcon } from './icons.js';
+import { showToast } from './toast.js';
+import { openActionMenu } from './actionMenu.js';
 
 const NEW_BEAD_TYPE_DEFAULTS = { widthMm: 1.6, heightMm: 1.3, cornerRadiusFraction: 0, holeMm: null, diameterMm: null };
 const MIN_GEOMETRY_MM = 0.1; // widthMm/heightMm drive grid math — must stay positive
@@ -85,23 +87,18 @@ export function mountBeadCatalogDialog(appState, hooks) {
       field.dataset.beadTypeId = beadType.id;
     }
 
-    const renameButton = document.createElement('button');
-    renameButton.type = 'button';
-    renameButton.className = 'icon-btn bead-catalog-action';
-    renameButton.setAttribute('aria-label', 'Rename');
-    renameButton.title = 'Rename';
-    renameButton.append(createIcon('pencil'));
-    renameButton.addEventListener('click', () => handleRename(beadType.id));
+    const moreButton = document.createElement('button');
+    moreButton.type = 'button';
+    moreButton.className = 'icon-btn bead-catalog-action';
+    moreButton.setAttribute('aria-label', `More actions for ${beadType.name}`);
+    moreButton.title = 'More actions';
+    moreButton.append(createIcon('ellipsis-vertical'));
+    moreButton.addEventListener('click', () => openActionMenu(moreButton, [
+      { label: 'Rename', icon: 'pencil', onSelect: () => handleRename(beadType.id) },
+      { label: 'Delete', icon: 'trash-2', destructive: true, onSelect: () => handleDelete(beadType.id) },
+    ]));
 
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'icon-btn bead-catalog-action';
-    deleteButton.setAttribute('aria-label', 'Delete');
-    deleteButton.title = 'Delete';
-    deleteButton.append(createIcon('trash-2'));
-    deleteButton.addEventListener('click', () => handleDelete(beadType.id));
-
-    row.append(handle, name, widthField, heightField, cornerField, holeField, diameterField, renameButton, deleteButton);
+    row.append(handle, name, widthField, heightField, cornerField, holeField, diameterField, moreButton);
     return row;
   }
 
@@ -138,13 +135,13 @@ export function mountBeadCatalogDialog(appState, hooks) {
     const usage = findPatternsUsingBeadType(appState.designs, id);
     if (usage.length > 0) {
       const lines = usage.map((u) => u.designName).join('\n');
-      window.alert(
+      showToast(
         `This bead type is used in ${usage.length} pattern${usage.length === 1 ? '' : 's'} and can't be deleted:\n\n${lines}`
       );
       return;
     }
     if (appState.beadCatalog.length <= 1) {
-      window.alert('At least one bead type must remain.');
+      showToast('At least one bead type must remain.');
       return;
     }
     if (!window.confirm('Delete this bead type?')) return;

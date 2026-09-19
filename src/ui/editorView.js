@@ -103,6 +103,9 @@ import { mountBeadCatalogDialog } from './beadCatalogDialog.js';
 import { promptCopyColorTarget } from './copyColorDialog.js';
 import { promptConvertBeadType } from './convertBeadTypeDialog.js';
 import { promptColorPicker } from './colorPickerDialog.js';
+import { registerLongPressMenu } from './longPressTooltip.js';
+import { openActionMenu } from './actionMenu.js';
+import { showToast } from './toast.js';
 
 const CLEAR_CONFIRM_MESSAGE = 'This pattern has beads placed. Clear them?';
 const REMOVE_PHOTO_CONFIRM_MESSAGE = 'Remove the reference photo?';
@@ -182,11 +185,8 @@ export function mountEditorView(appState, hooks) {
   const selectionCopyButton = document.getElementById('selection-copy');
   const selectionCutButton = document.getElementById('selection-cut');
   const selectionPasteButton = document.getElementById('selection-paste');
-  const selectionMirrorHButton = document.getElementById('selection-mirror-h');
-  const selectionMirrorVButton = document.getElementById('selection-mirror-v');
-  const selectionRotate180Button = document.getElementById('selection-rotate-180');
-  const selectionRotate90CwButton = document.getElementById('selection-rotate-90-cw');
-  const selectionRotate90CcwButton = document.getElementById('selection-rotate-90-ccw');
+  const selectionMirrorButton = document.getElementById('selection-mirror');
+  const selectionRotateButton = document.getElementById('selection-rotate');
   const selectionDeselectButton = document.getElementById('selection-deselect');
   const pasteControlsEl = document.getElementById('paste-controls');
   const pasteModeFrontButton = document.getElementById('paste-mode-front');
@@ -478,41 +478,22 @@ export function mountEditorView(appState, hooks) {
     main.className = 'color-manage-main';
     main.append(handle, swatch, name);
 
-    const editButton = document.createElement('button');
-    editButton.type = 'button';
-    editButton.className = 'icon-btn color-manage-action';
-    editButton.setAttribute('aria-label', 'Edit color');
-    editButton.title = 'Edit color';
-    editButton.append(createIcon('palette'));
-    editButton.addEventListener('click', () => handleColorEditClick(color.id));
-
-    const copyButton = document.createElement('button');
-    copyButton.type = 'button';
-    copyButton.className = 'icon-btn color-manage-action';
-    copyButton.setAttribute('aria-label', 'Copy to another bead type');
-    copyButton.title = 'Copy to another bead type';
-    copyButton.append(createIcon('log-in'));
-    copyButton.addEventListener('click', () => handleColorCopyTo(color.id));
-
-    const renameButton = document.createElement('button');
-    renameButton.type = 'button';
-    renameButton.className = 'icon-btn color-manage-action';
-    renameButton.setAttribute('aria-label', 'Rename');
-    renameButton.title = 'Rename';
-    renameButton.append(createIcon('pencil'));
-    renameButton.addEventListener('click', () => handleColorRename(color.id));
-
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'icon-btn color-manage-action';
-    deleteButton.setAttribute('aria-label', 'Delete');
-    deleteButton.title = 'Delete';
-    deleteButton.append(createIcon('trash-2'));
-    deleteButton.addEventListener('click', () => handleColorDelete(color.id));
+    const moreButton = document.createElement('button');
+    moreButton.type = 'button';
+    moreButton.className = 'icon-btn color-manage-action';
+    moreButton.setAttribute('aria-label', `More actions for ${color.name}`);
+    moreButton.title = 'More actions';
+    moreButton.append(createIcon('ellipsis-vertical'));
+    moreButton.addEventListener('click', () => openActionMenu(moreButton, [
+      { label: 'Edit Color', icon: 'palette', onSelect: () => handleColorEditClick(color.id) },
+      { label: 'Copy to Another Bead Type', icon: 'log-in', onSelect: () => handleColorCopyTo(color.id) },
+      { label: 'Rename', icon: 'pencil', onSelect: () => handleColorRename(color.id) },
+      { label: 'Delete', icon: 'trash-2', destructive: true, onSelect: () => handleColorDelete(color.id) },
+    ]));
 
     const actions = document.createElement('div');
     actions.className = 'color-manage-actions';
-    actions.append(editButton, copyButton, renameButton, deleteButton);
+    actions.append(moreButton);
 
     row.append(main, actions);
     return row;
@@ -600,20 +581,19 @@ export function mountEditorView(appState, hooks) {
     const blocksMirror = appState.stitchType === 'peyote' && hasSelection && !canMirrorHorizontally(width, appState.dropCount);
     selectionCopyButton.disabled = !hasSelection;
     selectionCutButton.disabled = !hasSelection;
-    selectionMirrorHButton.disabled = !hasSelection || blocksMirror;
-    selectionMirrorHButton.title = blocksMirror
-      ? 'Mirror Horizontal needs a selection width compatible with this pattern\'s drop count (an incompatible width would land content on the wrong bead stagger)'
-      : '';
-    selectionMirrorVButton.disabled = !hasSelection;
-    // Unlike Mirror Horizontal, rotation has no even/odd restriction at all:
-    // 180° swaps content within the same footprint (no dimension change, same
-    // non-issue as whole-canvas 180° — see rotateGrid.js), and 90°/270° never
-    // try to fit rotated content back into the original footprint in the first
-    // place — they go through the copy→rotate→paste flow instead, which can
-    // place an H×W result anywhere regardless of the source selection's shape.
-    selectionRotate180Button.disabled = !hasSelection;
-    selectionRotate90CwButton.disabled = !hasSelection;
-    selectionRotate90CcwButton.disabled = !hasSelection;
+    // Mirror/Rotate stay enabled whenever a selection exists at all — unlike
+    // the old separate mirror-h/mirror-v buttons, this one button's default
+    // tap (Mirror Horizontal) is blocked individually by handleMirrorDefaultTap
+    // (which toasts an explanation instead of silently no-oping), while the
+    // long-press/right-click menu still offers Mirror Vertical regardless
+    // (rotation has no such restriction at all — see handleSelectionRotate90's
+    // own comment: 180° swaps within the same footprint, 90°/270° never try to
+    // fit rotated content back into the original footprint in the first place).
+    selectionMirrorButton.disabled = !hasSelection;
+    selectionMirrorButton.title = blocksMirror
+      ? 'Mirror Horizontal needs a selection width compatible with this pattern\'s drop count — long-press or right-click for Mirror Vertical'
+      : 'Mirror Horizontal (long-press or right-click for Mirror Vertical)';
+    selectionRotateButton.disabled = !hasSelection;
     selectionPasteButton.disabled = !appState.clipboard;
     selectionDeselectButton.disabled = !hasSelection;
   }
@@ -1067,11 +1047,11 @@ export function mountEditorView(appState, hooks) {
     }
     const box = boundingBoxForCells(unionKeys);
     if (!box) {
-      window.alert('No beads placed yet — nothing to crop to.');
+      showToast('No beads placed yet — nothing to crop to.');
       return;
     }
     if (box.minRow === 0 && box.minCol === 0 && box.rows === appState.rows && box.cols === appState.cols) {
-      window.alert('Already cropped tightly to the design.');
+      showToast('Already cropped tightly to the design.');
       return;
     }
 
@@ -1342,32 +1322,23 @@ export function mountEditorView(appState, hooks) {
     name.textContent = layer.name;
     name.addEventListener('click', () => switchLayer(layer.id));
 
-    const renameButton = document.createElement('button');
-    renameButton.type = 'button';
-    renameButton.className = 'icon-btn layer-action';
-    renameButton.setAttribute('aria-label', 'Rename layer');
-    renameButton.title = 'Rename';
-    renameButton.append(createIcon('pencil'));
-    renameButton.addEventListener('click', (e) => {
+    const moreButton = document.createElement('button');
+    moreButton.type = 'button';
+    moreButton.className = 'icon-btn layer-action';
+    moreButton.setAttribute('aria-label', `More actions for ${layer.name}`);
+    moreButton.title = 'More actions';
+    moreButton.append(createIcon('ellipsis-vertical'));
+    moreButton.addEventListener('click', (e) => {
       e.stopPropagation();
-      handleLayerRename(layer.id);
-    });
-
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'icon-btn layer-action';
-    deleteButton.setAttribute('aria-label', 'Delete layer');
-    deleteButton.title = 'Delete';
-    deleteButton.append(createIcon('trash-2'));
-    deleteButton.disabled = appState.layers.length <= 1;
-    deleteButton.addEventListener('click', (e) => {
-      e.stopPropagation();
-      handleLayerDelete(layer.id);
+      openActionMenu(moreButton, [
+        { label: 'Rename', icon: 'pencil', onSelect: () => handleLayerRename(layer.id) },
+        { label: 'Delete', icon: 'trash-2', destructive: true, disabled: appState.layers.length <= 1, onSelect: () => handleLayerDelete(layer.id) },
+      ]);
     });
 
     const actions = document.createElement('div');
     actions.className = 'layer-actions';
-    actions.append(renameButton, deleteButton);
+    actions.append(moreButton);
 
     row.append(handle, visibilityButton, name, actions);
     return row;
@@ -1562,32 +1533,23 @@ export function mountEditorView(appState, hooks) {
     name.textContent = cw.name;
     name.addEventListener('click', () => switchColorway(cw.id));
 
-    const renameButton = document.createElement('button');
-    renameButton.type = 'button';
-    renameButton.className = 'icon-btn colorway-action';
-    renameButton.setAttribute('aria-label', 'Rename colorway');
-    renameButton.title = 'Rename';
-    renameButton.append(createIcon('pencil'));
-    renameButton.addEventListener('click', (e) => {
+    const moreButton = document.createElement('button');
+    moreButton.type = 'button';
+    moreButton.className = 'icon-btn colorway-action';
+    moreButton.setAttribute('aria-label', `More actions for ${cw.name}`);
+    moreButton.title = 'More actions';
+    moreButton.append(createIcon('ellipsis-vertical'));
+    moreButton.addEventListener('click', (e) => {
       e.stopPropagation();
-      handleColorwayRename(cw.id);
-    });
-
-    const deleteButton = document.createElement('button');
-    deleteButton.type = 'button';
-    deleteButton.className = 'icon-btn colorway-action';
-    deleteButton.setAttribute('aria-label', 'Delete colorway');
-    deleteButton.title = 'Delete';
-    deleteButton.append(createIcon('trash-2'));
-    deleteButton.disabled = appState.colorways.length <= 1;
-    deleteButton.addEventListener('click', (e) => {
-      e.stopPropagation();
-      handleColorwayDelete(cw.id);
+      openActionMenu(moreButton, [
+        { label: 'Rename', icon: 'pencil', onSelect: () => handleColorwayRename(cw.id) },
+        { label: 'Delete', icon: 'trash-2', destructive: true, disabled: appState.colorways.length <= 1, onSelect: () => handleColorwayDelete(cw.id) },
+      ]);
     });
 
     const actions = document.createElement('div');
     actions.className = 'colorway-actions';
-    actions.append(renameButton, deleteButton);
+    actions.append(moreButton);
 
     row.append(thumb, name, actions);
     return row;
@@ -1810,7 +1772,7 @@ export function mountEditorView(appState, hooks) {
     const color = appState.customColors.find((c) => c.id === id);
     if (!color) return;
     if (appState.beadCatalog.length <= 1) {
-      window.alert('No other bead types to copy to yet.');
+      showToast('No other bead types to copy to yet.');
       return;
     }
     const targetBeadTypeKey = await promptCopyColorTarget({
@@ -1831,7 +1793,7 @@ export function mountEditorView(appState, hooks) {
       const lines = usage.map((u) =>
         u.colorwayNames.length > 1 ? `${u.designName} (${u.colorwayNames.join(', ')})` : u.designName
       );
-      window.alert(
+      showToast(
         `This color is used in ${usage.length} pattern${usage.length === 1 ? '' : 's'} and can't be deleted:\n\n${lines.join('\n')}`
       );
       return;
@@ -2226,6 +2188,23 @@ export function mountEditorView(appState, hooks) {
   function handleMirrorVertical() {
     handleMirror('vertical');
   }
+  // The consolidated #selection-mirror button's plain tap (not its long-press/
+  // right-click menu) — Mirror Horizontal is the default action, but unlike
+  // the old dedicated button this one stays enabled even when blocked, so a
+  // tap while blocked explains why via a toast instead of silently doing
+  // nothing.
+  function handleMirrorDefaultTap() {
+    if (!appState.selection) return;
+    const width = appState.selection.colEnd - appState.selection.colStart + 1;
+    const blocksMirror = appState.stitchType === 'peyote' && !canMirrorHorizontally(width, appState.dropCount);
+    if (blocksMirror) {
+      showToast(
+        'Mirror Horizontal needs a selection width compatible with this pattern\'s drop count (an incompatible width would land content on the wrong bead stagger).'
+      );
+      return;
+    }
+    handleMirrorHorizontal();
+  }
   // 180° keeps the selection's own W×H footprint (see rotateGrid.js's
   // rotatedDimensions), so — exactly like Mirror — it's an immediate in-place
   // swap, no paste flow needed.
@@ -2513,12 +2492,26 @@ export function mountEditorView(appState, hooks) {
   selectionCopyButton.addEventListener('click', handleCopy);
   selectionCutButton.addEventListener('click', handleCut);
   selectionPasteButton.addEventListener('click', handlePasteButtonClick);
-  selectionMirrorHButton.addEventListener('click', handleMirrorHorizontal);
-  selectionMirrorVButton.addEventListener('click', handleMirrorVertical);
-  selectionRotate180Button.addEventListener('click', handleSelectionRotate180);
-  selectionRotate90CwButton.addEventListener('click', handleSelectionRotate90Cw);
-  selectionRotate90CcwButton.addEventListener('click', handleSelectionRotate90Ccw);
+  selectionMirrorButton.addEventListener('click', handleMirrorDefaultTap);
+  selectionRotateButton.addEventListener('click', handleSelectionRotate90Cw);
   selectionDeselectButton.addEventListener('click', handleDeselect);
+  // getItems is called fresh on every long-press/right-click (see
+  // registerLongPressMenu's own doc comment) — always reflects current
+  // selection state with no separate "refresh the menu" call needed.
+  registerLongPressMenu(selectionMirrorButton, () => {
+    const selection = appState.selection;
+    const width = selection ? selection.colEnd - selection.colStart + 1 : 0;
+    const blocksMirror = appState.stitchType === 'peyote' && !!selection && !canMirrorHorizontally(width, appState.dropCount);
+    return [
+      { label: 'Mirror Horizontal', icon: 'flip-horizontal-2', disabled: blocksMirror, onSelect: handleMirrorHorizontal },
+      { label: 'Mirror Vertical', icon: 'flip-vertical-2', onSelect: handleMirrorVertical },
+    ];
+  });
+  registerLongPressMenu(selectionRotateButton, () => [
+    { label: 'Rotate 90° CW', icon: 'rotate-cw', onSelect: handleSelectionRotate90Cw },
+    { label: 'Rotate 90° CCW', icon: 'rotate-ccw', onSelect: handleSelectionRotate90Ccw },
+    { label: 'Rotate 180°', icon: 'rotate-cw-square', onSelect: handleSelectionRotate180 },
+  ]);
   pasteModeFrontButton.addEventListener('click', handlePasteModeFrontClick);
   pasteModeBehindButton.addEventListener('click', handlePasteModeBehindClick);
   pasteCancelButton.addEventListener('click', handlePasteCancel);
@@ -2666,11 +2659,8 @@ export function mountEditorView(appState, hooks) {
     selectionCopyButton.removeEventListener('click', handleCopy);
     selectionCutButton.removeEventListener('click', handleCut);
     selectionPasteButton.removeEventListener('click', handlePasteButtonClick);
-    selectionMirrorHButton.removeEventListener('click', handleMirrorHorizontal);
-    selectionMirrorVButton.removeEventListener('click', handleMirrorVertical);
-    selectionRotate180Button.removeEventListener('click', handleSelectionRotate180);
-    selectionRotate90CwButton.removeEventListener('click', handleSelectionRotate90Cw);
-    selectionRotate90CcwButton.removeEventListener('click', handleSelectionRotate90Ccw);
+    selectionMirrorButton.removeEventListener('click', handleMirrorDefaultTap);
+    selectionRotateButton.removeEventListener('click', handleSelectionRotate90Cw);
     selectionDeselectButton.removeEventListener('click', handleDeselect);
     pasteModeFrontButton.removeEventListener('click', handlePasteModeFrontClick);
     pasteModeBehindButton.removeEventListener('click', handlePasteModeBehindClick);

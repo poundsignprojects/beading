@@ -45,7 +45,7 @@
         <button id="print-export" type="button" class="icon-btn" data-icon="printer" title="Print / Export" aria-label="Print / Export"></button>
       </div>
       <div id="top-bar-right">
-        <div id="top-bar-divider" role="separator" aria-hidden="true"></div>
+        <div class="toolbar-divider" role="separator" aria-hidden="true"></div>
         <div id="history-controls" role="group" aria-label="History">
           <button id="undo-button" type="button" class="icon-btn icon-btn-lg" data-icon="undo-2" disabled title="Undo" aria-label="Undo"></button>
           <button id="redo-button" type="button" class="icon-btn icon-btn-lg" data-icon="redo-2" disabled title="Redo" aria-label="Redo"></button>
@@ -61,17 +61,16 @@
           <button id="tool-replace" type="button" class="icon-btn icon-btn-lg" data-icon="replace" aria-pressed="false" title="Replace" aria-label="Replace"></button>
           <button id="tool-eyedropper" type="button" class="icon-btn icon-btn-lg" data-icon="pipette" aria-pressed="false" title="Eyedropper" aria-label="Eyedropper"></button>
           <button id="tool-select" type="button" class="icon-btn icon-btn-lg" data-icon="lasso-select" aria-pressed="false" title="Select" aria-label="Select"></button>
-          <button id="tool-move" type="button" class="icon-btn icon-btn-lg" data-icon="move" aria-pressed="false" title="Move" aria-label="Move"></button>
         </div>
         <div id="selection-controls" role="group" aria-label="Selection" hidden>
-          <button id="selection-copy" type="button" class="icon-btn icon-btn-lg" data-icon="copy" disabled title="Copy" aria-label="Copy"></button>
+          <button id="tool-move" type="button" class="icon-btn icon-btn-lg" data-icon="move" aria-pressed="false" title="Move" aria-label="Move"></button>
           <button id="selection-cut" type="button" class="icon-btn icon-btn-lg" data-icon="scissors" disabled title="Cut" aria-label="Cut"></button>
+          <button id="selection-copy" type="button" class="icon-btn icon-btn-lg" data-icon="copy" disabled title="Copy" aria-label="Copy"></button>
           <button id="selection-paste" type="button" class="icon-btn icon-btn-lg" data-icon="clipboard-paste" disabled title="Paste" aria-label="Paste"></button>
-          <button id="selection-mirror-h" type="button" class="icon-btn icon-btn-lg" data-icon="flip-horizontal-2" disabled title="Mirror Horizontal" aria-label="Mirror Horizontal"></button>
-          <button id="selection-mirror-v" type="button" class="icon-btn icon-btn-lg" data-icon="flip-vertical-2" disabled title="Mirror Vertical" aria-label="Mirror Vertical"></button>
-          <button id="selection-rotate-180" type="button" class="icon-btn icon-btn-lg" data-icon="rotate-cw-square" disabled title="Rotate Selection 180°" aria-label="Rotate Selection 180°"></button>
-          <button id="selection-rotate-90-ccw" type="button" class="icon-btn icon-btn-lg" data-icon="rotate-ccw" disabled title="Rotate Selection 90° CCW" aria-label="Rotate Selection 90° counterclockwise"></button>
-          <button id="selection-rotate-90-cw" type="button" class="icon-btn icon-btn-lg" data-icon="rotate-cw" disabled title="Rotate Selection 90° CW" aria-label="Rotate Selection 90° clockwise"></button>
+          <div class="toolbar-divider" role="separator" aria-hidden="true"></div>
+          <button id="selection-mirror" type="button" class="icon-btn icon-btn-lg" data-icon="flip-horizontal-2" data-has-menu disabled title="Mirror Horizontal (long-press or right-click for Mirror Vertical)" aria-label="Mirror Horizontal — long-press or right-click for more options"></button>
+          <button id="selection-rotate" type="button" class="icon-btn icon-btn-lg" data-icon="rotate-cw" data-has-menu disabled title="Rotate 90° CW (long-press or right-click for more angles)" aria-label="Rotate 90° clockwise — long-press or right-click for more options"></button>
+          <div class="toolbar-divider" role="separator" aria-hidden="true"></div>
           <button id="selection-deselect" type="button" class="icon-btn icon-btn-lg" data-icon="square-x" disabled title="Deselect (Esc)" aria-label="Deselect"></button>
         </div>
         <div id="paste-controls" role="group" aria-label="Paste placement" hidden>

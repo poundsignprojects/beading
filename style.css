@@ -184,6 +184,113 @@ input[type="range"]::-moz-range-thumb {
   pointer-events: none;
 }
 
+/* Action menu (src/ui/actionMenu.js) — a small popup anchored near its
+   trigger, opened either by longPressTooltip.js's long-press/right-click (a
+   tool-rail button consolidating several variants, e.g. Mirror/Rotate) or a
+   plain click on a row's "⋯" overflow button. Fixed positioning + high
+   z-index for the same top-layer-over-an-open-dialog reason as the tooltip
+   above; position (left/top) is computed and set inline per-open. */
+#action-menu {
+  position: fixed;
+  z-index: 9999;
+  min-width: 11rem;
+  padding: 0.3rem;
+  border-radius: 8px;
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.15);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+}
+
+.action-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.6rem;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: #222;
+  font-size: 0.9rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.action-menu-item:disabled {
+  color: #aaa;
+  cursor: default;
+}
+
+.action-menu-item:not(:disabled):active {
+  background: #f0f0f0;
+}
+
+.action-menu-item-destructive {
+  color: #b3261e;
+}
+
+/* Marks a button as menu-capable (long-press or right-click reveals more
+   options beyond its default tap action) — a small corner dot, since
+   otherwise it looks identical to a plain single-action icon button with no
+   hint that anything else is reachable. */
+[data-has-menu] {
+  position: relative;
+}
+
+[data-has-menu]::after {
+  content: '';
+  position: absolute;
+  bottom: 0.3rem;
+  right: 0.3rem;
+  width: 0.35rem;
+  height: 0.35rem;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+/* Toast (src/ui/toast.js) — non-blocking replacement for the purely
+   informational window.alert() calls; confirm()/prompt() calls needing a
+   real decision are untouched. Top-center, clear of the bottom-anchored
+   #drive-reconnect-banner and the top-bar itself. */
+#toast {
+  position: fixed;
+  top: calc(0.75rem + env(safe-area-inset-top));
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9999;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+  max-width: min(26rem, calc(100vw - 1.5rem));
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: rgba(20, 20, 20, 0.92);
+  color: #fff;
+  font-size: 0.85rem;
+  line-height: 1.35;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+}
+
+#toast-message {
+  flex: 1;
+  white-space: pre-line;
+}
+
+#toast-close {
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1;
+  min-height: 0;
+  padding: 0 0.2rem;
+}
+
 /* Reconnect banner (src/ui/driveReconnectBanner.js) — appended directly to
    document.body (like #long-press-tooltip above), shown automatically when a
    silent Google Drive reconnect fails, either at boot or when an automatic
@@ -604,13 +711,22 @@ input[type="range"]::-moz-range-thumb {
   margin-left: auto;
 }
 
+/* Fixed min-width so buttons after these readouts in the flex row don't shift
+   position every time the text gets longer/shorter (e.g. switching between
+   "34%" and "100% (Actual Size)", or mm vs. in). Sized generously against the
+   longest realistic string for each, verified in headless Chromium rather
+   than guessed — see the readout-reflow fix note. */
 #size-readout {
+  display: inline-block;
+  min-width: 10rem;
   color: #444;
   white-space: nowrap;
   margin-left: 0.25rem;
 }
 
 #scale-readout {
+  display: inline-block;
+  min-width: 9.5rem;
   color: #777;
   font-size: 0.85em;
   white-space: nowrap;
@@ -633,11 +749,22 @@ input[type="range"]::-moz-range-thumb {
   color: #444;
 }
 
-#top-bar-divider {
+/* Generalized from the top bar's original #top-bar-divider (a vertical line
+   between two flex items in a row) — reused as-is in #top-bar-right, and
+   flipped to a horizontal line below for #selection-controls, whose buttons
+   stack in a column instead. */
+.toolbar-divider {
   width: 1px;
   align-self: stretch;
   margin: 0.25rem 0.15rem;
   background: #ccc;
+}
+
+#selection-controls .toolbar-divider {
+  width: auto;
+  height: 1px;
+  align-self: stretch;
+  margin: 0.15rem 0.25rem;
 }
 
 #editor-body {
@@ -897,13 +1024,13 @@ input[type="range"]::-moz-range-thumb {
   padding: 0;
 }
 
-/* Two lines per row (name+swatch on the first, actions right-aligned on the
-   second via .color-manage-main's flex-basis: 100% forcing a wrap) — with
-   four 44px action buttons plus a drag handle, one line no longer fits the
-   18rem side panel at the enlarged touch-target size. */
+/* Back to a single line (was forced onto two — name+swatch on one,
+   actions right-aligned on the next — back when this row carried four
+   separate 44px action buttons; now down to one overflow button, same as
+   .layer-row/.colorway-row, so it fits the 18rem side panel on one line
+   again). */
 .color-manage-row {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   gap: 0.3rem;
   padding: 0.4rem 0;
@@ -920,7 +1047,7 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  flex: 1 1 100%;
+  flex: 1;
   min-width: 0;
 }
 

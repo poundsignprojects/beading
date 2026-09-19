@@ -15,7 +15,7 @@ const ICON_NAMES = [
   'layers', 'cloud', 'cloud-upload', 'cloud-download', 'log-out', 'download',
   'upload', 'triangle-alert', 'sliders-horizontal',
   'rotate-cw', 'rotate-ccw', 'rotate-cw-square',
-  'eye', 'eye-off',
+  'eye', 'eye-off', 'ellipsis-vertical',
 ];
 
 const templates = new Map(); // name -> parsed <svg> template element

@@ -15,6 +15,18 @@
 // keeps its label and is excluded). Newly-rendered rows (library list,
 // Manage Colors, Bead Catalog) are covered automatically since nothing is
 // pre-scanned or cached.
+//
+// A second, related role (added for the Mirror/Rotate selection-controls
+// consolidation): registerLongPressMenu(el, getItems) opts a specific
+// element OUT of the plain-tooltip path and INTO opening a real actionMenu.js
+// popup instead — same long-press timing/click-suppression machinery, just a
+// different thing happens at the moment the press resolves. getItems is
+// called fresh every time (not cached), so a menu always reflects current
+// state (e.g. which item is currently disabled) with no separate "refresh"
+// call needed anywhere.
+
+import { openActionMenu } from './actionMenu.js';
+import { currentTopLayerContainer } from './topLayerContainer.js';
 
 const LONG_PRESS_MS = 500;
 const MOVE_CANCEL_PX = 10; // finger drift past this cancels the pending tooltip — treat it as a scroll/drag, not a hold
@@ -27,21 +39,18 @@ let pressTarget = null;
 let startX = 0;
 let startY = 0;
 let suppressClickOn = null;
+const menuRegistry = new WeakMap(); // Element -> () => menu items, see registerLongPressMenu below
+
+export function registerLongPressMenu(el, getItems) {
+  menuRegistry.set(el, getItems);
+}
 
 function findLongPressTarget(el) {
+  const menuTarget = el.closest?.('[data-has-menu]');
+  if (menuTarget && menuRegistry.has(menuTarget)) return menuTarget;
   const candidate = el.closest?.('[title]');
   if (!candidate || !candidate.title) return null;
   return candidate.textContent.trim() === '' ? candidate : null;
-}
-
-// A tooltip for a control inside an open native <dialog> must be appended
-// inside that dialog (not document.body): a <dialog>'s top-layer promotion
-// covers its whole subtree, painting above its own ::backdrop, but a
-// sibling element appended to body is NOT in that top layer and would
-// render invisibly behind the backdrop instead.
-function currentTooltipContainer() {
-  const openDialogs = document.querySelectorAll('dialog[open]');
-  return openDialogs.length > 0 ? openDialogs[openDialogs.length - 1] : document.body;
 }
 
 function ensureTooltipEl() {
@@ -56,7 +65,7 @@ function ensureTooltipEl() {
 
 function showTooltip(target) {
   const el = ensureTooltipEl();
-  const container = currentTooltipContainer();
+  const container = currentTopLayerContainer();
   if (el.parentElement !== container) container.appendChild(el);
   el.textContent = target.title;
   el.hidden = false;
@@ -97,7 +106,12 @@ function handlePointerDown(e) {
   pressTimer = setTimeout(() => {
     pressTimer = null;
     if (!pressTarget) return;
-    showTooltip(pressTarget);
+    const getItems = menuRegistry.get(pressTarget);
+    if (getItems) {
+      openActionMenu(pressTarget, getItems());
+    } else {
+      showTooltip(pressTarget);
+    }
     suppressClickOn = pressTarget;
   }, LONG_PRESS_MS);
 }
@@ -128,6 +142,20 @@ function handleClickCapture(e) {
   suppressClickOn = null;
 }
 
+// Long-press is touch/pen only (handlePointerDown's own pointerType guard) —
+// a mouse gets the native title hover tooltip instead, but that leaves no
+// mouse-accessible path to a registered menu's other items at all. This dev
+// project is used from a Mac trackpad/mouse as well as the iPad (see
+// CLAUDE.md), so right-click doubles as the desktop equivalent: same menu,
+// standard "more options" convention, no long-press needed.
+function handleContextMenu(e) {
+  const menuTarget = e.target.closest?.('[data-has-menu]');
+  const getItems = menuTarget && menuRegistry.get(menuTarget);
+  if (!getItems) return;
+  e.preventDefault();
+  openActionMenu(menuTarget, getItems());
+}
+
 let initialized = false;
 
 export function initLongPressTooltips() {
@@ -138,4 +166,5 @@ export function initLongPressTooltips() {
   document.addEventListener('pointerup', handlePointerEnd, { passive: true });
   document.addEventListener('pointercancel', handlePointerEnd, { passive: true });
   document.addEventListener('click', handleClickCapture, true);
+  document.addEventListener('contextmenu', handleContextMenu);
 }
