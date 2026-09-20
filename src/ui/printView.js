@@ -17,7 +17,29 @@ import { composeVisibleLayers } from '../state/colorwaySync.js';
 // thumbnail — but still small on purpose (CLAUDE.md's Phase 5 status notes
 // explicitly deferred a full-detail rendered picture chart as a separate, unbuilt
 // feature; this is a quick-glance reference, not a substitute for the word chart).
+// Acts as an upper bound on the reference image's longer side, not a fixed size —
+// see referenceImageTargetSizePx below.
 const PRINT_REFERENCE_IMAGE_MAX_SIZE_PX = 360;
+
+// Same "CSS spec's fixed reference pixel" assumption editorView.js's own Actual
+// Size view and rulerRenderer.js already rely on (1in = 96 CSS px, 1in = 25.4mm)
+// — accurate relative to the pattern's own bead dimensions when printed at the
+// browser/OS print dialog's 100% scale, not guaranteed laser-precise. Deliberately
+// NOT multiplied by preferences.actualSizeCalibration: that factor corrects for
+// one specific screen's own DPI quirks and has no bearing on a printed page, which
+// goes through the printer/OS's own scale settings instead.
+const CSS_PX_PER_MM = 96 / 25.4;
+
+// The reference image renders at true physical size (so it can be held up
+// against real beadwork at true scale) unless that would make it bigger than
+// PRINT_REFERENCE_IMAGE_MAX_SIZE_PX on its longer side, in which case it's
+// capped down to that instead — a large pattern shouldn't blow up the page, but
+// a small one shouldn't be artificially scaled up past its own true size either.
+function referenceImageTargetSizePx(boundingBoxMm) {
+  const longerSideMm = Math.max(boundingBoxMm.widthMm, boundingBoxMm.heightMm);
+  const actualSizePx = longerSideMm * CSS_PX_PER_MM;
+  return Math.min(actualSizePx, PRINT_REFERENCE_IMAGE_MAX_SIZE_PX);
+}
 
 function resolveSwatch(customColors, colorId) {
   return customColors.find((swatch) => swatch.id === colorId);
@@ -233,7 +255,7 @@ export function mountPrintView(appState, hooks) {
         appState.gridParams,
         displayCells,
         (colorId) => resolveSwatchAppearance(appState.customColors, colorId),
-        PRINT_REFERENCE_IMAGE_MAX_SIZE_PX,
+        referenceImageTargetSizePx(appState.gridParams.boundingBoxMm),
         findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0
       )
     : null;
