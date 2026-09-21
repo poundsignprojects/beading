@@ -7,7 +7,6 @@ To do:
 - Add a filter to library. Filter by bead type.
 - Add ability to move items in to folders or tag them
 - In library titles, put bead type on one line, stitch type on another line.
-- Ability to set stash amount per color and get an indicator when going over on a particular pattern.
 - Multiple named palettes (stash would apply across palettes, but not bead types)
 - Superduo patterns
 - Mixed bead design?

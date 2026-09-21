@@ -9,8 +9,10 @@ import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
 import { MISSING_COLOR_FALLBACK_HEX, resolveSwatchAppearance } from '../palette/colorLibrary.js';
+import { findStashShortfalls } from '../palette/stashCheck.js';
 import { renderThumbnailDataUrl } from '../render/thumbnailRenderer.js';
 import { composeVisibleLayers } from '../state/colorwaySync.js';
+import { showToast } from './toast.js';
 
 // Deliberately bigger than the library's own THUMBNAIL_MAX_SIZE_PX (200, main.js)
 // — a printout is read from further away / at lower effective DPI than a UI
@@ -182,6 +184,17 @@ function buildChart(chart, codes, startsReversed) {
   return section;
 }
 
+// Non-blocking — a dismissible toast, not a confirm(), so it never stands
+// between the user and the Print button (they can always print anyway,
+// exactly as asked). Only shown once, at mount, not re-triggered by the
+// direction/reference-image toggles' own renderContent() calls, since
+// nothing about the shortfall changes when those are flipped.
+function buildStashShortfallMessage(shortfalls) {
+  const lines = shortfalls.map((s) => `${s.name}: need ${s.needed}, have ${s.stashCount}`);
+  const label = shortfalls.length === 1 ? 'color needs' : 'colors need';
+  return `⚠ Not enough beads in stash — ${shortfalls.length} ${label} more than you have on hand:\n${lines.join('\n')}`;
+}
+
 function directionToggleLabel(startsReversed) {
   return startsReversed ? 'Start: Left' : 'Start: Right';
 }
@@ -304,6 +317,11 @@ export function mountPrintView(appState, hooks) {
 
   renderContent();
   printViewEl.hidden = false;
+
+  const stashShortfalls = findStashShortfalls(chart.colorCounts, appState.customColors);
+  if (stashShortfalls.length > 0) {
+    showToast(buildStashShortfallMessage(stashShortfalls));
+  }
 
   function unmount() {
     printViewEl.hidden = true;

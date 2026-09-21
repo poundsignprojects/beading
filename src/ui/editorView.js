@@ -59,6 +59,11 @@
 //   onCustomColorAppearanceChanged(id, {hex, alphaPercent, luster}) — Manage
 //                            Colors list color/opacity/luster edit.
 //   onCustomColorDeleted(id)       — Manage Colors list delete.
+//   onCustomColorStashChanged(id, stashCount) — Manage Colors list stash-count
+//                            edit (beads on hand for that color); null clears
+//                            it back to "not tracked" — see stashCheck.js,
+//                            used by printView.js to warn when a design needs
+//                            more of a color than is on hand.
 //   onCustomColorReordered(id, newOrder) — Manage Colors list drag-reorder.
 //   onCustomColorCopiedToBeadType(id, targetBeadTypeKey) — Manage Colors list
 //                            "Copy to…" action; main.js copies the color into
@@ -478,6 +483,20 @@ export function mountEditorView(appState, hooks) {
     main.className = 'color-manage-main';
     main.append(handle, swatch, name);
 
+    const stashLabel = document.createElement('label');
+    stashLabel.className = 'color-manage-stash';
+    stashLabel.title = 'Beads on hand for this color — leave blank to skip comparing it against this pattern\'s bead counts when printing';
+    stashLabel.append(document.createTextNode('Stash'));
+    const stashInput = document.createElement('input');
+    stashInput.type = 'number';
+    stashInput.min = '0';
+    stashInput.step = '1';
+    stashInput.placeholder = '—';
+    stashInput.value = color.stashCount === null || color.stashCount === undefined ? '' : String(color.stashCount);
+    stashInput.setAttribute('aria-label', `Stash count for ${color.name}`);
+    stashInput.addEventListener('change', () => handleColorStashChange(color.id, stashInput.value));
+    stashLabel.append(stashInput);
+
     const moreButton = document.createElement('button');
     moreButton.type = 'button';
     moreButton.className = 'icon-btn color-manage-action';
@@ -495,12 +514,29 @@ export function mountEditorView(appState, hooks) {
     actions.className = 'color-manage-actions';
     actions.append(moreButton);
 
-    row.append(main, actions);
+    row.append(main, stashLabel, actions);
     return row;
   }
 
   function renderColorManageList() {
     colorManageList.replaceChildren(...appState.customColors.map(buildColorManageRow));
+  }
+
+  // Blank clears back to "not tracked" (null, distinct from 0 — see
+  // stashCheck.js). An invalid/non-numeric entry reverts to the color's prior
+  // value rather than persisting garbage, same guard beadCatalogDialog.js's
+  // numberField uses for its own inline-editable number inputs.
+  async function handleColorStashChange(id, rawValue) {
+    const color = appState.customColors.find((c) => c.id === id);
+    if (!color) return;
+    const trimmed = rawValue.trim();
+    let stashCount = null;
+    if (trimmed !== '') {
+      const parsed = Number(trimmed);
+      stashCount = Number.isFinite(parsed) ? Math.max(0, Math.round(parsed)) : (color.stashCount ?? null);
+    }
+    await hooks.onCustomColorStashChanged(id, stashCount);
+    renderColorManageList();
   }
 
   function setTool(tool) {

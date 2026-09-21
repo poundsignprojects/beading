@@ -1076,6 +1076,20 @@ input[type="range"]::-moz-range-thumb {
   text-overflow: ellipsis;
 }
 
+.color-manage-stash {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.75rem;
+  color: #555;
+  flex-shrink: 0;
+}
+
+.color-manage-stash input {
+  width: 3rem;
+  min-height: 2.25rem;
+}
+
 .color-manage-actions {
   display: flex;
   gap: 0.25rem;
@@ -1995,7 +2009,8 @@ input[type="range"]::-moz-range-thumb {
 @media print {
   #library-view,
   #editor-view,
-  #print-toolbar {
+  #print-toolbar,
+  #toast {
     display: none !important;
   }
 

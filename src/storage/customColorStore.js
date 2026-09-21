@@ -16,16 +16,23 @@ const STORE = 'customColors';
 // offered by this MVP, just carried along so later work needs no migration.
 const DEFAULT_APPEARANCE = { alphaPercent: 100, luster: 'matte', overlay: 'none', overlayHex: null };
 
+// Optional, additive — same "spread stored data over defaults" idiom as
+// DEFAULT_APPEARANCE above, no DB_VERSION bump needed. null means "not
+// tracked," deliberately distinct from 0 ("tracked, have none") — see
+// stashCheck.js, which only ever compares a color whose stashCount isn't
+// null/undefined.
+const DEFAULT_STASH = { stashCount: null };
+
 export async function listCustomColorsSorted(db, beadTypeKey) {
   const all = await getAll(db, STORE);
   return all
     .filter((c) => c.beadTypeKey === beadTypeKey)
     .sort((a, b) => a.order - b.order)
-    .map((c) => ({ ...DEFAULT_APPEARANCE, ...c }));
+    .map((c) => ({ ...DEFAULT_APPEARANCE, ...DEFAULT_STASH, ...c }));
 }
 
 export async function createCustomColor(db, {
-  beadTypeKey, name, hex, alphaPercent = 100, luster = 'matte', overlay = 'none', overlayHex = null,
+  beadTypeKey, name, hex, alphaPercent = 100, luster = 'matte', overlay = 'none', overlayHex = null, stashCount = null,
 }) {
   const existing = (await getAll(db, STORE)).filter((c) => c.beadTypeKey === beadTypeKey);
   const maxOrder = existing.reduce((max, c) => Math.max(max, c.order), -Infinity);
@@ -39,6 +46,7 @@ export async function createCustomColor(db, {
     luster,
     overlay,
     overlayHex,
+    stashCount,
     order: existing.length === 0 ? 0 : maxOrder + 1,
     createdAt: now,
     updatedAt: now,

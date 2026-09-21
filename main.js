@@ -434,6 +434,14 @@ async function handleCustomColorAppearanceChanged(id, { hex, alphaPercent, luste
   appState.customColors[idx] = saved;
 }
 
+async function handleCustomColorStashChanged(id, stashCount) {
+  const color = appState.customColors.find((c) => c.id === id);
+  if (!color) return;
+  const saved = await saveCustomColor(appState.db, { ...color, stashCount });
+  const idx = appState.customColors.findIndex((c) => c.id === id);
+  appState.customColors[idx] = saved;
+}
+
 async function handleCustomColorDeleted(id) {
   await deleteCustomColor(appState.db, id);
   await recordCustomColorDeletedLocally(appState.db, id); // so a later Drive push removes it there too
@@ -556,6 +564,7 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
     onCustomColorRenamed: handleCustomColorRenamed,
     onCustomColorAppearanceChanged: handleCustomColorAppearanceChanged,
     onCustomColorDeleted: handleCustomColorDeleted,
+    onCustomColorStashChanged: handleCustomColorStashChanged,
     onCustomColorReordered: handleCustomColorReordered,
     onCustomColorCopiedToBeadType: handleCustomColorCopiedToBeadType,
     onBack: backToLibrary,
