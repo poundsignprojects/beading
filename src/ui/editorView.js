@@ -539,7 +539,58 @@ export function mountEditorView(appState, hooks) {
     renderColorManageList();
   }
 
+  // 'select' plus its three long-press-menu variants (magic wand's two modes,
+  // column select) — all reached via #tool-select, all discrete/repeatable
+  // (tap again to select something else) rather than switching back to plain
+  // 'select' the moment one tap resolves a selection (see onSelectionChange,
+  // below, and its own comment for why staying on the same tool matters).
+  // Shared by updateToolButtons' aria-pressed condition and
+  // updateSelectionButtons' #selection-controls visibility so the two can't
+  // drift out of sync with each other.
+  function isSelectFamilyTool(tool) {
+    return tool === 'select' || tool === 'wand-contiguous' || tool === 'wand-global' || tool === 'col-select';
+  }
+
+  // #tool-select's own icon swaps to match whichever select-family variant is
+  // actually active — plain marquee select, either magic-wand mode, or column
+  // select — so it's visible at a glance which one is armed without needing
+  // to reopen the long-press menu or hover for the title text. Reverts to the
+  // plain lasso icon both for 'select' itself and for every tool outside the
+  // select family (the button's resting icon when nothing select-related is
+  // active).
+  function selectToolIconName(tool) {
+    if (tool === 'wand-contiguous' || tool === 'wand-global') return 'wand-sparkles';
+    if (tool === 'col-select') return 'columns-2';
+    return 'lasso-select';
+  }
+
+  function updateSelectToolIcon() {
+    const desired = selectToolIconName(appState.tool);
+    if (toolSelectButton.dataset.icon === desired) return;
+    toolSelectButton.dataset.icon = desired;
+    toolSelectButton.querySelector('.icon')?.remove();
+    toolSelectButton.prepend(createIcon(desired));
+  }
+
+  // Tools that still have a legitimate use for whatever's currently selected,
+  // so switching to them must NOT clear it: the select-family tools themselves
+  // (isSelectFamilyTool — switching between e.g. col-select and plain Select
+  // is still "staying in selection mode"), Move (reads appState.selection to
+  // know what to pick up — see handleToolMove), and Paste (defaultPasteAnchor
+  // seeds its starting position from the selection's own top-left). Every
+  // other tool (Draw, Erase, Fill, Replace, Eyedropper, Move Photo) has no use
+  // for a leftover selection, and leaving it in place was confusing — its
+  // marquee overlay kept drawing on top of the canvas while drawing/erasing,
+  // even though #selection-controls itself was already correctly hidden.
+  function clearsSelectionOnToolSwitch(tool) {
+    return !isSelectFamilyTool(tool) && tool !== 'move' && tool !== 'paste';
+  }
+
   function setTool(tool) {
+    if (appState.selection && clearsSelectionOnToolSwitch(tool)) {
+      appState.selection = null;
+      scheduleRedraw();
+    }
     appState.tool = tool;
     updateToolButtons();
     updateSelectionButtons();
@@ -553,14 +604,8 @@ export function mountEditorView(appState, hooks) {
     toolFillButton.setAttribute('aria-pressed', String(appState.tool === 'fill'));
     toolReplaceButton.setAttribute('aria-pressed', String(appState.tool === 'replace'));
     toolEyedropperButton.setAttribute('aria-pressed', String(appState.tool === 'eyedropper'));
-    // Pressed for the wand tools too — they're variants of Select reached via
-    // its long-press menu, waiting for a tap to resolve into an actual
-    // selection (which switches appState.tool to 'select' itself, see
-    // onSelectionChange below).
-    toolSelectButton.setAttribute(
-      'aria-pressed',
-      String(appState.tool === 'select' || appState.tool === 'wand-contiguous' || appState.tool === 'wand-global')
-    );
+    toolSelectButton.setAttribute('aria-pressed', String(isSelectFamilyTool(appState.tool)));
+    updateSelectToolIcon();
     toolMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move'));
     selectionPasteButton.setAttribute('aria-pressed', String(appState.tool === 'paste'));
     photoTraceMoveButton.setAttribute('aria-pressed', String(appState.tool === 'move-photo'));
@@ -614,10 +659,13 @@ export function mountEditorView(appState, hooks) {
   // .work/feature-square-stitch-plan.md's "Mirror tool constraint". Paste needs
   // a clipboard, independent of any current selection.
   function updateSelectionButtons() {
-    // The whole group only makes sense while the Select tool is active —
+    // The whole group only makes sense while a select-family tool is active —
     // previously it stayed permanently visible (just disabled), matching
-    // #paste-controls' own hidden-unless-active convention now instead.
-    selectionControlsEl.hidden = appState.tool !== 'select';
+    // #paste-controls' own hidden-unless-active convention now instead. Stays
+    // visible for the wand/col-select variants too (not just plain 'select'),
+    // since a resolved selection from any of them is just as real/actionable
+    // as one drawn with a marquee.
+    selectionControlsEl.hidden = !isSelectFamilyTool(appState.tool);
     const selection = appState.selection;
     const hasSelection = !!selection;
     // A magic-wand-produced selection (see tools/magicWandTool.js) can be
@@ -2096,6 +2144,13 @@ export function mountEditorView(appState, hooks) {
   function handleToolWandGlobal() {
     setTool('wand-global');
   }
+  // Single column select — same reached-via-#tool-select's-long-press-menu shape
+  // as the wand variants above: one tap resolves a plain full-height, one-column-
+  // wide selection (pointerRouter.js's performDiscreteAction), and the tool
+  // switches itself to 'select' once onSelectionChange reports it.
+  function handleToolColSelect() {
+    setTool('col-select');
+  }
   // Moves the active selection if one exists, else the whole active layer
   // (dragged directly on canvas via pointerRouter.js's startMoveDrag/
   // continueMoveDrag) — see .work/feature-requests-and-bugs.md.
@@ -2604,6 +2659,11 @@ export function mountEditorView(appState, hooks) {
       icon: 'wand-sparkles',
       onSelect: handleToolWandGlobal,
     },
+    {
+      label: 'Select Column',
+      icon: 'columns-2',
+      onSelect: handleToolColSelect,
+    },
   ]);
   pasteModeFrontButton.addEventListener('click', handlePasteModeFrontClick);
   pasteModeBehindButton.addEventListener('click', handlePasteModeBehindClick);
@@ -2643,16 +2703,15 @@ export function mountEditorView(appState, hooks) {
     },
     onSelectionChange: (selection) => {
       appState.selection = selection;
-      // A magic-wand tap resolves a selection while appState.tool is still
-      // 'wand-contiguous'/'wand-global' — once it does, switch to 'select' so
-      // #selection-controls appears immediately with Copy/Cut/Paste ready,
-      // same as if the user had drawn a marquee (setTool already calls
-      // updateSelectionButtons internally).
-      if (selection && (appState.tool === 'wand-contiguous' || appState.tool === 'wand-global')) {
-        setTool('select');
-      } else {
-        updateSelectionButtons();
-      }
+      // A magic-wand/col-select tap resolves a selection but deliberately
+      // stays on its own tool ('wand-contiguous'/'wand-global'/'col-select'),
+      // not 'select' — these are meant to be used repeatedly (tap another
+      // area/color/column and it re-resolves immediately), so switching away
+      // to plain Select after just one tap would force reopening the
+      // long-press menu every time. #selection-controls' own visibility
+      // (updateSelectionButtons, below) already treats all four of these
+      // tools as "selection is active" for exactly this reason.
+      updateSelectionButtons();
       scheduleRedraw();
     },
     onPhotoTraceChange: () => {

@@ -43,15 +43,19 @@ const EDGE_PAN_MAX_SPEED_PX_PER_FRAME = 14;
 // Phase 2). fill/replace: one action per pointerdown, no interpolation — a flood
 // fill only makes sense at the tapped cell. wand-contiguous/wand-global are the
 // selection-producing counterparts of fill/replace (see tools/magicWandTool.js) —
-// same one-tap-per-action shape, but they call onSelectionChange with a masked
-// selection instead of onStrokeCommitted with a cell patch, since neither mutates
-// cells. paste is no longer a discrete tap-to-stamp action — it's a drag-to-position
-// preview, confirmed explicitly (see startPastePreviewDrag/continuePastePreviewDrag
-// below). eyedropper is its own branch, not part of DISCRETE_TOOLS — unlike fill/
-// replace it never mutates cells, so it has no patch to commit through
-// onStrokeCommitted. move is a direct drag like draw/erase (mutates cells live,
-// commits one patch at the end) rather than a position-then-confirm flow like
-// paste — see startMoveDrag/continueMoveDrag below.
+// same one-tap-per-action shape, but they call onSelectionChange with a selection
+// instead of onStrokeCommitted with a cell patch, since neither mutates cells.
+// col-select is NOT discrete — unlike a single-tap wand pick, the selected column
+// is meant to follow the pointer while held down (see startColSelectDrag/
+// continueColSelectDrag below), so it gets its own drag-tracking branch just like
+// 'select'/'paste'/'move', rather than firing once on pointerdown. paste is no
+// longer a discrete tap-to-stamp action either — it's a drag-to-position preview
+// (see startPastePreviewDrag/continuePastePreviewDrag below). eyedropper is its
+// own branch, not part of DISCRETE_TOOLS — unlike fill/replace it never mutates
+// cells, so it has no patch to commit through onStrokeCommitted. move is a direct
+// drag like draw/erase (mutates cells live, commits one patch at the end) rather
+// than a position-then-confirm flow like paste — see startMoveDrag/continueMoveDrag
+// below.
 const STROKE_TOOLS = new Set(['draw', 'erase']);
 const DISCRETE_TOOLS = new Set(['fill', 'replace', 'wand-contiguous', 'wand-global']);
 
@@ -160,7 +164,8 @@ export function attachPointerRouter(canvas, viewport, {
   // second separate drag (before Confirm) continues adding on top of the first
   // rather than resetting it.
   let moveDrag = null; // { pointerId, startRow, startCol, startDeltaRow, startDeltaCol } or null
-  let edgePanRafId = null; // rAF handle for the select/paste edge auto-pan loop, or null
+  let colSelectDrag = null; // { pointerId } or null — see startColSelectDrag/continueColSelectDrag
+  let edgePanRafId = null; // rAF handle for the select/paste/col-select edge auto-pan loop, or null
   let pendingTouchStart = null; // { pointerId, point, timerId } or null — see TOUCH_DRAW_DISAMBIGUATION_MS
   let spacePressed = false;
 
@@ -332,6 +337,31 @@ export function attachPointerRouter(canvas, viewport, {
     onSelectionChange(normalizeSelection({ row: selectionDrag.startRow, col: selectionDrag.startCol }, hit));
   }
 
+  // Column select always selects a full-height, one-column-wide rectangle — no
+  // two-point range to track (unlike startSelectionDrag's marquee), so every
+  // update just re-resolves the column currently under the pointer, following
+  // it left/right as the drag continues rather than staying pinned to wherever
+  // the gesture started.
+  function colSelectionAt(hit, gridParams) {
+    return { rowStart: 0, rowEnd: gridParams.rows - 1, colStart: hit.col, colEnd: hit.col };
+  }
+
+  function startColSelectDrag(pointerId, point) {
+    const hit = clampedHit(point);
+    const gridParams = getGridParams();
+    if (!hit || !gridParams) return;
+    colSelectDrag = { pointerId };
+    onSelectionChange(colSelectionAt(hit, gridParams));
+    startEdgePanLoop();
+  }
+
+  function continueColSelectDrag(point) {
+    const hit = clampedHit(point);
+    const gridParams = getGridParams();
+    if (!hit || !gridParams) return;
+    onSelectionChange(colSelectionAt(hit, gridParams));
+  }
+
   // Resolves a raw hit-tested anchor column against the clipboard's own true
   // origin column (appState.clipboard.originCol — the absolute column the
   // content was actually copied FROM, set once in cutCopyTool.js's
@@ -413,7 +443,7 @@ export function attachPointerRouter(canvas, viewport, {
   // lifetime (not off pointermove) since it needs to keep panning even while the
   // pointer holds still right at the edge.
   function tickEdgePan() {
-    const activeDrag = selectionDrag || pasteDrag || moveDrag;
+    const activeDrag = selectionDrag || colSelectDrag || pasteDrag || moveDrag;
     if (!activeDrag) {
       edgePanRafId = null;
       return;
@@ -429,6 +459,7 @@ export function attachPointerRouter(canvas, viewport, {
     viewport.originYmm += dyPx / viewport.scalePxPerMm;
     onViewportChange();
     if (selectionDrag) continueSelectionDrag(last);
+    else if (colSelectDrag) continueColSelectDrag(last);
     else if (pasteDrag) continuePastePreviewDrag(last);
     else if (moveDrag) continueMoveDrag(last);
   }
@@ -478,6 +509,7 @@ export function attachPointerRouter(canvas, viewport, {
     if (!latestPoint || (latestPoint.x === downPoint.x && latestPoint.y === downPoint.y)) return;
     if (drawStroke && drawStroke.pointerId === pointerId) continueDrawStroke(latestPoint);
     else if (selectionDrag && selectionDrag.pointerId === pointerId) continueSelectionDrag(latestPoint);
+    else if (colSelectDrag && colSelectDrag.pointerId === pointerId) continueColSelectDrag(latestPoint);
     else if (photoDrag && photoDrag.pointerId === pointerId) continuePhotoDrag(latestPoint);
     else if (pasteDrag && pasteDrag.pointerId === pointerId) continuePastePreviewDrag(latestPoint);
     else if (moveDrag && moveDrag.pointerId === pointerId) continueMoveDrag(latestPoint);
@@ -532,6 +564,8 @@ export function attachPointerRouter(canvas, viewport, {
       performEyedropperAction(point);
     } else if (tool === 'select') {
       startSelectionDrag(pointerId, point);
+    } else if (tool === 'col-select') {
+      startColSelectDrag(pointerId, point);
     } else if (tool === 'move-photo') {
       startPhotoDrag(pointerId, point);
     } else if (tool === 'paste') {
@@ -583,6 +617,7 @@ export function attachPointerRouter(canvas, viewport, {
         cancelPendingTouchStart(); // resolve the first finger's ambiguity as a pinch, not a tap
         commitStroke(); // second finger landed — hand off to pan/zoom, not a stray bead
         selectionDrag = null; // last onSelectionChange already left the selection at its value
+        colSelectDrag = null; // last onSelectionChange already left the selection at its value
         photoDrag = null; // hand off to pinch-scale instead
         pasteDrag = null; // last onPastePreviewChange already left the preview at its value
         moveDrag = null; // last onMovePreviewChange already left the preview at its value — nothing was ever mutated to commit
@@ -644,6 +679,8 @@ export function attachPointerRouter(canvas, viewport, {
       continueDrawStroke(point);
     } else if (selectionDrag && selectionDrag.pointerId === e.pointerId) {
       continueSelectionDrag(point);
+    } else if (colSelectDrag && colSelectDrag.pointerId === e.pointerId) {
+      continueColSelectDrag(point);
     } else if (photoDrag && photoDrag.pointerId === e.pointerId) {
       continuePhotoDrag(point);
     } else if (pasteDrag && pasteDrag.pointerId === e.pointerId) {
@@ -677,6 +714,10 @@ export function attachPointerRouter(canvas, viewport, {
         onSelectionChange(null);
       }
       selectionDrag = null; // otherwise last onSelectionChange already left the selection at its final value
+      stopEdgePanLoop();
+    }
+    if (colSelectDrag && colSelectDrag.pointerId === e.pointerId) {
+      colSelectDrag = null; // last onSelectionChange already left the selection at its final value
       stopEdgePanLoop();
     }
     if (photoDrag && photoDrag.pointerId === e.pointerId) {
