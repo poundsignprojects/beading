@@ -649,6 +649,23 @@ export function mountEditorView(appState, hooks) {
     );
   }
 
+  // A hidden active layer is fully locked for editing — draw/erase/fill/
+  // replace/wand/col-select/select/cut/copy/paste/move/mirror/rotate/clear
+  // all have no effect while it's off, not just no visible feedback (a prior
+  // approach that instead force-rendered a hidden active layer while it was
+  // being edited was explicitly reverted per direct user request — editing a
+  // hidden layer isn't wanted at all, not just wanted-with-visual-feedback).
+  // A dangling activeLayerId (shouldn't happen in practice) fails open rather
+  // than silently locking everything.
+  function isActiveLayerVisible() {
+    const layer = appState.layers.find((l) => l.id === appState.activeLayerId);
+    return !layer || layer.visible !== false;
+  }
+
+  function showLayerHiddenToast() {
+    showToast('This layer is hidden — show it to make changes.');
+  }
+
   // Copy/Cut/Mirror-V need only a selection; Mirror-H additionally needs a
   // selection width that's compatible with the design's dropCount on a peyote
   // design (see mirrorTool.js's canMirrorHorizontally — reversing col order
@@ -2166,6 +2183,10 @@ export function mountEditorView(appState, hooks) {
   // not-yet-confirmed position if this fires again, e.g. a redundant click).
   function handleToolMove() {
     if (appState.tool === 'move') return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     const bounds = appState.selection
       ? {
           rowStart: appState.selection.rowStart, rowEnd: appState.selection.rowEnd,
@@ -2193,6 +2214,10 @@ export function mountEditorView(appState, hooks) {
   // repeat move means clicking the Move tool again.
   function handleMoveConfirm() {
     if (!appState.movePreview) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     const { baseCells, movingEntries, deltaRow, deltaCol, needsRowCompensation } = appState.movePreview;
     const computeTarget = (row, col) => ({
       row: row + deltaRow + colShiftRowDelta(
@@ -2241,6 +2266,10 @@ export function mountEditorView(appState, hooks) {
   // plan.md), no other colorway is touched at all.
   function handleClear() {
     if (appState.cells.size === 0) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     if (!window.confirm(confirmClearLayerMessage())) return;
     appState.cells.clear();
     clearHistory(appState.history);
@@ -2283,11 +2312,19 @@ export function mountEditorView(appState, hooks) {
   }
   function handleCopy() {
     if (!appState.selection) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     appState.clipboard = buildClipboard(appState.cells, appState.selection);
     updateSelectionButtons();
   }
   function handleCut() {
     if (!appState.selection) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     appState.clipboard = buildClipboard(appState.cells, appState.selection);
     const patch = applyEraseRegion(appState.cells, appState.selection);
     pushCellPatch(patch);
@@ -2298,6 +2335,10 @@ export function mountEditorView(appState, hooks) {
   }
   function handleMirror(axis) {
     if (!appState.selection) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     const patch = applyMirror(appState.cells, appState.selection, axis);
     pushCellPatch(patch);
     scheduleRedraw();
@@ -2336,6 +2377,10 @@ export function mountEditorView(appState, hooks) {
   // swap, no paste flow needed.
   function handleSelectionRotate180() {
     if (!appState.selection) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     const patch = rotateSelection180(appState.cells, appState.selection);
     pushCellPatch(patch);
     scheduleRedraw();
@@ -2350,6 +2395,10 @@ export function mountEditorView(appState, hooks) {
   // copy to replace the original cuts first or erases afterward.
   function handleSelectionRotate90(direction) {
     if (!appState.selection) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     const clipboard = buildClipboard(appState.cells, appState.selection);
     appState.clipboard = rotateClipboard(clipboard, direction);
     appState.pastePreview = defaultPasteAnchor();
@@ -2381,6 +2430,10 @@ export function mountEditorView(appState, hooks) {
   // (pointerRouter.js's paste-drag interaction), confirmed explicitly via Confirm.
   function handlePasteButtonClick() {
     if (!appState.clipboard) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     appState.pastePreview = defaultPasteAnchor();
     setTool('paste');
     scheduleRedraw();
@@ -2392,6 +2445,10 @@ export function mountEditorView(appState, hooks) {
   // Draw. One-and-done — a repeat stamp means clicking Paste again.
   function handlePasteConfirm() {
     if (!appState.pastePreview || !appState.clipboard) return;
+    if (!isActiveLayerVisible()) {
+      showLayerHiddenToast();
+      return;
+    }
     const { anchorRow, anchorCol, needsRowCompensation } = appState.pastePreview;
     // A clipboard cell's OWN starting column (for compensation purposes) is
     // where it actually sat when copied — appState.clipboard.originCol, per
@@ -2692,6 +2749,7 @@ export function mountEditorView(appState, hooks) {
     getSelection: () => appState.selection,
     getMovePreview: () => appState.movePreview,
     getPreserveStaggerOnShift: () => appState.preferences.preserveStaggerOnShift !== false,
+    getActiveLayerVisible: isActiveLayerVisible,
     onViewportChange: scheduleRedraw,
     onCellsChanged: () => {
       scheduleRedraw();
@@ -2737,6 +2795,7 @@ export function mountEditorView(appState, hooks) {
       scheduleRedraw();
     },
     onColorPicked: handleColorPicked,
+    onActiveLayerLocked: showLayerHiddenToast,
   });
 
   // Reflect the bead type/rows/cols the opened design already carries, and sync

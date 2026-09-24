@@ -58,6 +58,15 @@ const EDGE_PAN_MAX_SPEED_PX_PER_FRAME = 14;
 // below.
 const STROKE_TOOLS = new Set(['draw', 'erase']);
 const DISCRETE_TOOLS = new Set(['fill', 'replace', 'wand-contiguous', 'wand-global']);
+// Every tool that reads/writes appState.cells (the active layer's own data)
+// or builds toward doing so (select/col-select produce a selection that Cut/
+// Copy/Move/Mirror/Rotate act on; paste/move position content that Confirm
+// would stamp into it) is blocked outright while the active layer is hidden —
+// see getActiveLayerVisible below. eyedropper (samples the composited,
+// visible-layers-only view, never the active layer specifically) and
+// move-photo (moves the reference photo overlay, unrelated to layer cells)
+// are deliberately excluded — neither depends on the active layer at all.
+const LAYER_LOCKED_TOOLS = new Set([...STROKE_TOOLS, ...DISCRETE_TOOLS, 'select', 'col-select', 'paste', 'move']);
 
 function normalizeSelection(a, b) {
   return {
@@ -141,6 +150,7 @@ export function attachPointerRouter(canvas, viewport, {
   getSelection,
   getMovePreview,
   getPreserveStaggerOnShift,
+  getActiveLayerVisible,
   onViewportChange,
   onCellsChanged,
   onStrokeCommitted,
@@ -149,6 +159,7 @@ export function attachPointerRouter(canvas, viewport, {
   onPastePreviewChange,
   onMovePreviewChange,
   onColorPicked,
+  onActiveLayerLocked,
 }) {
   const pointers = new Map(); // pointerId -> { x, y, pointerType }
   let pinchBaseline = null; // { midpoint, distance } in canvas-local px
@@ -556,6 +567,10 @@ export function attachPointerRouter(canvas, viewport, {
   // starts a photo-translate drag; paste starts a preview-positioning drag.
   function handleSingleInteractionStart(pointerId, point) {
     const tool = getTool();
+    if (LAYER_LOCKED_TOOLS.has(tool) && !getActiveLayerVisible()) {
+      onActiveLayerLocked?.();
+      return;
+    }
     if (STROKE_TOOLS.has(tool)) {
       if (!drawStroke) startDrawStroke(pointerId, point);
     } else if (DISCRETE_TOOLS.has(tool)) {
