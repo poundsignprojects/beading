@@ -22,15 +22,33 @@ export const UNASSIGNED = Symbol('unassigned-color');
 // foundation: the beads sit alternately at two real, half-bead-apart stitching
 // levels within the row (peyoteCellOriginMm's `isRaised` rule — the same rule the
 // canvas renderer uses to offset a cell), and each pass only ever touches one of
-// those two levels. Row 0 (the foundation ladder) is the exception — it's worked
-// as one pass on its own, not split — so it prints as a single line.
+// those two levels — UNLESS a row is the one currently chosen to start a fresh
+// thread at (see buildWordChart's startRow), in which case it's worked as one
+// pass on its own instead, not split, printing as a single combined line.
 //
-// Every row after that splits into its raised-level beads as one printed line and
-// its non-raised-level beads as the next — raised first, since a row's raised
-// level sits immediately atop the previous row's non-raised level in real
-// stitching order (levels run 0, 0.5, 1, 1.5, 2, 2.5, ... — row N contributes
-// level N as its raised beads and N+0.5 as its non-raised beads), so raised is
-// always the physically-earlier of the two passes.
+// Numbering never changes based on which row that is. Every row has a fixed
+// pair of numbers it's always known by — row 0 is "1"/"2", row 1 is "3"/"4",
+// row r is "2r+1"/"2r+2" — regardless of whether that row happens to be
+// combined or split right now. When split, its two numbers print as two
+// separate lines ("Row 3", printed first since a row's lower/raised level
+// sits immediately atop the previous row's higher/non-raised level in real
+// stitching order — levels run 0, 0.5, 1, 1.5, ...; then "Row 4"). When
+// combined (startRow's own row), both numbers print together on one line,
+// joined with "&" ("Row 3 & 4"), built as one plain pass over every column
+// (not divided by isRaised at all).
+//
+// startRow defaults to row 0 — which is why row 0 is "Row 1 & 2" by default,
+// exactly matching this chart's own long-standing behavior before startRow
+// existed — but row 0 is not hard-wired to combine. Choosing any OTHER row
+// as startRow combines *that* row instead and un-combines row 0 right along
+// with every other non-chosen row, printing it as ordinary separate "Row
+// 1"/"Row 2" lines like any other row would (confirmed directly with the
+// user across several rounds — a genuinely easy detail to get wrong, since
+// "row 0 is always Row 1 & 2" and "row 0 always combines" sound like the
+// same statement until you pick a different start row). The chosen row is
+// flagged (see isStartRow) so printView.js can bold it, independent of the
+// existing every-10th-row bold (a different, unrelated position-tracking
+// aid for a long printout).
 //
 // Deliberately NOT bucketed by raw position (col-index) parity — whether
 // even-numbered or odd-numbered positions are the "raised" ones flips depending on
@@ -46,6 +64,50 @@ export const UNASSIGNED = Symbol('unassigned-color');
 // colored beads in a row on this pass" whether picked up one at a time or N at
 // a time. Only which columns land in which bucket changes, which is exactly
 // what threading dropCount into isRaised already provides.
+
+// Clamps a user-chosen "start row" (see buildWordChart's startRow param) into
+// [0, rows) — it must name a real physical row for isStartRow to flag.
+export function clampStartRow(startRow, rows) {
+  if (!(rows > 0)) return 0;
+  return Math.min(Math.max(Math.trunc(startRow) || 0, 0), rows - 1);
+}
+
+// The Start Row *field* on the print screen is read against the chart's own
+// fixed, unchanging numbers (see buildWordChart) — a crafter looks at the
+// default printout, spots the row they actually mean to start at by whatever
+// number is already printed there, and types that in. They don't think in
+// physical-row counts, so these two convert between a physical row (0-
+// indexed, what buildWordChart's startRow actually takes) and that row's own
+// fixed pair of printed numbers — for peyote, row r's pair is always
+// "2r+1"/"2r+2" (row 0 is "1"/"2", same formula, no special case — either
+// half names the same row: typing either 13 or 14 both mean "the row whose
+// pair is Row 13/Row 14"); for square stitch there's no doubling/combining
+// at all, so a row's label is simply its own 1-indexed row number.
+export function primaryLabelForRow(row, stitchType = 'peyote') {
+  if (stitchType === 'square') return row + 1;
+  return row * 2 + 1;
+}
+
+export function rowForLabel(labelNumber, stitchType = 'peyote') {
+  if (stitchType === 'square') return labelNumber - 1;
+  return Math.floor((labelNumber - 1) / 2);
+}
+
+// The lowest occupied row across every cell actually placed — a reasonable
+// default for startRow above (so a design with leading blank rows highlights
+// the row that actually has beads, with no manual entry needed for the
+// common case) without forcing that guess on the user, who can still
+// override it on the print screen. Returns null for a completely empty
+// design (nothing to default to).
+export function firstOccupiedRow(cells) {
+  let min = null;
+  for (const key of cells.keys()) {
+    const row = Number(key.slice(0, key.indexOf(',')));
+    if (min === null || row < min) min = row;
+  }
+  return min;
+}
+
 function splitByPosition(rowCells, cols, flipped, dropCount) {
   const raised = [];
   const notRaised = [];
@@ -89,15 +151,26 @@ function buildRuns(cells, cellList, colorCounts, tallyUnassigned) {
 // unlike peyote's real stitching structure (see the file-level comment above).
 // This can't be handled by the grid-engine abstraction (gridEngine.js) since
 // it's specific to how a stitch type is actually worked, not its geometry.
-export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped = false, dropCount = 1) {
+//
+// startRow (0-indexed, see clampStartRow) never changes numbering. For
+// stitchType 'square' it only flags a row for bolding (isStartRow) — square
+// has no combining concept to begin with. For peyote, the row it names gets
+// the un-split, single-pass treatment (labeled with its own two numbers
+// joined, "Row {2r+1} & {2r+2}") and every OTHER row — including row 0 when
+// it isn't the chosen row — splits normally (see the file-level comment for
+// the full reasoning). startRow: 0 (the default) reproduces this chart's
+// original, startRow-unaware behavior exactly, since row 0 combining is just
+// the ordinary case of "the chosen row combines," not a special rule.
+export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped = false, dropCount = 1, startRow = 0) {
   const chartRows = [];
   const colorCounts = new Map(); // colorId -> running total, insertion = first appearance
   let unassignedCount = 0;
   const tallyUnassigned = () => { unassignedCount++; };
+  const highlightRow = clampStartRow(startRow, rows);
 
-  function pushEntry(cellList, rowLabel) {
+  function pushEntry(cellList, rowLabel, physicalRow) {
     const runs = buildRuns(cells, cellList, colorCounts, tallyUnassigned);
-    chartRows.push({ entryIndex: chartRows.length, runs, rowLabel });
+    chartRows.push({ entryIndex: chartRows.length, runs, rowLabel, isStartRow: physicalRow === highlightRow });
   }
 
   function rowCellsAt(row) {
@@ -110,24 +183,36 @@ export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped
     // Each physical row is worked as one straight pass — no foundation
     // combining, no raised/non-raised split, one printed line per row.
     for (let row = 0; row < rows; row++) {
-      pushEntry(rowCellsAt(row), `Row ${row + 1}`);
+      pushEntry(rowCellsAt(row), `Row ${row + 1}`, row);
     }
   } else {
-    // Row 0 is the foundation ladder — worked as one pass, not split.
-    if (rows >= 1) {
-      pushEntry(rowCellsAt(0), 'Row 1 & 2');
-    }
-
-    // Every row after the foundation splits into its two alternating thread
-    // passes — see splitByPosition above. Numbered sequentially starting at 3
-    // (physical rows 1 & 2 are already accounted for by the foundation line
-    // above), matching how a stitcher actually counts real peyote rows: grid
-    // row r (r>=1) contributes physical rows 2r+1 (raised, printed first) and
-    // 2r+2 (non-raised, printed second).
-    for (let row = 1; row < rows; row++) {
+    // Row 0 is NOT hard-wired to always combine — it follows the exact same
+    // rule as every other row (see below): whichever row is the chosen
+    // startRow gets the un-split foundation-ladder treatment, and every
+    // other row splits normally. Row 0 defaults to being that row
+    // (startRow: 0), which is why it's always "Row 1 & 2" out of the box and
+    // nothing needs to special-case it — but once a *different* row becomes
+    // the chosen start, row 0 uncombines right along with every other
+    // non-chosen row, printing as ordinary separate "Row 1"/"Row 2" lines
+    // (direct user feedback: "Rows 1 and 2 get uncombined" once a different
+    // start row is set — a real, missed requirement in an earlier version of
+    // this feature, not just a labeling nuance).
+    //
+    // Numbered sequentially: grid row r contributes physical rows 2r+1
+    // (raised, printed first) and 2r+2 (non-raised, printed second) when
+    // split — matching how a stitcher actually counts real peyote rows —
+    // or, when r is the chosen startRow, one combined line joining both of
+    // those same numbers together (one plain pass over every column, not
+    // divided by isRaised at all, mirroring exactly how row 0 has always
+    // been built).
+    for (let row = 0; row < rows; row++) {
+      if (row === highlightRow) {
+        pushEntry(rowCellsAt(row), `Row ${row * 2 + 1} & ${row * 2 + 2}`, row);
+        continue;
+      }
       const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols, flipped, dropCount);
-      pushEntry(raised, `Row ${row * 2 + 1}`);
-      pushEntry(notRaised, `Row ${row * 2 + 2}`);
+      pushEntry(raised, `Row ${row * 2 + 1}`, row);
+      pushEntry(notRaised, `Row ${row * 2 + 2}`, row);
     }
   }
 

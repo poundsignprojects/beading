@@ -11,4 +11,3 @@ To do:
 - Superduo patterns
 - Mixed bead design?
 - Working color palette
-- single column select

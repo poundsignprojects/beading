@@ -6,7 +6,7 @@
 import { findBeadType } from '../palette/beadSpecs.js';
 import { stitchTypeDetailLabel } from '../grid/gridEngine.js';
 import { formatLength } from '../units/convert.js';
-import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../export/wordChart.js';
+import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED, firstOccupiedRow, clampStartRow, primaryLabelForRow, rowForLabel } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
 import { MISSING_COLOR_FALLBACK_HEX, resolveSwatchAppearance } from '../palette/colorLibrary.js';
 import { findStashShortfalls } from '../palette/stashCheck.js';
@@ -96,7 +96,12 @@ function buildMaterials(chart, codes, customColors, hiddenLayerNames) {
 
   if (hiddenLayerNames.length > 0) {
     const hiddenWarning = document.createElement('p');
-    hiddenWarning.className = 'print-warning';
+    // print-warning-screen-only: an on-screen heads-up before printing, not
+    // part of the actual printout — see the @media print rule in style.css.
+    // The warning's whole point (know before you print) is satisfied once
+    // it's been seen here; nobody wants "some content isn't shown" spelled
+    // out on the physical page they're stitching from.
+    hiddenWarning.className = 'print-warning print-warning-screen-only';
     hiddenWarning.textContent = `⚠ ${hiddenLayerNames.length} layer${hiddenLayerNames.length === 1 ? ' is' : 's are'} hidden and not included in this printout: ${hiddenLayerNames.join(', ')}.`;
     section.append(hiddenWarning);
   }
@@ -176,7 +181,7 @@ function buildChart(chart, codes, startsReversed) {
     const direction = isRowReversed(chartRow, startsReversed) ? '←' : '→';
     const runText = displayRuns(chartRow, startsReversed).map((run) => formatRun(run, codes)).join(' ');
     const line = document.createElement('div');
-    line.className = 'word-chart-row';
+    line.className = chartRow.isStartRow ? 'word-chart-row word-chart-row-start' : 'word-chart-row';
     line.textContent = `${chartRow.rowLabel} ${direction}: ${runText}`;
     section.append(line);
   }
@@ -228,6 +233,7 @@ export function mountPrintView(appState, hooks) {
   const contentEl = document.getElementById('print-content');
   const closeButton = document.getElementById('print-close');
   const printButton = document.getElementById('print-now');
+  const startRowInput = document.getElementById('print-start-row');
   const directionToggleButton = document.getElementById('print-start-direction-toggle');
   const referenceImageToggleButton = document.getElementById('print-reference-image-toggle');
 
@@ -255,15 +261,10 @@ export function mountPrintView(appState, hooks) {
     })
     .map((layer) => layer.name);
 
-  const chart = buildWordChart(displayCells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount);
-  const codes = assignColorCodes(chart.colorCounts);
-
-  // Rendered once at mount, not per renderContent() call — appState.cells can't
-  // change while this read-only overlay is open (see the file-level comment
-  // above), so there's nothing to gain by re-drawing the canvas on every toggle
-  // click. Only actually built when there's something to show it for.
-  const hasContent = chart.totalBeadCount > 0;
-  const referenceImageDataUrl = hasContent
+  // Independent of startRow below — the reference image is a full-pattern
+  // snapshot, not scoped to whichever rows the printed instructions start at.
+  const designHasContent = displayCells.size > 0;
+  const referenceImageDataUrl = designHasContent
     ? renderThumbnailDataUrl(
         appState.gridParams,
         displayCells,
@@ -273,12 +274,37 @@ export function mountPrintView(appState, hooks) {
       )
     : null;
 
+  // The field itself is read/shown against the chart's own fixed, unchanging
+  // label numbers (primaryLabelForRow/rowForLabel), not a raw physical-row
+  // count — a crafter looks at the default printout, spots the row they
+  // actually mean to start at by whichever number is already printed there
+  // (e.g. "13" or "14" for the same row), and types that in directly. Never
+  // changes the printed numbering itself (see buildWordChart's own comment —
+  // direct user feedback was that renumbering relative to the chosen row
+  // made the chart "weird") — it only switches that one row from split to
+  // combined (matching row 0's own treatment) and bolds it, independent of
+  // the pre-existing every-10th-row bold (a different, unrelated
+  // position-tracking aid).
+  //
+  // Defaults to the first occupied row — for a design with a leading run of
+  // blank rows (see .work/feature-requests-and-bugs.md), this already lands
+  // on the row that actually has beads, with no manual entry needed for the
+  // common case.
+  let startRowIndex = clampStartRow(firstOccupiedRow(displayCells) ?? 0, appState.rows);
+  let chart = buildWordChart(displayCells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount, startRowIndex);
+  let codes = assignColorCodes(chart.colorCounts);
+
+  startRowInput.min = '1';
+  startRowInput.max = String(primaryLabelForRow(Math.max(appState.rows - 1, 0), appState.stitchType));
+
   function renderContent() {
+    startRowInput.value = String(primaryLabelForRow(startRowIndex, appState.stitchType));
+
     const startsReversed = appState.preferences.printStartDirection === 'left';
     directionToggleButton.textContent = directionToggleLabel(startsReversed);
 
-    referenceImageToggleButton.hidden = !hasContent;
-    const includeReferenceImage = hasContent && appState.preferences.printIncludeReferenceImage !== false;
+    referenceImageToggleButton.hidden = !designHasContent;
+    const includeReferenceImage = designHasContent && appState.preferences.printIncludeReferenceImage !== false;
     referenceImageToggleButton.textContent = referenceImageToggleLabel(includeReferenceImage);
     referenceImageToggleButton.setAttribute('aria-pressed', String(includeReferenceImage));
 
@@ -299,6 +325,18 @@ export function mountPrintView(appState, hooks) {
   function handleClose() {
     unmount();
   }
+  function handleStartRowChange() {
+    const raw = Number(startRowInput.value);
+    const nextIndex = Number.isFinite(raw) ? clampStartRow(rowForLabel(raw, appState.stitchType), appState.rows) : startRowIndex;
+    if (nextIndex === startRowIndex) {
+      renderContent(); // still re-syncs the input if the entry was out of range
+      return;
+    }
+    startRowIndex = nextIndex;
+    chart = buildWordChart(displayCells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount, startRowIndex);
+    codes = assignColorCodes(chart.colorCounts);
+    renderContent();
+  }
   async function handleDirectionToggle() {
     const next = appState.preferences.printStartDirection === 'left' ? 'right' : 'left';
     await hooks.onPreferencesChanged({ printStartDirection: next });
@@ -312,6 +350,7 @@ export function mountPrintView(appState, hooks) {
 
   closeButton.addEventListener('click', handleClose);
   printButton.addEventListener('click', handlePrint);
+  startRowInput.addEventListener('change', handleStartRowChange);
   directionToggleButton.addEventListener('click', handleDirectionToggle);
   referenceImageToggleButton.addEventListener('click', handleReferenceImageToggle);
 
@@ -328,6 +367,7 @@ export function mountPrintView(appState, hooks) {
     contentEl.replaceChildren();
     closeButton.removeEventListener('click', handleClose);
     printButton.removeEventListener('click', handlePrint);
+    startRowInput.removeEventListener('change', handleStartRowChange);
     directionToggleButton.removeEventListener('click', handleDirectionToggle);
     referenceImageToggleButton.removeEventListener('click', handleReferenceImageToggle);
   }

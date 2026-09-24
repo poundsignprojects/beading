@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setCell } from '../../state/cellStore.js';
-import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED } from '../../export/wordChart.js';
+import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED, clampStartRow, firstOccupiedRow, primaryLabelForRow, rowForLabel } from '../../export/wordChart.js';
 
 // Below, `rows` is the physical row count (height-driving) and `cols` is
 // beads-per-row (width-driving) — row/col now mean what the UI's Rows/Cols
@@ -113,6 +113,7 @@ test('buildWordChart: row 0 (the foundation) prints as its own single, unsplit l
     entryIndex: 0,
     runs: [{ colorId: 'red', count: 3 }],
     rowLabel: 'Row 1 & 2',
+    isStartRow: true, // row 0 is the default startRow
   });
 });
 
@@ -138,11 +139,13 @@ test('buildWordChart: a row past the foundation splits into a raised-level half-
     entryIndex: 1,
     runs: [{ colorId: 'B', count: 2 }],
     rowLabel: 'Row 3',
+    isStartRow: false,
   });
   assert.deepEqual(chart.rows[2], {
     entryIndex: 2,
     runs: [{ colorId: 'A', count: 2 }],
     rowLabel: 'Row 4',
+    isStartRow: false,
   });
 });
 
@@ -190,7 +193,7 @@ test('buildWordChart: a single-physical-row design (rows: 1) produces exactly on
   setCell(cells, 0, 0, 'red');
   const chart = buildWordChart(cells, 1, 1);
   assert.equal(chart.rows.length, 1);
-  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 1 }], rowLabel: 'Row 1 & 2' });
+  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 1 }], rowLabel: 'Row 1 & 2', isStartRow: true });
 });
 
 test('buildWordChart: 10-tall x 4-wide regression fixture — foundation alone, then each later row split raised/non-raised', () => {
@@ -221,13 +224,14 @@ test('buildWordChart: 10-tall x 4-wide regression fixture — foundation alone, 
       { colorId: 'B', count: 1 },
     ],
     rowLabel: 'Row 1 & 2',
+    isStartRow: true,
   });
   // Row 1 (chart.rows[1] & [2]): raised (col 1,3) is B,B; non-raised (col 0,2) is A,A.
-  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'B', count: 2 }], rowLabel: 'Row 3' });
-  assert.deepEqual(chart.rows[2], { entryIndex: 2, runs: [{ colorId: 'A', count: 2 }], rowLabel: 'Row 4' });
+  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'B', count: 2 }], rowLabel: 'Row 3', isStartRow: false });
+  assert.deepEqual(chart.rows[2], { entryIndex: 2, runs: [{ colorId: 'A', count: 2 }], rowLabel: 'Row 4', isStartRow: false });
   // Row 9, the last one (chart.rows[17] & [18]), follows the identical pattern.
-  assert.deepEqual(chart.rows[17], { entryIndex: 17, runs: [{ colorId: 'B', count: 2 }], rowLabel: 'Row 19' });
-  assert.deepEqual(chart.rows[18], { entryIndex: 18, runs: [{ colorId: 'A', count: 2 }], rowLabel: 'Row 20' });
+  assert.deepEqual(chart.rows[17], { entryIndex: 17, runs: [{ colorId: 'B', count: 2 }], rowLabel: 'Row 19', isStartRow: false });
+  assert.deepEqual(chart.rows[18], { entryIndex: 18, runs: [{ colorId: 'A', count: 2 }], rowLabel: 'Row 20', isStartRow: false });
 });
 
 test('isRowReversed: default (startsReversed omitted) matches entryIndex parity — even not reversed, odd reversed', () => {
@@ -313,8 +317,8 @@ test('buildWordChart: stitchType "square" produces one line per physical row, no
   const chart = buildWordChart(cells, 2, 3, 'square');
 
   assert.equal(chart.rows.length, 2); // one line per row, not 1 + 2*(rows-1) like peyote
-  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 3 }], rowLabel: 'Row 1' });
-  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'blue', count: 3 }], rowLabel: 'Row 2' });
+  assert.deepEqual(chart.rows[0], { entryIndex: 0, runs: [{ colorId: 'red', count: 3 }], rowLabel: 'Row 1', isStartRow: true });
+  assert.deepEqual(chart.rows[1], { entryIndex: 1, runs: [{ colorId: 'blue', count: 3 }], rowLabel: 'Row 2', isStartRow: false });
 });
 
 test('buildWordChart: stitchType "square" total line count equals rows, unlike peyote\'s 1 + 2*(rows-1)', () => {
@@ -408,4 +412,202 @@ test('buildWordChart: dropCount defaults to 1, matching every pre-multi-drop tes
   const withDefault = buildWordChart(cells, 2, 4, 'peyote', false);
   const withExplicit = buildWordChart(cells, 2, 4, 'peyote', false, 1);
   assert.deepEqual(withDefault, withExplicit);
+});
+
+// startRow (.work/feature-requests-and-bugs.md: "my start row ends up being
+// partway into the pattern" for designs with leading blank rows) — NEVER
+// changes numbering (confirmed directly with the user after two rejected
+// designs — see buildWordChart's own comment). Row 0 is always "Row 1 & 2";
+// every other row's label is always its own fixed pair ("Row 3"/"Row 4",
+// "Row 5"/"Row 6", ...) UNLESS that row is the chosen startRow, in which case
+// it switches from split to combined — the same un-split treatment row 0
+// always gets — and is flagged via isStartRow for bolding.
+
+test('clampStartRow: clamps into [0, rows), truncates, and treats a non-finite/negative rows as 0', () => {
+  assert.equal(clampStartRow(0, 10), 0);
+  assert.equal(clampStartRow(3, 10), 3);
+  assert.equal(clampStartRow(9, 10), 9);
+  assert.equal(clampStartRow(10, 10), 9); // past the last valid index
+  assert.equal(clampStartRow(-5, 10), 0); // negative clamps to 0
+  assert.equal(clampStartRow(3.9, 10), 3); // truncated, not rounded
+  assert.equal(clampStartRow(5, 0), 0); // no rows at all
+});
+
+test('firstOccupiedRow: returns the lowest row across every occupied cell, regardless of col', () => {
+  const cells = new Map();
+  setCell(cells, 4, 2, 'red');
+  setCell(cells, 2, 0, 'blue');
+  setCell(cells, 7, 1, 'red');
+  assert.equal(firstOccupiedRow(cells), 2);
+});
+
+test('firstOccupiedRow: returns null for a completely empty design', () => {
+  assert.equal(firstOccupiedRow(new Map()), null);
+});
+
+test('buildWordChart: the chosen startRow (peyote, row>=1) combines into one un-split line, labeled with its own two numbers', () => {
+  const cells = new Map();
+  // cols=4 (even): isRaised(col,4) is true for col indices 1,3 — a classic
+  // split would group Q,S (raised) and P,R (non-raised) into two separate
+  // lines. Combining must instead scan the whole row in plain column order.
+  setCell(cells, 2, 0, 'P');
+  setCell(cells, 2, 1, 'Q');
+  setCell(cells, 2, 2, 'R');
+  setCell(cells, 2, 3, 'S');
+  const chart = buildWordChart(cells, 4, 4, 'peyote', false, 1, 2); // startRow: row 2
+
+  // Line count never changes — the chosen row contributes 1 line instead of
+  // its usual 2, but row 0 (uncombined now that it isn't the chosen row)
+  // contributes its usual 2 instead of the foundation's usual 1, netting out
+  // to the exact same classic total (1 + 2*(4-1) = 7).
+  assert.equal(chart.rows.length, 7);
+  const combined = chart.rows.filter((r) => r.isStartRow);
+  assert.equal(combined.length, 1);
+  assert.equal(combined[0].rowLabel, 'Row 5 & 6');
+  assert.deepEqual(combined[0].runs, [
+    { colorId: 'P', count: 1 },
+    { colorId: 'Q', count: 1 },
+    { colorId: 'R', count: 1 },
+    { colorId: 'S', count: 1 },
+  ]);
+});
+
+test('buildWordChart: row 0 uncombines into ordinary "Row 1"/"Row 2" lines once a DIFFERENT row is chosen as startRow', () => {
+  const cells = new Map();
+  setCell(cells, 0, 0, 'red');
+  setCell(cells, 0, 1, 'blue');
+  const chart = buildWordChart(cells, 4, 2, 'peyote', false, 1, 2); // startRow: row 2, not row 0
+
+  // Row 0 is no longer special-cased — cols=2 means col 1 is raised, col 0
+  // is not, so it splits exactly like any other row would: "Row 1" (raised,
+  // col 1 = blue) printed first, "Row 2" (non-raised, col 0 = red) second.
+  assert.equal(chart.rows.some((r) => r.rowLabel === 'Row 1 & 2'), false);
+  const row1 = chart.rows.find((r) => r.rowLabel === 'Row 1');
+  const row2 = chart.rows.find((r) => r.rowLabel === 'Row 2');
+  assert.ok(row1 && row2);
+  assert.deepEqual(row1.runs, [{ colorId: 'blue', count: 1 }]);
+  assert.deepEqual(row2.runs, [{ colorId: 'red', count: 1 }]);
+  assert.equal(row1.isStartRow, false);
+  assert.equal(row2.isStartRow, false);
+});
+
+test('buildWordChart: every OTHER row keeps its exact classic label/content regardless of which row is combined', () => {
+  const cells = new Map();
+  for (let row = 1; row < 4; row++) {
+    for (let col = 0; col < 2; col++) setCell(cells, row, col, `R${row}C${col}`);
+  }
+  const classic = buildWordChart(cells, 4, 2, 'peyote', false, 1, 0); // row 0, no-op combine
+  const combinedAtRow2 = buildWordChart(cells, 4, 2, 'peyote', false, 1, 2);
+
+  const byLabel = (chart) => Object.fromEntries(chart.rows.map((r) => [r.rowLabel, r.runs]));
+  const classicByLabel = byLabel(classic);
+  const combinedByLabel = byLabel(combinedAtRow2);
+  for (const label of ['Row 3', 'Row 4', 'Row 7', 'Row 8']) {
+    assert.deepEqual(combinedByLabel[label], classicByLabel[label], label);
+  }
+  // Row 2's own classic pair ("Row 5"/"Row 6") no longer exists as two
+  // separate lines — replaced by one combined "Row 5 & 6" line instead.
+  assert.equal(combinedByLabel['Row 5'], undefined);
+  assert.equal(combinedByLabel['Row 6'], undefined);
+  assert.ok(combinedByLabel['Row 5 & 6']);
+});
+
+test('buildWordChart: startRow 0 (the default) reproduces this chart\'s original, startRow-unaware behavior exactly', () => {
+  const cells = new Map();
+  setCell(cells, 0, 0, 'red');
+  const withDefault = buildWordChart(cells, 3, 1);
+  const explicitZero = buildWordChart(cells, 3, 1, 'peyote', false, 1, 0);
+  assert.deepEqual(withDefault, explicitZero);
+  assert.equal(withDefault.rows[0].rowLabel, 'Row 1 & 2');
+  assert.equal(withDefault.rows[0].isStartRow, true);
+  assert.equal(withDefault.rows.length, 1 + 2 * (3 - 1)); // unchanged line count
+});
+
+test('buildWordChart: an out-of-range startRow clamps to a real row and still combines it correctly, with the classic total line count preserved', () => {
+  const cells = new Map();
+  setCell(cells, 4, 0, 'red');
+  const tooHigh = buildWordChart(cells, 5, 1, 'peyote', false, 1, 99);
+  // Clamps to row 4 (the last row) — its own pair ("Row 9"/"Row 10") combines
+  // into one line instead of the usual two, while row 0 (no longer chosen)
+  // splits into its own "Row 1"/"Row 2" pair instead, so the total is
+  // unchanged from the classic 9 (1 + 2*(5-1)).
+  assert.equal(tooHigh.rows.length, 1 + 2 * (5 - 1));
+  const combined = tooHigh.rows.filter((r) => r.isStartRow);
+  assert.equal(combined.length, 1);
+  assert.equal(combined[0].rowLabel, 'Row 9 & 10');
+  assert.deepEqual(combined[0].runs, [{ colorId: 'red', count: 1 }]);
+  assert.equal(tooHigh.rows.some((r) => r.rowLabel === 'Row 1 & 2'), false);
+  assert.ok(tooHigh.rows.some((r) => r.rowLabel === 'Row 1'));
+  assert.ok(tooHigh.rows.some((r) => r.rowLabel === 'Row 2'));
+
+  const negative = buildWordChart(cells, 5, 1, 'peyote', false, 1, -3);
+  const zero = buildWordChart(cells, 5, 1, 'peyote', false, 1, 0);
+  assert.deepEqual(negative, zero);
+});
+
+test('buildWordChart: total printed line count is always 1 + 2*(rows-1), regardless of which row is chosen as startRow', () => {
+  const cells = new Map();
+  for (let row = 0; row < 6; row++) setCell(cells, row, 0, `C${row}`);
+  for (let startRow = 0; startRow < 6; startRow++) {
+    const chart = buildWordChart(cells, 6, 2, 'peyote', false, 1, startRow);
+    assert.equal(chart.rows.length, 1 + 2 * (6 - 1), `startRow: ${startRow}`);
+  }
+});
+
+test('buildWordChart: startRow defaults to 0 when omitted, matching every pre-startRow test above', () => {
+  const cells = new Map();
+  for (let col = 0; col < 3; col++) setCell(cells, 0, col, 'red');
+  const withDefault = buildWordChart(cells, 1, 3);
+  const withExplicit = buildWordChart(cells, 1, 3, 'peyote', false, 1, 0);
+  assert.deepEqual(withDefault, withExplicit);
+});
+
+test('buildWordChart: stitchType "square" has no combining concept — startRow only bolds the row, labels stay one-per-row', () => {
+  const cells = new Map();
+  for (let row = 0; row < 4; row++) setCell(cells, row, 0, `C${row}`);
+  const chart = buildWordChart(cells, 4, 1, 'square', false, 1, 2); // highlight row 2
+  assert.equal(chart.rows.length, 4); // no combining, always one line per row
+  assert.deepEqual(chart.rows.map((r) => r.rowLabel), ['Row 1', 'Row 2', 'Row 3', 'Row 4']);
+  assert.deepEqual(chart.rows.map((r) => r.isStartRow), [false, false, true, false]);
+});
+
+// primaryLabelForRow / rowForLabel — the Start Row *field*'s own conversion
+// between a physical row and the chart's fixed, unchanging label number(s)
+// for it (see printView.js and buildWordChart's own comments). A crafter
+// reads the default printout's own numbers and types one in directly.
+
+test('primaryLabelForRow: peyote — row 0 is always "1", row r>=1 is its raised (odd) label', () => {
+  assert.equal(primaryLabelForRow(0), 1);
+  assert.equal(primaryLabelForRow(1), 3);
+  assert.equal(primaryLabelForRow(2), 5);
+  assert.equal(primaryLabelForRow(6), 13);
+});
+
+test('primaryLabelForRow: square — a row\'s own 1-indexed number, no doubling', () => {
+  assert.equal(primaryLabelForRow(0, 'square'), 1);
+  assert.equal(primaryLabelForRow(3, 'square'), 4);
+});
+
+test('rowForLabel: peyote — either of a row\'s two labels (odd or even) resolves to the same physical row', () => {
+  assert.equal(rowForLabel(1), 0);
+  assert.equal(rowForLabel(2), 0);
+  assert.equal(rowForLabel(3), 1);
+  assert.equal(rowForLabel(4), 1);
+  assert.equal(rowForLabel(13), 6);
+  assert.equal(rowForLabel(14), 6);
+});
+
+test('rowForLabel: square — a row\'s own 1-indexed number, no doubling', () => {
+  assert.equal(rowForLabel(1, 'square'), 0);
+  assert.equal(rowForLabel(4, 'square'), 3);
+});
+
+test('primaryLabelForRow/rowForLabel round-trip for every row in a realistic range (peyote)', () => {
+  for (let row = 0; row < 40; row++) {
+    const label = primaryLabelForRow(row);
+    assert.equal(rowForLabel(label), row);
+    // The row's *other* label (the even one) must also resolve back to the
+    // same row, matching how either half of a split pair names one row.
+    if (row > 0) assert.equal(rowForLabel(label + 1), row);
+  }
 });
