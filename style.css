@@ -798,10 +798,6 @@ input[type="range"]::-moz-range-thumb {
   flex-direction: column;
 }
 
-#clear-pattern {
-  margin-top: auto; /* pinned to the rail's bottom, visually separated as destructive */
-}
-
 #tool-toggle {
   display: flex;
   gap: 0.4rem;

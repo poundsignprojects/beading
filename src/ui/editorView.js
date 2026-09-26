@@ -172,7 +172,6 @@ export function mountEditorView(appState, hooks) {
   const toolEyedropperButton = document.getElementById('tool-eyedropper');
   const toolSelectButton = document.getElementById('tool-select');
   const toolMoveButton = document.getElementById('tool-move');
-  const clearButton = document.getElementById('clear-pattern');
   const panelToggleButton = document.getElementById('panel-toggle');
   const sidePanel = document.getElementById('side-panel');
   const colorPalette = document.getElementById('color-palette');
@@ -789,19 +788,6 @@ export function mountEditorView(appState, hooks) {
     photoTraceRemoveButton.hidden = !hasPhoto;
     if (hasPhoto) photoTraceOpacityInput.value = String(appState.photoTrace.opacityPercent);
     if (!hasPhoto && appState.tool === 'move-photo') setTool('draw');
-  }
-
-  // Clear only ever affects the active layer within the active colorway (see
-  // .work/feature-layers-plan.md's "editing tools stay scoped to the active
-  // layer") — and since layers now belong to exactly one colorway (see
-  // .work/feature-per-colorway-layers-plan.md), that's genuinely all it
-  // touches; no other colorway is affected. Names the active layer when
-  // there's more than one on this colorway, since that's the only thing worth
-  // disambiguating here.
-  function confirmClearLayerMessage() {
-    const activeLayer = appState.layers.find((l) => l.id === appState.activeLayerId);
-    const layerNote = appState.layers.length > 1 && activeLayer ? ` on layer "${activeLayer.name}"` : '';
-    return layerNote ? `This layer has beads placed. Clear them?` : CLEAR_CONFIRM_MESSAGE;
   }
 
   // Regenerating resets the grid geometry for the WHOLE design — every layer
@@ -2259,26 +2245,6 @@ export function mountEditorView(appState, hooks) {
     setTool('draw');
     renderColorPalette();
   }
-  // Clear is an editing tool like draw/erase/fill, so — per .work/feature-
-  // layers-plan.md's "editing tools stay scoped to the active layer" — it only
-  // ever clears the active layer within the active colorway; since layers
-  // belong to exactly one colorway (see .work/feature-per-colorway-layers-
-  // plan.md), no other colorway is touched at all.
-  function handleClear() {
-    if (appState.cells.size === 0) return;
-    if (!isActiveLayerVisible()) {
-      showLayerHiddenToast();
-      return;
-    }
-    if (!window.confirm(confirmClearLayerMessage())) return;
-    appState.cells.clear();
-    clearHistory(appState.history);
-    updateHistoryButtons();
-    renderColorwayList();
-    scheduleRedraw();
-    hooks.onDesignContentChanged();
-    hooks.onImmediateSave();
-  }
   // If the patch about to be undone was made on a different layer/colorway
   // than the one currently active, jump there first (switchContext — not an
   // undo step of its own) so the undo lands where it actually belongs. A
@@ -2655,7 +2621,6 @@ export function mountEditorView(appState, hooks) {
   toolEyedropperButton.addEventListener('click', handleToolEyedropper);
   toolSelectButton.addEventListener('click', handleToolSelect);
   toolMoveButton.addEventListener('click', handleToolMove);
-  clearButton.addEventListener('click', handleClear);
   panelToggleButton.addEventListener('click', handlePanelToggle);
   colorManageToggleButton.addEventListener('click', handleColorManageToggle);
   colorManageList.addEventListener('pointerdown', handleColorListPointerDown);
@@ -2859,7 +2824,6 @@ export function mountEditorView(appState, hooks) {
     toolReplaceButton.removeEventListener('click', handleToolReplace);
     toolSelectButton.removeEventListener('click', handleToolSelect);
     toolMoveButton.removeEventListener('click', handleToolMove);
-    clearButton.removeEventListener('click', handleClear);
     panelToggleButton.removeEventListener('click', handlePanelToggle);
     colorManageToggleButton.removeEventListener('click', handleColorManageToggle);
     colorManageList.removeEventListener('pointerdown', handleColorListPointerDown);
