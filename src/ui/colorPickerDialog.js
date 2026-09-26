@@ -13,12 +13,9 @@
 // existed specifically because the native picker gave no reliable dismissal
 // signal to hang a commit on.
 
-import { hexToHsv, hsvToHex, isValidHex, normalizeHex, clamp01, alphaOverWhite } from '../palette/colorConversion.js';
-
-// Where the "Transparent" opacity preset chip sets the slider to — a
-// reasonable starting point, not a lock; the slider stays freely adjustable
-// after clicking it, same as every other preset chip in this app.
-const TRANSPARENT_OPACITY_PRESET = 50;
+import {
+  hexToHsv, hsvToHex, isValidHex, normalizeHex, clamp01, hexToRgba, hsvToHsl, hslToHsv, hslToHex,
+} from '../palette/colorConversion.js';
 
 // Wires pointer-driven dragging on `el` (mouse, touch, and pen all go through
 // the same Pointer Events path — consistent with the rest of this app's
@@ -53,6 +50,10 @@ function bindDrag(el, onPoint) {
   };
 }
 
+function clampHueDeg(value) {
+  return Math.min(360, Math.max(0, value));
+}
+
 // Resolves with { hex, name, alphaPercent, luster } on confirm when
 // showAppearanceControls is true (alphaPercent/luster included; name omitted
 // when showNameField is false), or plain { hex, name? } when
@@ -62,22 +63,32 @@ function bindDrag(el, onPoint) {
 export function promptColorPicker({
   initialHex = '#ff0000', title, confirmLabel, showNameField = false, initialName = '',
   showAppearanceControls = true, initialAlphaPercent = 100, initialLuster = 'matte',
+  initialMode = 'hsv', onModeChanged,
 } = {}) {
   return new Promise((resolve) => {
     const dialog = document.getElementById('color-picker-dialog');
     const titleEl = document.getElementById('color-picker-title');
     const closeButton = document.getElementById('color-picker-close');
+    const modeSwitchButton = document.getElementById('color-picker-mode-switch');
+    const modeLabelHsv = document.getElementById('color-picker-mode-label-hsv');
+    const modeLabelHsl = document.getElementById('color-picker-mode-label-hsl');
+    const hsvControlsEl = document.getElementById('color-picker-hsv-controls');
+    const hslControlsEl = document.getElementById('color-picker-hsl-controls');
     const svEl = document.getElementById('color-picker-sv');
     const svThumb = document.getElementById('color-picker-sv-thumb');
     const hueEl = document.getElementById('color-picker-hue');
     const hueThumb = document.getElementById('color-picker-hue-thumb');
+    const hslHRange = document.getElementById('color-picker-hsl-h-range');
+    const hslHNumber = document.getElementById('color-picker-hsl-h-number');
+    const hslSRange = document.getElementById('color-picker-hsl-s-range');
+    const hslSNumber = document.getElementById('color-picker-hsl-s-number');
+    const hslLRange = document.getElementById('color-picker-hsl-l-range');
+    const hslLNumber = document.getElementById('color-picker-hsl-l-number');
     const swatchEl = document.getElementById('color-picker-swatch');
     const hexInput = document.getElementById('color-picker-hex-input');
     const appearanceEl = document.getElementById('color-picker-appearance');
     const opacityRange = document.getElementById('color-picker-opacity-range');
     const opacityValueLabel = document.getElementById('color-picker-opacity-value');
-    const opacityOpaqueButton = document.getElementById('color-picker-opacity-opaque');
-    const opacityTransparentButton = document.getElementById('color-picker-opacity-transparent');
     const lusterMatteButton = document.getElementById('color-picker-luster-matte');
     const lusterShinyButton = document.getElementById('color-picker-luster-shiny');
     const nameInput = document.getElementById('color-picker-name-input');
@@ -87,6 +98,16 @@ export function promptColorPicker({
     let hsv = hexToHsv(isValidHex(initialHex) ? normalizeHex(initialHex) : '#ff0000');
     let alphaPercent = clamp01(initialAlphaPercent / 100) * 100;
     let luster = initialLuster === 'shiny' ? 'shiny' : 'matte';
+    let mode = initialMode === 'hsl' ? 'hsl' : 'hsv';
+    // HSL's own saturation is mathematically meaningless at l=0 (black) or
+    // l=1 (white) — hslToHsv collapses ANY s to hsv.s=0 there, since no s
+    // value changes what a fully-black/white color looks like. Left alone,
+    // that makes the S slider snap to 0 the instant L reaches an extreme and
+    // stay there once L comes back, which reads as "S got reset." This
+    // remembers the last real (non-degenerate) S so it can be shown/reused
+    // once L moves off the extreme again — updated in render() whenever S is
+    // well-defined, read from setHslChannel/render() whenever it isn't.
+    let stickySaturation = hsvToHsl(hsv).s;
 
     titleEl.textContent = title ?? (showNameField ? 'Add Color' : 'Edit Color');
     confirmButton.textContent = confirmLabel ?? (showNameField ? 'Add' : 'Done');
@@ -109,26 +130,78 @@ export function promptColorPicker({
       swatchEl.classList.toggle('swatch-shiny', luster === 'shiny');
     }
 
-    // Updates everything except the hex text field — used while the hex field
-    // itself is being typed into, so we don't fight the user's cursor by
-    // reformatting on every keystroke.
-    function updateVisuals() {
+    // Re-derives every control (SV square, hue bar, HSL sliders, hex field,
+    // swatch) from `hsv`, the single source of truth. A text-entry field that
+    // currently has focus (hex or one of the HSL number boxes) is skipped, so
+    // typing into it isn't fought by a reformat on every keystroke — it's
+    // brought back in sync on blur instead, once focus has moved on.
+    function render() {
       const hex = currentHex();
       svEl.style.setProperty('--picker-hue', hsv.h);
       svThumb.style.left = `${hsv.s * 100}%`;
       svThumb.style.top = `${(1 - hsv.v) * 100}%`;
       hueThumb.style.left = `${(hsv.h / 360) * 100}%`;
-      // DOM swatch previews are pinned to a white backing regardless of where
-      // this dialog itself renders (see colorConversion.js's alphaOverWhite) —
-      // a plain rgba() would composite differently against whatever's really
-      // behind this element. When appearance controls are hidden, alphaPercent
-      // stays at its 100 default, so this is just the opaque hex either way.
-      swatchEl.style.backgroundColor = alphaOverWhite(hex, alphaPercent);
+      // A real translucent fill (not alphaOverWhite's precomposited-against-
+      // white opaque hex, used everywhere else a swatch appears) — this is
+      // the one DOM swatch in the app that owns its own fixed backdrop (the
+      // checkerboard set in CSS, layered underneath via --swatch-fill), so
+      // unlike a palette/Manage-Colors swatch sitting on an unpredictable
+      // ambient background, true alpha compositing here is safe and is the
+      // whole point (it's what actually shows the checkerboard through).
+      swatchEl.style.setProperty('--swatch-fill', hexToRgba(hex, alphaPercent));
+
+      const hsl = hsvToHsl(hsv);
+      const atSaturationExtreme = hsl.l <= 0 || hsl.l >= 1;
+      if (!atSaturationExtreme) stickySaturation = hsl.s;
+      // Show/derive-gradients-from the remembered S while L sits at an
+      // extreme (see stickySaturation's own comment) — the real hsl.s here
+      // is always exactly 0 in that regime, which isn't what should display.
+      const displayS = atSaturationExtreme ? stickySaturation : hsl.s;
+
+      const hRounded = Math.round(hsl.h);
+      const sRounded = Math.round(displayS * 1000) / 10;
+      const lRounded = Math.round(hsl.l * 1000) / 10;
+      hslHRange.value = String(hRounded);
+      hslSRange.value = String(sRounded);
+      hslLRange.value = String(lRounded);
+      // Saturation's track previews gray-to-vivid at the CURRENT hue/lightness;
+      // lightness's previews black-to-hue-color-to-white at the current
+      // hue/saturation — each track always shows what dragging it would do,
+      // not a fixed gradient (only hue's own track, set in CSS, is fixed).
+      hslSRange.style.background =
+        `linear-gradient(to right, ${hslToHex({ h: hsl.h, s: 0, l: hsl.l })}, ${hslToHex({ h: hsl.h, s: 1, l: hsl.l })})`;
+      hslLRange.style.background =
+        `linear-gradient(to right, #000, ${hslToHex({ h: hsl.h, s: displayS, l: 0.5 })}, #fff)`;
+
+      if (document.activeElement !== hexInput) hexInput.value = hex;
+      if (document.activeElement !== hslHNumber) hslHNumber.value = String(hRounded);
+      if (document.activeElement !== hslSNumber) hslSNumber.value = sRounded.toFixed(1);
+      if (document.activeElement !== hslLNumber) hslLNumber.value = lRounded.toFixed(1);
     }
 
-    function updateDisplay() {
-      updateVisuals();
-      hexInput.value = currentHex();
+    function updateModeButtons() {
+      const isHsl = mode === 'hsl';
+      modeSwitchButton.setAttribute('aria-pressed', String(isHsl));
+      modeLabelHsv.classList.toggle('color-picker-mode-label-active', !isHsl);
+      modeLabelHsl.classList.toggle('color-picker-mode-label-active', isHsl);
+      hsvControlsEl.hidden = mode !== 'hsv';
+      hslControlsEl.hidden = mode !== 'hsl';
+    }
+
+    // The toggle click IS the final action for the mode preference (persisted
+    // immediately via onModeChanged, same "no separate save step" convention
+    // canvas background's own mode select already uses) — it's remembered
+    // for next time regardless of whether this particular color pick is
+    // later confirmed or cancelled.
+    function setMode(next) {
+      if (mode === next) return;
+      mode = next;
+      updateModeButtons();
+      onModeChanged?.(mode);
+    }
+
+    function handleModeSwitchClick() {
+      setMode(mode === 'hsv' ? 'hsl' : 'hsv');
     }
 
     function setFromSvPoint(clientX, clientY) {
@@ -138,49 +211,88 @@ export function promptColorPicker({
         s: clamp01((clientX - rect.left) / rect.width),
         v: 1 - clamp01((clientY - rect.top) / rect.height),
       };
-      updateDisplay();
+      render();
     }
 
     function setFromHuePoint(clientX) {
       const rect = hueEl.getBoundingClientRect();
       hsv = { ...hsv, h: clamp01((clientX - rect.left) / rect.width) * 360 };
-      updateDisplay();
+      render();
+    }
+
+    // Applies one changed HSL channel on top of the OTHER two channels' exact
+    // current values (re-derived fresh from `hsv` each time, never accumulated
+    // from a slider's own last reading) — h passes through the hsv<->hsl
+    // round trip untouched, so dragging s/l can't drift h, and vice versa.
+    // s specifically starts from stickySaturation, not the real (possibly
+    // forced-to-0) hsl.s — this is what makes moving L away from 0/100 bring
+    // back the s the user actually had, instead of a flat gray/white.
+    function setHslChannel(channel, rawValue) {
+      const hsl = hsvToHsl(hsv);
+      const baseS = hsl.l <= 0 || hsl.l >= 1 ? stickySaturation : hsl.s;
+      const updated = { h: hsl.h, s: baseS, l: hsl.l };
+      if (channel === 'h') updated.h = clampHueDeg(rawValue);
+      else if (channel === 's') {
+        updated.s = clamp01(rawValue / 100);
+        stickySaturation = updated.s;
+      } else updated.l = clamp01(rawValue / 100);
+      hsv = hslToHsv(updated);
+    }
+
+    function handleHslHRangeInput() {
+      setHslChannel('h', Number(hslHRange.value));
+      render();
+    }
+    function handleHslSRangeInput() {
+      setHslChannel('s', Number(hslSRange.value));
+      render();
+    }
+    function handleHslLRangeInput() {
+      setHslChannel('l', Number(hslLRange.value));
+      render();
+    }
+    function handleHslHNumberInput() {
+      const raw = Number(hslHNumber.value);
+      if (Number.isNaN(raw)) return;
+      setHslChannel('h', raw);
+      render();
+    }
+    function handleHslSNumberInput() {
+      const raw = Number(hslSNumber.value);
+      if (Number.isNaN(raw)) return;
+      setHslChannel('s', raw);
+      render();
+    }
+    function handleHslLNumberInput() {
+      const raw = Number(hslLNumber.value);
+      if (Number.isNaN(raw)) return;
+      setHslChannel('l', raw);
+      render();
+    }
+    // Shared by all three number fields — reformats to the canonical rounded
+    // value now that focus has moved on, mirroring handleHexBlur below.
+    function handleHslNumberBlur() {
+      render();
     }
 
     function handleHexInput() {
       const raw = hexInput.value.trim();
       if (isValidHex(raw)) {
         hsv = hexToHsv(normalizeHex(raw));
-        updateVisuals();
+        render();
       }
     }
 
     function handleHexBlur() {
       // Reformats to the canonical 6-digit lowercase form, or reverts an
       // invalid/incomplete value back to the last valid color.
-      hexInput.value = currentHex();
+      render();
     }
 
-    // Presets are a shortcut into the same slider/toggle fields, never a
-    // separate stored mode — clicking one just moves the control to that
-    // value exactly as if it had been dragged/tapped there, and it stays
-    // freely adjustable afterward.
     function handleOpacityRangeInput() {
       alphaPercent = Number(opacityRange.value);
       updateOpacityLabel();
-      updateVisuals();
-    }
-    function handleOpacityOpaquePreset() {
-      alphaPercent = 100;
-      opacityRange.value = '100';
-      updateOpacityLabel();
-      updateVisuals();
-    }
-    function handleOpacityTransparentPreset() {
-      alphaPercent = TRANSPARENT_OPACITY_PRESET;
-      opacityRange.value = String(TRANSPARENT_OPACITY_PRESET);
-      updateOpacityLabel();
-      updateVisuals();
+      render();
     }
     function handleLusterMatte() {
       luster = 'matte';
@@ -194,11 +306,19 @@ export function promptColorPicker({
     function cleanup() {
       unbindSv();
       unbindHue();
+      modeSwitchButton.removeEventListener('click', handleModeSwitchClick);
+      hslHRange.removeEventListener('input', handleHslHRangeInput);
+      hslSRange.removeEventListener('input', handleHslSRangeInput);
+      hslLRange.removeEventListener('input', handleHslLRangeInput);
+      hslHNumber.removeEventListener('input', handleHslHNumberInput);
+      hslSNumber.removeEventListener('input', handleHslSNumberInput);
+      hslLNumber.removeEventListener('input', handleHslLNumberInput);
+      hslHNumber.removeEventListener('blur', handleHslNumberBlur);
+      hslSNumber.removeEventListener('blur', handleHslNumberBlur);
+      hslLNumber.removeEventListener('blur', handleHslNumberBlur);
       hexInput.removeEventListener('input', handleHexInput);
       hexInput.removeEventListener('blur', handleHexBlur);
       opacityRange.removeEventListener('input', handleOpacityRangeInput);
-      opacityOpaqueButton.removeEventListener('click', handleOpacityOpaquePreset);
-      opacityTransparentButton.removeEventListener('click', handleOpacityTransparentPreset);
       lusterMatteButton.removeEventListener('click', handleLusterMatte);
       lusterShinyButton.removeEventListener('click', handleLusterShiny);
       cancelButton.removeEventListener('click', onCancel);
@@ -241,11 +361,19 @@ export function promptColorPicker({
 
     const unbindSv = bindDrag(svEl, setFromSvPoint);
     const unbindHue = bindDrag(hueEl, (x) => setFromHuePoint(x));
+    modeSwitchButton.addEventListener('click', handleModeSwitchClick);
+    hslHRange.addEventListener('input', handleHslHRangeInput);
+    hslSRange.addEventListener('input', handleHslSRangeInput);
+    hslLRange.addEventListener('input', handleHslLRangeInput);
+    hslHNumber.addEventListener('input', handleHslHNumberInput);
+    hslSNumber.addEventListener('input', handleHslSNumberInput);
+    hslLNumber.addEventListener('input', handleHslLNumberInput);
+    hslHNumber.addEventListener('blur', handleHslNumberBlur);
+    hslSNumber.addEventListener('blur', handleHslNumberBlur);
+    hslLNumber.addEventListener('blur', handleHslNumberBlur);
     hexInput.addEventListener('input', handleHexInput);
     hexInput.addEventListener('blur', handleHexBlur);
     opacityRange.addEventListener('input', handleOpacityRangeInput);
-    opacityOpaqueButton.addEventListener('click', handleOpacityOpaquePreset);
-    opacityTransparentButton.addEventListener('click', handleOpacityTransparentPreset);
     lusterMatteButton.addEventListener('click', handleLusterMatte);
     lusterShinyButton.addEventListener('click', handleLusterShiny);
     cancelButton.addEventListener('click', onCancel);
@@ -256,7 +384,8 @@ export function promptColorPicker({
 
     updateOpacityLabel();
     updateLusterButtons();
-    updateDisplay();
+    updateModeButtons();
+    render();
     dialog.showModal();
   });
 }

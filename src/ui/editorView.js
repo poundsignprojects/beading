@@ -1834,8 +1834,23 @@ export function mountEditorView(appState, hooks) {
   // genuinely different OS pickers on Mac vs. iPad. Nothing is applied until
   // the dialog resolves (Add/Done), so there's no live-apply-while-dragging
   // and no separate undo button to keep in sync — Cancel just discards.
+  //
+  // The picker's own HSV/HSL mode toggle persists as a global preference
+  // (colorPickerMode) so it's remembered across designs/sessions — same
+  // "stored row saved before this field existed comes back undefined"
+  // gotcha as every other preferencesStore.js field, hence the explicit
+  // fallback below rather than trusting the stored value already has it.
+  function currentColorPickerMode() {
+    return appState.preferences.colorPickerMode === 'hsl' ? 'hsl' : 'hsv';
+  }
+  function handleColorPickerModeChanged(mode) {
+    hooks.onPreferencesChanged({ colorPickerMode: mode });
+  }
   async function handleAddColorClick() {
-    const result = await promptColorPicker({ title: 'Add Color', showNameField: true });
+    const result = await promptColorPicker({
+      title: 'Add Color', showNameField: true,
+      initialMode: currentColorPickerMode(), onModeChanged: handleColorPickerModeChanged,
+    });
     if (!result) return;
     await hooks.onCustomColorAdded({ name: result.name, hex: result.hex, alphaPercent: result.alphaPercent, luster: result.luster });
     renderColorPalette();
@@ -1850,6 +1865,7 @@ export function mountEditorView(appState, hooks) {
       showNameField: false,
       initialAlphaPercent: color.alphaPercent,
       initialLuster: color.luster,
+      initialMode: currentColorPickerMode(), onModeChanged: handleColorPickerModeChanged,
     });
     if (!result) return;
     await hooks.onCustomColorAppearanceChanged(id, { hex: result.hex, alphaPercent: result.alphaPercent, luster: result.luster });
@@ -2010,6 +2026,7 @@ export function mountEditorView(appState, hooks) {
       showNameField: false,
       showAppearanceControls: false,
       initialHex: appState.preferences.canvasBackgroundHex ?? '#ffffff',
+      initialMode: currentColorPickerMode(), onModeChanged: handleColorPickerModeChanged,
     });
     if (!result) return;
     hooks.onPreferencesChanged({ canvasBackgroundHex: result.hex });

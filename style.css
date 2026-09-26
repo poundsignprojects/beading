@@ -1863,6 +1863,27 @@ input[type="range"]::-moz-range-thumb {
    square + hue bar instead of relying on the browser's native <input
    type="color">, so it looks and behaves identically on Mac Safari and iPad
    Safari (the native input opened two genuinely different OS pickers). */
+
+/* The shared dialog rule above only sets max-width, not width — with no
+   explicit width, a <dialog> shrink-to-fits to whatever its narrowest
+   content naturally needs (here, the Cancel/Add and Opaque/Transparent
+   button rows), which measured only ~250px even on a normal-width iPad
+   viewport — everything percentage-width inside (the SV square, hue bar,
+   and now the HSL sliders) inherited that same narrow width regardless of
+   how much screen space was actually available. Claiming the full max-width
+   whenever the viewport allows gives every drag surface real usable length —
+   this matters far more here than in the other dialogs sharing that rule
+   (this is the one dialog whose entire interaction is 1D/2D drag precision),
+   so it's scoped to just this dialog rather than widening the shared rule. */
+#color-picker-dialog {
+  /* border-box so 92vw is the true outer width including this dialog's own
+     padding — without it, width sets only the content box and the dialog's
+     padding adds on top, which was overflowing a narrow (~390px) viewport by
+     several px. */
+  box-sizing: border-box;
+  width: min(92vw, 26rem);
+}
+
 #color-picker-body {
   display: flex;
   flex-direction: column;
@@ -1879,6 +1900,18 @@ input[type="range"]::-moz-range-thumb {
   height: 2.5rem;
   border-radius: 6px;
   border: 1px solid rgba(0, 0, 0, 0.2);
+  /* Two background-image layers: the live translucent fill on top (a flat
+     linear-gradient of --swatch-fill to itself — the standard trick for
+     putting a plain color into a background-image stack, since a real
+     background-color always paints BELOW every background-image layer,
+     which would hide it behind the checkerboard instead of over it), a
+     checkerboard underneath so the fill's own alpha is actually visible
+     against something other than a flat, always-opaque surface. */
+  --swatch-fill: transparent;
+  background-image:
+    linear-gradient(var(--swatch-fill), var(--swatch-fill)),
+    repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%);
+  background-size: auto, 16px 16px;
 }
 
 #color-picker-sv {
@@ -1911,7 +1944,14 @@ input[type="range"]::-moz-range-thumb {
 #color-picker-hue {
   position: relative;
   width: 100%;
-  height: 1.75rem;
+  /* 44px — this app's usual touch-target floor (.icon-btn etc.). Was 1.75rem
+     (28px): thin enough that a fingertip's initial touchdown routinely missed
+     the strip entirely (bindDrag only starts a drag if pointerdown actually
+     lands on this element), which is what made the hue bar hard to grab on
+     iPad. Once captured, dragging itself was always fine (pointer capture
+     keeps delivering events and setFromHuePoint only reads clientX) — the
+     friction was purely in landing the first touch. */
+  height: 2.75rem;
   border-radius: 6px;
   border: 1px solid rgba(0, 0, 0, 0.15);
   background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
@@ -1929,6 +1969,156 @@ input[type="range"]::-moz-range-thumb {
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.4);
   transform: translateX(-50%);
   pointer-events: none;
+}
+
+/* HSV/HSL mode switch, at the bottom of the dialog — a plain on/off switch
+   rather than two buttons, same #preferences-preserve-stagger-toggle
+   pill-and-thumb convention/markup shape used in the Preferences dialog. */
+#color-picker-mode-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  margin-top: 0.25rem;
+}
+
+.color-picker-mode-label {
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.color-picker-mode-label-active {
+  color: #222;
+  font-weight: 600;
+}
+
+#color-picker-mode-switch {
+  position: relative;
+  width: 3.25rem;
+  height: 1.85rem;
+  min-height: 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: #ccc;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background-color 0.15s ease;
+}
+
+#color-picker-mode-switch::after {
+  content: '';
+  position: absolute;
+  top: 0.175rem;
+  left: 0.175rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 0.15s ease;
+}
+
+#color-picker-mode-switch[aria-pressed="true"] {
+  background: #333;
+}
+
+#color-picker-mode-switch[aria-pressed="true"]::after {
+  transform: translateX(1.4rem);
+}
+
+#color-picker-hsv-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+#color-picker-hsl-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.color-picker-hsl-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+/* Native <input type="range"> instead of another hand-rolled pointer-capture
+   drag surface (like #color-picker-sv/#color-picker-hue above) — a real
+   slider gets the OS's own touch drag handling and keyboard step-nudging for
+   free, which is exactly what the thin hand-rolled hue bar lacked. Track
+   height matches this app's 44px touch-target standard (.icon-btn etc.),
+   bigger than the generic input[type="range"] rule above (2rem/32px, sized
+   for the opacity slider elsewhere in this dialog) — these selectors are all
+   scoped under #color-picker-hsl-controls specifically so they outrank that
+   generic rule's specificity (element+attribute beats a bare class) rather
+   than depending on source order, which a later stylesheet edit could
+   silently break. The gradient lives on the input's own `background` (S/L
+   are recomputed live via JS per current H/L or H/S; H itself is static, set
+   below) — the -webkit/-moz track pseudo-elements are kept transparent so it
+   shows through untouched. */
+#color-picker-hsl-controls .color-picker-hsl-range {
+  -webkit-appearance: none;
+  appearance: none;
+  flex: 1;
+  min-width: 0;
+  height: 2.75rem;
+  /* Rounded rectangle, matching #color-picker-sv/#color-picker-hue's own
+     radius above — was 999px (a true pill), inconsistent with the HSV
+     controls' look. */
+  border-radius: 6px;
+  outline: none;
+  cursor: pointer;
+}
+
+#color-picker-hsl-controls .color-picker-hsl-range-h {
+  background: linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+
+#color-picker-hsl-controls .color-picker-hsl-range::-webkit-slider-runnable-track {
+  -webkit-appearance: none;
+  height: 2.75rem;
+  border-radius: 6px;
+  background: transparent;
+}
+
+#color-picker-hsl-controls .color-picker-hsl-range::-moz-range-track {
+  height: 2.75rem;
+  border-radius: 6px;
+  background: transparent;
+  border: none;
+}
+
+#color-picker-hsl-controls .color-picker-hsl-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 0.9rem;
+  height: calc(2.75rem + 4px);
+  margin-top: -2px;
+  border-radius: 4px;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+#color-picker-hsl-controls .color-picker-hsl-range::-moz-range-thumb {
+  width: 0.9rem;
+  height: calc(2.75rem + 4px);
+  border-radius: 4px;
+  background: #fff;
+  border: 2px solid rgba(0, 0, 0, 0.4);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.4), 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: pointer;
+}
+
+.color-picker-hsl-number {
+  width: 4.2rem;
+  flex-shrink: 0;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  padding: 0.3rem 0.4rem;
 }
 
 #color-picker-hex-input {
@@ -1954,13 +2144,6 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.3rem;
 }
 
-/* Presets are a shortcut into the same slider, never a separate stored mode —
-   clicking one just moves the slider, which stays freely adjustable after. */
-#color-picker-opacity-presets {
-  display: flex;
-  gap: 0.4rem;
-}
-
 .chip-btn {
   min-height: 0;
   padding: 0.25rem 0.7rem;
@@ -1970,6 +2153,15 @@ input[type="range"]::-moz-range-thumb {
   background: none;
   color: #444;
   cursor: pointer;
+}
+
+/* Shared pressed-state look for any .chip-btn used as a toggle (e.g. Luster's
+   Matte/Shiny below) — .chip-btn itself carries no pressed state of its own
+   since it's also used for plain one-shot preset shortcuts elsewhere. */
+.chip-btn[aria-pressed="true"] {
+  background: #333;
+  color: #fff;
+  border-color: #333;
 }
 
 #color-picker-opacity-row {
@@ -2003,12 +2195,6 @@ input[type="range"]::-moz-range-thumb {
 #color-picker-luster-toggle {
   display: flex;
   gap: 0.4rem;
-}
-
-#color-picker-luster-toggle button[aria-pressed="true"] {
-  background: #333;
-  color: #fff;
-  border-color: #333;
 }
 
 #color-picker-name-input {

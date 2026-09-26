@@ -1,5 +1,4 @@
 To do:
-- add rotate
 - Make drop menu a dropdown
 - copy color
 - Global preferences modal — consolidate the scattered preference toggles (units, panel-collapsed, library view mode, and the new print-start-direction) into one modal instead of buttons spread across the top bar/library header/print toolbar. Not scoped/planned yet.

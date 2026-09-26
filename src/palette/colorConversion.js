@@ -82,22 +82,53 @@ export function hsvToHex(hsv) {
   return rgbToHex(hsvToRgb(hsv));
 }
 
-// For CANVAS rendering only (paintBeadFill in beadFill.js) — real alpha
-// compositing, safe because the canvas always fills an explicit #fff (or
-// chosen canvas-background) before drawing any cell, every frame. Never use
-// this for a DOM element's background-color — see alphaOverWhite below.
+// HSV <-> HSL, for the picker's HSL slider mode (colorPickerDialog.js). h stays
+// in degrees throughout; s/v/l are all 0-1 fractions, matching this file's
+// existing hsv convention. Exact inverses of each other (verified via the
+// round-trip test below) — h passes through untouched in both directions, so
+// switching modes mid-edit never perturbs a channel the user didn't touch.
+export function hsvToHsl({ h, s, v }) {
+  const l = v * (1 - s / 2);
+  const sl = l <= 0 || l >= 1 ? 0 : clamp01((v - l) / Math.min(l, 1 - l));
+  return { h, s: sl, l: clamp01(l) };
+}
+
+export function hslToHsv({ h, s, l }) {
+  const v = clamp01(l + s * Math.min(l, 1 - l));
+  const sv = v === 0 ? 0 : clamp01(2 * (1 - l / v));
+  return { h, s: sv, v };
+}
+
+export function hexToHsl(hex) {
+  return hsvToHsl(hexToHsv(hex));
+}
+
+export function hslToHex(hsl) {
+  return hsvToHex(hslToHsv(hsl));
+}
+
+// Real alpha compositing — for CANVAS rendering (paintBeadFill in
+// beadFill.js), safe because the canvas always fills an explicit #fff (or
+// chosen canvas-background) before drawing any cell, every frame. Also safe
+// for a DOM element in the one case where THIS element owns a fixed,
+// known backdrop it was given specifically to show transparency against —
+// colorPickerDialog.js's own live-editing swatch, layered over a checkerboard
+// set in CSS. For every other DOM swatch (palette, Manage Colors), where the
+// ambient background varies by where the swatch happens to sit, use
+// alphaOverWhite below instead — a plain rgba() would composite differently
+// in each of those places.
 export function hexToRgba(hex, alphaPercent = 100) {
   const { r, g, b } = hexToRgb(hex);
   return `rgba(${r}, ${g}, ${b}, ${clamp01(alphaPercent / 100)})`;
 }
 
-// For DOM swatches (palette, Manage Colors, the picker's own preview) — an
-// element's ancestor background varies (#f8f8f8 side panel, #fff manage row,
-// an unstyled <dialog>'s default), so a plain rgba() would composite
-// differently in each place and none of them would reliably match what the
-// canvas shows (which always composites against a hard-coded white fill).
-// Precomposits the alpha blend against white instead, returning a flat
-// OPAQUE hex that reads identically everywhere it's used.
+// For DOM swatches whose ancestor background varies (#f8f8f8 side panel,
+// #fff manage row) and thus can't be given a controlled backdrop of their
+// own — a plain rgba() would composite differently in each place and
+// none of them would reliably match what the canvas shows (which always
+// composites against a hard-coded white fill). Precomposits the alpha blend
+// against white instead, returning a flat OPAQUE hex that reads identically
+// everywhere it's used.
 export function alphaOverWhite(hex, alphaPercent = 100) {
   const { r, g, b } = hexToRgb(hex);
   const a = clamp01(alphaPercent / 100);

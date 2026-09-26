@@ -242,21 +242,36 @@
     </div>
     <div id="color-picker-body">
       <span id="color-picker-swatch"></span>
-      <div id="color-picker-sv" aria-hidden="true">
-        <div id="color-picker-sv-thumb"></div>
+
+      <div id="color-picker-hsv-controls">
+        <div id="color-picker-sv" aria-hidden="true">
+          <div id="color-picker-sv-thumb"></div>
+        </div>
+        <div id="color-picker-hue" aria-hidden="true">
+          <div id="color-picker-hue-thumb"></div>
+        </div>
       </div>
-      <div id="color-picker-hue" aria-hidden="true">
-        <div id="color-picker-hue-thumb"></div>
+
+      <div id="color-picker-hsl-controls" hidden>
+        <div class="color-picker-hsl-row">
+          <input type="range" id="color-picker-hsl-h-range" class="color-picker-hsl-range color-picker-hsl-range-h" min="0" max="360" step="1" aria-label="Hue">
+          <input type="number" id="color-picker-hsl-h-number" class="color-picker-hsl-number" min="0" max="360" step="1" aria-label="Hue value">
+        </div>
+        <div class="color-picker-hsl-row">
+          <input type="range" id="color-picker-hsl-s-range" class="color-picker-hsl-range" min="0" max="100" step="0.1" aria-label="Saturation">
+          <input type="number" id="color-picker-hsl-s-number" class="color-picker-hsl-number" min="0" max="100" step="0.1" aria-label="Saturation value">
+        </div>
+        <div class="color-picker-hsl-row">
+          <input type="range" id="color-picker-hsl-l-range" class="color-picker-hsl-range" min="0" max="100" step="0.1" aria-label="Lightness">
+          <input type="number" id="color-picker-hsl-l-number" class="color-picker-hsl-number" min="0" max="100" step="0.1" aria-label="Lightness value">
+        </div>
       </div>
+
       <div id="color-picker-hex-row">
         <input type="text" id="color-picker-hex-input" aria-label="Hex color code" maxlength="7" autocomplete="off" autocapitalize="off" spellcheck="false">
       </div>
       <div id="color-picker-appearance">
         <div id="color-picker-opacity-section">
-          <div id="color-picker-opacity-presets" role="group" aria-label="Opacity presets">
-            <button type="button" id="color-picker-opacity-opaque" class="chip-btn">Opaque</button>
-            <button type="button" id="color-picker-opacity-transparent" class="chip-btn">Transparent</button>
-          </div>
           <div id="color-picker-opacity-row">
             <input type="range" id="color-picker-opacity-range" min="0" max="100" value="100" aria-label="Opacity percentage">
             <span id="color-picker-opacity-value">100%</span>
@@ -265,12 +280,18 @@
         <div id="color-picker-luster-section" role="group" aria-label="Luster">
           <span id="color-picker-luster-label">Luster</span>
           <div id="color-picker-luster-toggle">
-            <button type="button" id="color-picker-luster-matte" aria-pressed="true">Matte</button>
-            <button type="button" id="color-picker-luster-shiny" aria-pressed="false">Shiny</button>
+            <button type="button" id="color-picker-luster-matte" class="chip-btn" aria-pressed="true">Matte</button>
+            <button type="button" id="color-picker-luster-shiny" class="chip-btn" aria-pressed="false">Shiny</button>
           </div>
         </div>
       </div>
       <input type="text" id="color-picker-name-input" placeholder="Color name" autocomplete="off">
+
+      <div id="color-picker-mode-toggle-row">
+        <span id="color-picker-mode-label-hsv" class="color-picker-mode-label">HSV</span>
+        <button type="button" id="color-picker-mode-switch" aria-pressed="false" aria-label="Toggle between HSV and HSL sliders"></button>
+        <span id="color-picker-mode-label-hsl" class="color-picker-mode-label">HSL</span>
+      </div>
     </div>
     <div id="color-picker-actions">
       <button type="button" id="color-picker-cancel">Cancel</button>

@@ -57,6 +57,13 @@ const DEFAULT_PREFERENCES = {
   // defaultDropCount above — read `prefs.preserveStaggerOnShift !== false`
   // at consuming call sites, never trust the stored object already has it.
   preserveStaggerOnShift: true,
+  // Which mode the custom color picker (colorPickerDialog.js) opens in —
+  // 'hsv' (saturation/value square + hue bar) or 'hsl' (three sliders).
+  // Same "stored row saved before this field existed comes back undefined,
+  // not this default" gotcha as defaultDropCount/preserveStaggerOnShift
+  // above — read `prefs.colorPickerMode === 'hsl' ? 'hsl' : 'hsv'` at
+  // consuming call sites, never trust the stored object already has it.
+  colorPickerMode: 'hsv',
 };
 
 // defaultRows/defaultCols ("last resize becomes the new default size") need the
