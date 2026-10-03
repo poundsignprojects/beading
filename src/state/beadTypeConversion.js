@@ -8,9 +8,23 @@
 // table (e.g. it resolved to nothing in the source palette and was never
 // presented for mapping) passes through unchanged rather than being dropped —
 // there's nothing meaningful to remap it to.
+//
+// workingColorIds (a colorway's own Working Colors quick-access list — see
+// appState.js) is remapped the same way, but a colorId with no entry in the
+// table is DROPPED instead of passed through: unlike a colorEntries cell,
+// nothing on the grid depends on a working color still existing, and
+// carrying over a bare id into a design under a different bead type's
+// palette would just be a dangling reference forever. Only remapped when the
+// field is actually present on the input, so a colorway from before this
+// feature existed (no workingColorIds at all) comes out the same way —
+// consuming code already reads `cw.workingColorIds ?? []`, same convention
+// as every other additive, optional colorway field.
 export function remapColorwayColorIds(colorways, mappingTable) {
   return colorways.map((cw) => ({
     ...cw,
+    ...(cw.workingColorIds
+      ? { workingColorIds: cw.workingColorIds.map((id) => mappingTable.get(id)).filter((id) => id !== undefined) }
+      : {}),
     layers: cw.layers.map((layer) => ({
       ...layer,
       colorEntries: layer.colorEntries.map(([key, colorId]) => [key, mappingTable.get(colorId) ?? colorId]),

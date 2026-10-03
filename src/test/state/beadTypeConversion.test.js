@@ -45,3 +45,18 @@ test('does not mutate the input colorways', () => {
   remapColorwayColorIds(colorways, new Map([['red', 'newRed']]));
   assert.equal(colorways[0].layers[0].colorEntries[0][1], 'red');
 });
+
+test('remaps workingColorIds through the mapping table, dropping unmapped ids', () => {
+  const colorways = [
+    { id: 'cw1', workingColorIds: ['red', 'orphan'], layers: [{ id: 'l1', colorEntries: [['0,0', 'red']] }] },
+  ];
+  const mappingTable = new Map([['red', 'newRed']]);
+  const result = remapColorwayColorIds(colorways, mappingTable);
+  assert.deepEqual(result[0].workingColorIds, ['newRed']);
+});
+
+test('leaves workingColorIds absent when not present on the input colorway', () => {
+  const colorways = [{ id: 'cw1', layers: [{ id: 'l1', colorEntries: [] }] }];
+  const result = remapColorwayColorIds(colorways, new Map());
+  assert.equal('workingColorIds' in result[0], false);
+});

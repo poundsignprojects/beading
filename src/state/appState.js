@@ -90,6 +90,16 @@ export function createAppState() {
     layers: [],
     activeLayerId: null,
 
+    // Working Colors: a small, per-colorway quick-access subset of
+    // appState.customColors' ids (not a separate color store — just a list
+    // of references into the catalog the user built in the Colors section
+    // above). In-memory mirror of the active colorway's own workingColorIds
+    // field, same role appState.layers plays for the active colorway's own
+    // layers — persists with that colorway (survives closing the pattern)
+    // and is copied when a new colorway is created from an existing one,
+    // same as layers are.
+    workingColorIds: [],
+
     // Phase 7: editor-session state layered on top of appState.cells — none of
     // these follow the shared-shape colorway model, and none are part of a
     // design's saved shape/color data (clipboard and selection aren't persisted

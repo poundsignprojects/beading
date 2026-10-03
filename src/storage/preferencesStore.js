@@ -64,6 +64,15 @@ const DEFAULT_PREFERENCES = {
   // above — read `prefs.colorPickerMode === 'hsl' ? 'hsl' : 'hsv'` at
   // consuming call sites, never trust the stored object already has it.
   colorPickerMode: 'hsv',
+  // Which side-panel sections (Colors, Working Colors, Layers, Colorways,
+  // Photo Trace) are collapsed — keyed by section name, true means
+  // collapsed. Global, not per-design, so hiding/showing a section persists
+  // across colorways and patterns. Same "stored row saved before this field
+  // existed comes back undefined, not this default" gotcha as every other
+  // field above — read `prefs.collapsedSections ?? {}` at consuming call
+  // sites, never trust the stored object already has it. A section absent
+  // from the map is simply not collapsed (the common case needs no entry).
+  collapsedSections: {},
 };
 
 // defaultRows/defaultCols ("last resize becomes the new default size") need the

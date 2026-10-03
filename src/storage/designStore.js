@@ -77,6 +77,10 @@ export async function createDesign(db, { name, beadTypeKey, stitchType = 'peyote
       name: 'Colorway 1',
       activeLayerId: defaultLayerId,
       layers: [{ id: defaultLayerId, name: 'Layer 1', visible: true, order: 0, shapeEntries: [], colorEntries: [] }],
+      // A brand-new colorway starts with no Working Colors quick-access
+      // list — there's nothing to seed it from yet (see appState.js's
+      // workingColorIds).
+      workingColorIds: [],
       createdAt: now,
       updatedAt: now,
     }],
@@ -188,6 +192,11 @@ export async function duplicateDesign(db, id) {
           shapeEntries: [...layer.shapeEntries],
           colorEntries: [...layer.colorEntries],
         })),
+        // A fresh array copy, not the same reference as the original's own
+        // (the `...cw` spread above would otherwise alias it) — same
+        // reasoning as shapeEntries/colorEntries just above. Defaults to []
+        // for a colorway from before Working Colors existed.
+        workingColorIds: [...(cw.workingColorIds ?? [])],
         createdAt: now,
         updatedAt: now,
       };

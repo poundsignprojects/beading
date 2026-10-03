@@ -521,6 +521,10 @@ async function openDesign(design, colorwayId = design.activeColorwayId) {
   const activeLayer = activeColorway.layers.find((l) => l.id === activeColorway.activeLayerId) ?? activeColorway.layers[0];
   appState.activeLayerId = activeLayer.id;
   appState.cells = materializeLayerCells(activeLayer);
+  // Working Colors mirrors the active colorway's own list, same role
+  // appState.layers plays for its layers — defaults to [] for a colorway
+  // from before this feature existed (see appState.js's workingColorIds).
+  appState.workingColorIds = activeColorway.workingColorIds ?? [];
   appState.units = appState.preferences.units;
   // !== false rather than a straight read: an existing stored preferences row from
   // before this field existed has it as undefined, which should mean "on" (the

@@ -178,6 +178,17 @@ export function mountEditorView(appState, hooks) {
   const colorPaletteEmptyMessage = document.getElementById('color-palette-empty');
   const colorManageToggleButton = document.getElementById('color-manage-toggle');
   const colorManageList = document.getElementById('color-manage-list');
+  const workingColorPalette = document.getElementById('working-color-palette');
+  const workingColorsEmptyMessage = document.getElementById('working-colors-empty');
+  // Collapsible side-panel sections (each a [key, toggle button, body div]
+  // triple) — see setupCollapsibleSections below.
+  const COLLAPSIBLE_SECTIONS = [
+    { key: 'colors', toggle: document.getElementById('palette-section-toggle'), body: document.getElementById('palette-section-body') },
+    { key: 'workingColors', toggle: document.getElementById('working-colors-section-toggle'), body: document.getElementById('working-colors-section-body') },
+    { key: 'layers', toggle: document.getElementById('layer-section-toggle'), body: document.getElementById('layer-section-body') },
+    { key: 'colorways', toggle: document.getElementById('colorway-section-toggle'), body: document.getElementById('colorway-section-body') },
+    { key: 'photoTrace', toggle: document.getElementById('photo-trace-section-toggle'), body: document.getElementById('photo-trace-section-body') },
+  ];
   const undoButton = document.getElementById('undo-button');
   const redoButton = document.getElementById('redo-button');
   const printExportButton = document.getElementById('print-export');
@@ -450,11 +461,91 @@ export function mountEditorView(appState, hooks) {
           updateToolButtons();
           renderColorPalette();
         });
+        // Long-press/right-click offers adding this color to (or removing it
+        // from) Working Colors — getItems is called fresh every open (see
+        // registerLongPressMenu's own doc comment), so the label always
+        // reflects current membership with no separate refresh needed.
+        button.dataset.hasMenu = 'true';
+        registerLongPressMenu(button, () => {
+          const inWorking = appState.workingColorIds.includes(swatch.id);
+          return [
+            inWorking
+              ? { label: 'Remove from Working Colors', icon: 'square-x', onSelect: () => handleWorkingColorRemove(swatch.id) }
+              : { label: 'Add to Working Colors', icon: 'plus', onSelect: () => handleWorkingColorAdd(swatch.id) },
+          ];
+        });
         return button;
       }),
       addTile
     );
     updatePaletteSectionVisibility();
+    renderWorkingColorPalette();
+  }
+
+  // Working Colors: a per-colorway quick-access subset of the catalog above
+  // (appState.workingColorIds, a plain list of colorIds — see appState.js),
+  // built via the main palette's own long-press menu and removed the same
+  // way — long-press/right-click this swatch, confirm the removal (see
+  // handleWorkingColorRemove). A dangling id (e.g. the color was deleted
+  // from the catalog entirely) is silently skipped rather than rendered
+  // broken — see handleColorDelete's own cleanup for the common case, but a
+  // colorway that was never reopened since a delete could still carry a
+  // stale id.
+  function buildWorkingColorSwatch(colorId) {
+    const color = appState.customColors.find((c) => c.id === colorId);
+    if (!color) return null;
+
+    const button = document.createElement('button');
+    button.className = 'color-swatch working-color-swatch';
+    button.type = 'button';
+    button.title = color.name;
+    button.style.backgroundColor = alphaOverWhite(color.hex, color.alphaPercent);
+    button.classList.toggle('swatch-shiny', color.luster === 'shiny');
+    button.setAttribute('aria-pressed', String(color.id === appState.selectedColorId));
+    button.addEventListener('click', () => {
+      appState.selectedColorId = color.id;
+      if (appState.tool === 'draw' || appState.tool === 'erase') {
+        appState.tool = 'draw';
+      }
+      updateToolButtons();
+      renderColorPalette(); // cascades to renderWorkingColorPalette() below
+    });
+    button.dataset.hasMenu = 'true';
+    registerLongPressMenu(button, () => [
+      { label: 'Remove from Working Colors', icon: 'square-x', destructive: true, onSelect: () => handleWorkingColorRemove(color.id) },
+    ]);
+
+    return button;
+  }
+
+  function renderWorkingColorPalette() {
+    const swatches = appState.workingColorIds.map(buildWorkingColorSwatch).filter(Boolean);
+    workingColorPalette.replaceChildren(...swatches);
+    workingColorsEmptyMessage.hidden = swatches.length > 0;
+  }
+
+  // The one place appState.workingColorIds/the active colorway's own
+  // workingColorIds field are ever written — mirrors handleLayerVisibilityToggle's
+  // own treatment (a view-state-ish, not-undo-tracked change to the design
+  // record, persisted immediately).
+  function setWorkingColorIds(newIds) {
+    appState.workingColorIds = newIds;
+    appState.colorways = appState.colorways.map((cw) =>
+      cw.id === appState.activeColorwayId ? { ...cw, workingColorIds: newIds } : cw
+    );
+    renderWorkingColorPalette();
+    hooks.onImmediateSave();
+  }
+
+  function handleWorkingColorAdd(id) {
+    if (appState.workingColorIds.includes(id)) return;
+    setWorkingColorIds([...appState.workingColorIds, id]);
+  }
+
+  function handleWorkingColorRemove(id) {
+    if (!appState.workingColorIds.includes(id)) return;
+    if (!window.confirm('Remove this color from Working Colors?')) return;
+    setWorkingColorIds(appState.workingColorIds.filter((wid) => wid !== id));
   }
 
   function buildColorManageRow(color) {
@@ -865,11 +956,17 @@ export function mountEditorView(appState, hooks) {
     // colorway (layers belong to exactly one colorway each — see .work/
     // feature-per-colorway-layers-plan.md) — the layer/colorway lists
     // themselves (names/count/order) survive, only contents clear.
+    // This is also the one place regenerateGrid is actually reached (an
+    // empty-design bead-type switch) where the color CATALOG itself changes,
+    // not just geometry — every colorway's Working Colors list references
+    // the old bead type's own colors, which no longer exist, so it's cleared
+    // here alongside the layers it has always cleared.
     appState.colorways = appState.colorways.map((cw) => {
       const layers = cw.id === appState.activeColorwayId ? appState.layers : cw.layers;
-      return { ...cw, layers: layers.map((layer) => ({ ...layer, shapeEntries: [], colorEntries: [] })) };
+      return { ...cw, workingColorIds: [], layers: layers.map((layer) => ({ ...layer, shapeEntries: [], colorEntries: [] })) };
     });
     appState.layers = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).layers;
+    appState.workingColorIds = [];
     appState.selection = null; // coordinates are meaningless against the new geometry
     appState.pastePreview = null; // coordinates meaningless against the new geometry
     appState.movePreview = null; // baseCells/movingEntries coordinates meaningless against the new geometry
@@ -961,6 +1058,7 @@ export function mountEditorView(appState, hooks) {
       layers: cw.layers.map((l) => ({ ...l, shapeEntries: [...l.shapeEntries], colorEntries: [...l.colorEntries] })),
     }));
     appState.layers = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).layers;
+    appState.workingColorIds = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).workingColorIds ?? [];
     appState.selection = null; // coordinates are meaningless against the new geometry
     appState.pastePreview = null; // coordinates meaningless against the new geometry
     appState.movePreview = null; // baseCells/movingEntries coordinates meaningless against the new geometry
@@ -1250,8 +1348,14 @@ export function mountEditorView(appState, hooks) {
     appState.layers = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).layers;
     appState.activeLayerId = snapshot.activeLayerId;
     appState.cells = new Map(snapshot.cellEntries);
+    // Working Colors mirrors the NEW active colorway's own list — this is
+    // the one chokepoint every layer/colorway switch, create, and delete
+    // (plus undo/redo of any of them) funnels through to actually change
+    // which colorway is active.
+    appState.workingColorIds = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).workingColorIds ?? [];
     renderColorwayList();
     renderLayerList();
+    renderWorkingColorPalette();
     scheduleRedraw();
     hooks.onImmediateSave();
   }
@@ -1512,14 +1616,15 @@ export function mountEditorView(appState, hooks) {
 
   // Creating a colorway always seeds it as a disconnected copy of the
   // currently active colorway's own layers — every layer, shape AND colors —
-  // so there's no separate "duplicate" action, create is duplicate, scoped to
-  // one pattern. Fresh ids throughout (every copied layer gets its own new
-  // id) so the two colorways' layers are never the same object going forward
-  // — editing one's layers (add/delete/reorder/redraw) never touches the
-  // other's (see .work/feature-per-colorway-layers-plan.md). Overwrites just
-  // the active layer's own slice with the freshly-decomposed live cells first,
-  // so an edit not yet reconciled into appState.layers isn't lost in the copy.
-  // Undoing this removes the newly created colorway entirely.
+  // plus its Working Colors list, so there's no separate "duplicate" action,
+  // create is duplicate, scoped to one pattern. Fresh ids throughout (every
+  // copied layer gets its own new id) so the two colorways' layers are never
+  // the same object going forward — editing one's layers (add/delete/
+  // reorder/redraw) never touches the other's (see .work/feature-per-
+  // colorway-layers-plan.md). Overwrites just the active layer's own slice
+  // with the freshly-decomposed live cells first, so an edit not yet
+  // reconciled into appState.layers isn't lost in the copy. Undoing this
+  // removes the newly created colorway entirely.
   function handleColorwayNew() {
     const before = captureViewSnapshot();
 
@@ -1538,6 +1643,9 @@ export function mountEditorView(appState, hooks) {
         shapeEntries: [...layer.shapeEntries],
         colorEntries: [...layer.colorEntries],
       })),
+      // Working Colors copies over too, same as layers do (a fresh array,
+      // not the same reference the active colorway's own entry holds).
+      workingColorIds: [...appState.workingColorIds],
       createdAt: now,
       updatedAt: now,
     };
@@ -1823,6 +1931,38 @@ export function mountEditorView(appState, hooks) {
     scheduleRedraw(); // canvas width just changed; resizeCanvasForDisplay must re-run
     hooks.onPreferencesChanged({ panelCollapsed: collapsed });
   }
+
+  // Applies a collapsed/expanded state to one section's toggle+body pair —
+  // shared by the initial-state pass at mount and every click handler below.
+  function applySectionCollapsed({ toggle, body }, collapsed) {
+    body.hidden = collapsed;
+    toggle.setAttribute('aria-expanded', String(!collapsed));
+  }
+
+  // A small clickable title bar per side-panel section (Colors, Working
+  // Colors, Layers, Colorways, Photo Trace) toggles that section's body.
+  // Persists globally (preferences.collapsedSections, keyed by section name)
+  // rather than per-design, so hiding/showing a section survives switching
+  // colorways and patterns, not just this session.
+  function setupCollapsibleSections() {
+    const collapsedMap = appState.preferences.collapsedSections ?? {};
+    for (const section of COLLAPSIBLE_SECTIONS) {
+      applySectionCollapsed(section, collapsedMap[section.key] === true);
+    }
+  }
+
+  function handleSectionToggleClick(section) {
+    const collapsed = section.toggle.getAttribute('aria-expanded') === 'true';
+    applySectionCollapsed(section, collapsed);
+    const updated = { ...(appState.preferences.collapsedSections ?? {}), [section.key]: collapsed };
+    hooks.onPreferencesChanged({ collapsedSections: updated });
+  }
+
+  // One bound click handler per section, created once so the same function
+  // reference can be used for both addEventListener (below) and
+  // removeEventListener (unmount) — an inline arrow per section would have
+  // no way to be un-wired later.
+  const sectionToggleClickHandlers = COLLAPSIBLE_SECTIONS.map((section) => () => handleSectionToggleClick(section));
   function handleColorManageToggle() {
     manageMode = !manageMode;
     colorManageToggleButton.setAttribute('aria-pressed', String(manageMode));
@@ -1920,6 +2060,16 @@ export function mountEditorView(appState, hooks) {
     }
     if (!window.confirm('Delete this color?')) return;
     hooks.onCustomColorDeleted(id).then(() => {
+      // Working Colors only ever holds references into the catalog — a
+      // color actually blocked from deletion above because it's painted
+      // somewhere can't be in here too without ALSO being usage-blocked, so
+      // this never races the guard; strip it from the active colorway's own
+      // list so a stale id doesn't linger in storage (renderColorPalette's
+      // own buildWorkingColorSwatch would otherwise just keep skipping it
+      // silently, forever).
+      if (appState.workingColorIds.includes(id)) {
+        setWorkingColorIds(appState.workingColorIds.filter((wid) => wid !== id));
+      }
       renderColorPalette();
       renderColorManageList();
       scheduleRedraw();
@@ -2639,6 +2789,7 @@ export function mountEditorView(appState, hooks) {
   toolSelectButton.addEventListener('click', handleToolSelect);
   toolMoveButton.addEventListener('click', handleToolMove);
   panelToggleButton.addEventListener('click', handlePanelToggle);
+  COLLAPSIBLE_SECTIONS.forEach((section, i) => section.toggle.addEventListener('click', sectionToggleClickHandlers[i]));
   colorManageToggleButton.addEventListener('click', handleColorManageToggle);
   colorManageList.addEventListener('pointerdown', handleColorListPointerDown);
   colorManageList.addEventListener('pointermove', handleColorListPointerMove);
@@ -2801,6 +2952,7 @@ export function mountEditorView(appState, hooks) {
   rulerToggleButton.setAttribute('aria-pressed', String(appState.showRuler));
   updateUnitToggleButton();
   updatePreserveStaggerToggleButton();
+  setupCollapsibleSections();
 
   // Populate lastCssSize before fitViewportToGrid() divides by its dimensions.
   lastCssSize = resizeCanvasForDisplay(canvas, ctx);
@@ -2842,6 +2994,7 @@ export function mountEditorView(appState, hooks) {
     toolSelectButton.removeEventListener('click', handleToolSelect);
     toolMoveButton.removeEventListener('click', handleToolMove);
     panelToggleButton.removeEventListener('click', handlePanelToggle);
+    COLLAPSIBLE_SECTIONS.forEach((section, i) => section.toggle.removeEventListener('click', sectionToggleClickHandlers[i]));
     colorManageToggleButton.removeEventListener('click', handleColorManageToggle);
     colorManageList.removeEventListener('pointerdown', handleColorListPointerDown);
     colorManageList.removeEventListener('pointermove', handleColorListPointerMove);

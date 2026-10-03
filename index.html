@@ -91,39 +91,77 @@
         <canvas id="pattern-canvas"></canvas>
       </div>
       <div id="side-panel">
-        <section id="palette-section" aria-label="Color palette">
-          <div id="palette-section-header">
-            <h2>Colors</h2>
-            <div id="palette-header-actions">
-              <button id="color-manage-toggle" type="button" aria-pressed="false">Manage</button>
-            </div>
+        <section id="palette-section" aria-label="Color palette" class="collapsible-section">
+          <div class="section-header-row">
+            <button type="button" class="section-toggle" id="palette-section-toggle" aria-expanded="true" aria-controls="palette-section-body">
+              <span class="section-toggle-chevron" data-icon="chevron-left"></span>
+              <h2>Colors</h2>
+            </button>
           </div>
-          <div id="color-palette" role="group" aria-label="Color"></div>
-          <p id="color-palette-empty" hidden>No colors yet — tap + to add one.</p>
-          <ul id="color-manage-list" hidden></ul>
+          <div id="palette-section-body" class="section-body">
+            <div id="color-palette-wrap">
+              <button id="color-manage-toggle" type="button" class="icon-btn" data-icon="list" aria-pressed="false" title="Manage Colors" aria-label="Manage Colors"></button>
+              <div id="color-palette" role="group" aria-label="Color"></div>
+            </div>
+            <p id="color-palette-empty" hidden>No colors yet — tap + to add one.</p>
+            <ul id="color-manage-list" hidden></ul>
+          </div>
         </section>
-        <section id="layer-section" aria-label="Layers">
-          <h2>Layers</h2>
-          <ul id="layer-list"></ul>
-          <button id="layer-new" type="button" class="icon-btn" data-icon="plus" title="New layer" aria-label="New layer"></button>
+        <section id="working-colors-section" aria-label="Working colors" class="collapsible-section">
+          <div class="section-header-row">
+            <button type="button" class="section-toggle" id="working-colors-section-toggle" aria-expanded="true" aria-controls="working-colors-section-body">
+              <span class="section-toggle-chevron" data-icon="chevron-left"></span>
+              <h2>Working Colors</h2>
+            </button>
+          </div>
+          <div id="working-colors-section-body" class="section-body">
+            <div id="working-color-palette" role="group" aria-label="Working colors"></div>
+            <p id="working-colors-empty" hidden>No working colors yet — long-press or right-click a color above to add it.</p>
+          </div>
         </section>
-        <section id="colorway-section" aria-label="Colorways">
-          <h2>Colorways</h2>
-          <ul id="colorway-list"></ul>
-          <button id="colorway-new" type="button" class="icon-btn" data-icon="plus" title="New colorway" aria-label="New colorway"></button>
+        <section id="layer-section" aria-label="Layers" class="collapsible-section">
+          <div class="section-header-row">
+            <button type="button" class="section-toggle" id="layer-section-toggle" aria-expanded="true" aria-controls="layer-section-body">
+              <span class="section-toggle-chevron" data-icon="chevron-left"></span>
+              <h2>Layers</h2>
+            </button>
+          </div>
+          <div id="layer-section-body" class="section-body">
+            <ul id="layer-list"></ul>
+            <button id="layer-new" type="button" class="icon-btn" data-icon="plus" title="New layer" aria-label="New layer"></button>
+          </div>
         </section>
-        <section id="photo-trace-section" aria-label="Photo trace">
-          <h2>Photo Trace</h2>
-          <div id="photo-trace-controls" role="group" aria-label="Photo trace">
-            <input type="file" id="photo-trace-file" accept="image/*" hidden>
-            <button id="photo-trace-load" class="icon-text-btn" data-icon="image"><span>Load Photo</span></button>
-            <button id="photo-trace-move" class="icon-text-btn" aria-pressed="false" hidden data-icon="move"><span>Move Photo</span></button>
-            <button id="photo-trace-rotate-ccw" class="icon-btn icon-btn-lg" hidden data-icon="rotate-ccw" title="Rotate photo 15° counterclockwise" aria-label="Rotate photo counterclockwise"></button>
-            <button id="photo-trace-rotate-cw" class="icon-btn icon-btn-lg" hidden data-icon="rotate-cw" title="Rotate photo 15° clockwise" aria-label="Rotate photo clockwise"></button>
-            <button id="photo-trace-remove" class="icon-text-btn" hidden data-icon="trash-2"><span>Remove Photo</span></button>
-            <label id="photo-trace-opacity-label" hidden>Opacity
-              <input id="photo-trace-opacity" type="range" min="0" max="100" value="60">
-            </label>
+        <section id="colorway-section" aria-label="Colorways" class="collapsible-section">
+          <div class="section-header-row">
+            <button type="button" class="section-toggle" id="colorway-section-toggle" aria-expanded="true" aria-controls="colorway-section-body">
+              <span class="section-toggle-chevron" data-icon="chevron-left"></span>
+              <h2>Colorways</h2>
+            </button>
+          </div>
+          <div id="colorway-section-body" class="section-body">
+            <ul id="colorway-list"></ul>
+            <button id="colorway-new" type="button" class="icon-btn" data-icon="plus" title="New colorway" aria-label="New colorway"></button>
+          </div>
+        </section>
+        <section id="photo-trace-section" aria-label="Photo trace" class="collapsible-section">
+          <div class="section-header-row">
+            <button type="button" class="section-toggle" id="photo-trace-section-toggle" aria-expanded="true" aria-controls="photo-trace-section-body">
+              <span class="section-toggle-chevron" data-icon="chevron-left"></span>
+              <h2>Photo Trace</h2>
+            </button>
+          </div>
+          <div id="photo-trace-section-body" class="section-body">
+            <div id="photo-trace-controls" role="group" aria-label="Photo trace">
+              <input type="file" id="photo-trace-file" accept="image/*" hidden>
+              <button id="photo-trace-load" class="icon-text-btn" data-icon="image"><span>Load Photo</span></button>
+              <button id="photo-trace-move" class="icon-text-btn" aria-pressed="false" hidden data-icon="move"><span>Move Photo</span></button>
+              <button id="photo-trace-rotate-ccw" class="icon-btn icon-btn-lg" hidden data-icon="rotate-ccw" title="Rotate photo 15° counterclockwise" aria-label="Rotate photo counterclockwise"></button>
+              <button id="photo-trace-rotate-cw" class="icon-btn icon-btn-lg" hidden data-icon="rotate-cw" title="Rotate photo 15° clockwise" aria-label="Rotate photo clockwise"></button>
+              <button id="photo-trace-remove" class="icon-text-btn" hidden data-icon="trash-2"><span>Remove Photo</span></button>
+              <label id="photo-trace-opacity-label" hidden>Opacity
+                <input id="photo-trace-opacity" type="range" min="0" max="100" value="60">
+              </label>
+            </div>
           </div>
         </section>
       </div>
