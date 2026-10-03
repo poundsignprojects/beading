@@ -847,22 +847,36 @@ input[type="range"]::-moz-range-thumb {
 }
 
 /* Spreadsheet-style grid: a corner cell + top ruler row + left ruler column +
-   the canvas cell. --ruler-size collapses to 0 when the ruler is toggled off
-   (.ruler-hidden) so the canvas cell silently reclaims the space — no
-   resizeCanvasForDisplay special-casing needed, since #pattern-canvas's own
-   clientWidth/clientHeight already reflect whatever the grid track leaves it.
-   See .work/feature-ruler-rotation-viewmode-datefix-plan.md §1. */
+   the canvas cell + a reserved bottom chrome strip. --ruler-size collapses to
+   0 when the ruler is toggled off (.ruler-hidden) so the canvas cell silently
+   reclaims the space — no resizeCanvasForDisplay special-casing needed, since
+   #pattern-canvas's own clientWidth/clientHeight already reflect whatever the
+   grid track leaves it. See .work/feature-ruler-rotation-viewmode-datefix-plan.md §1.
+
+   --bottom-chrome-size reserves the same idea for the strip at the very
+   bottom of the screen where iOS's swipe-to-exit/app-switcher gesture (this
+   app runs installed to the home screen, no browser chrome) can originate —
+   that gesture can only ever be recognized if the touch itself starts within
+   that strip, so #pattern-canvas genuinely doesn't extend into it at all
+   (not just "ignores touches there," which is invisible and was confusing —
+   see #canvas-bottom-chrome below, a real visible bar covering exactly this
+   reserved row). env(safe-area-inset-bottom) is the OS's own reported size
+   of that reserved area on a device with a home indicator; the 1.25rem floor
+   just keeps the bar visible/present on a plain desktop browser (env(...) is
+   0 there) rather than collapsing to nothing. */
 #canvas-area {
   --ruler-size: 1.5rem;
+  --bottom-chrome-size: max(1.25rem, env(safe-area-inset-bottom));
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: grid;
   grid-template-columns: var(--ruler-size) 1fr;
-  grid-template-rows: var(--ruler-size) 1fr;
+  grid-template-rows: var(--ruler-size) 1fr var(--bottom-chrome-size);
   grid-template-areas:
     "corner top"
-    "left canvas";
+    "left canvas"
+    "chrome chrome";
 }
 
 #canvas-area.ruler-hidden {
@@ -907,6 +921,15 @@ input[type="range"]::-moz-range-thumb {
   height: 100%;
   touch-action: none;
   background: #fff;
+}
+
+/* The visible reservation itself — see the #canvas-area comment above. Styled
+   like #top-bar's own app-chrome look (same background/border convention)
+   rather than left blank, so it reads as "reserved," not as a rendering gap. */
+#canvas-bottom-chrome {
+  grid-area: chrome;
+  background: #f2f2f2;
+  border-top: 1px solid #ccc;
 }
 
 #side-panel {

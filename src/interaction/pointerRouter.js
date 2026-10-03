@@ -24,11 +24,22 @@ const WHEEL_ROTATE_SENSITIVITY_DEG = 0.15;
 
 // A lone finger touch is momentarily ambiguous: it could be a tap/drag, the first
 // finger of a pinch about to land, or the start of an iOS system gesture (edge
-// swipe back, bottom-edge swipe-to-exit-app) that's about to cancel it. Deferring
-// the actual draw/fill/select/etc. action by this long gives a second finger or a
-// pointercancel time to resolve which one it is before anything is drawn — see
-// schedulePendingTouchStart. Tune once visible on a real device; doesn't apply to
-// mouse or pen (Apple Pencil), which can't pinch and don't trigger system swipes.
+// swipe back) that's about to cancel it. Deferring the actual draw/fill/select/
+// etc. action by this long gives a second finger or a pointercancel time to
+// resolve which one it is before anything is drawn — see schedulePendingTouchStart.
+// Tune once visible on a real device; doesn't apply to mouse or pen (Apple
+// Pencil), which can't pinch and don't trigger system swipes.
+//
+// The bottom-edge swipe-to-exit/app-switcher gesture (this app runs installed
+// to the home screen, no browser chrome of its own) is NOT handled by this
+// delay — a fixed delay just races iOS's own recognition time for that
+// gesture, which can easily run longer than any delay short enough to still
+// feel responsive for an ordinary tap. That gesture is instead ruled out
+// categorically at the layout level: #pattern-canvas's own box doesn't extend
+// into the strip that gesture can originate from at all (see
+// #canvas-bottom-chrome in index.html/style.css, which reserves and visibly
+// marks that strip) — so a touch starting there never reaches this module's
+// pointerdown handler in the first place, regardless of timing.
 const TOUCH_DRAW_DISAMBIGUATION_MS = 120;
 
 // How close to the canvas edge (in canvas-local px, inward or outward) a select/
