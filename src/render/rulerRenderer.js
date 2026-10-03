@@ -124,34 +124,44 @@ export function drawRulerTop(ctx, cssWidth, cssHeight, viewport, unit) {
   const leftMm = viewport.originXmm;
   const rightMm = viewport.originXmm + cssWidth / viewport.scalePxPerMm;
 
-  ctx.strokeStyle = TICK_COLOR;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
+  // Ticks are drawn as filled rects, not stroked line segments, even though a
+  // stroke is the more "natural" way to draw a tick mark — a wide ruler ends
+  // up with one path holding dozens/hundreds of short, disconnected
+  // moveTo/lineTo segments, and a single stroke() over that has been observed
+  // to render invisibly on iPadOS Safari specifically (reported: labels and
+  // the single continuous border stroke both render fine, only the many-
+  // segment tick path doesn't) while working fine on desktop Chrome. Each
+  // tick as its own independent fillRect sidesteps whatever WebKit
+  // multi-segment-hairline-stroke quirk that is, since fills don't share
+  // stroke's failure mode here (and fillText, used for labels, already
+  // proves fills render correctly on the affected device).
+  ctx.fillStyle = TICK_COLOR;
   forEachSubTick(leftMm, rightMm, viewport.scalePxPerMm, unit, (mm, lengthPx) => {
-    const x = Math.round(worldToScreen(mm, 0, viewport).xPx) + 0.5;
-    ctx.moveTo(x, cssHeight - lengthPx);
-    ctx.lineTo(x, cssHeight);
+    const x = Math.round(worldToScreen(mm, 0, viewport).xPx);
+    ctx.fillRect(x, cssHeight - lengthPx, 1, lengthPx);
   });
-  ctx.stroke();
 
   const { intervalUnit, intervalMm } = chooseNiceTickIntervalMm(viewport.scalePxPerMm, unit);
   const firstIndex = Math.floor(leftMm / intervalMm);
   const lastIndex = Math.ceil(rightMm / intervalMm);
 
+  ctx.fillStyle = TICK_COLOR;
+  for (let i = firstIndex; i <= lastIndex; i++) {
+    const mm = i * intervalMm;
+    const { xPx } = worldToScreen(mm, 0, viewport);
+    const x = Math.round(xPx);
+    ctx.fillRect(x, cssHeight - MAJOR_TICK_LENGTH_PX, 1, MAJOR_TICK_LENGTH_PX);
+  }
+
   ctx.fillStyle = LABEL_COLOR;
   ctx.font = TICK_FONT;
   ctx.textBaseline = 'top';
   ctx.textAlign = 'left';
-  ctx.beginPath();
   for (let i = firstIndex; i <= lastIndex; i++) {
     const mm = i * intervalMm;
     const { xPx } = worldToScreen(mm, 0, viewport);
-    const x = Math.round(xPx) + 0.5;
-    ctx.moveTo(x, cssHeight - MAJOR_TICK_LENGTH_PX);
-    ctx.lineTo(x, cssHeight);
     ctx.fillText(String(roundForDisplay(i * intervalUnit)), xPx + 3, 2);
   }
-  ctx.stroke();
 
   ctx.strokeStyle = BORDER_COLOR;
   ctx.beginPath();
@@ -169,34 +179,36 @@ export function drawRulerLeft(ctx, cssWidth, cssHeight, viewport, unit) {
   const topMm = viewport.originYmm;
   const bottomMm = viewport.originYmm + cssHeight / viewport.scalePxPerMm;
 
-  ctx.strokeStyle = TICK_COLOR;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
+  // See the matching comment in drawRulerTop — ticks are filled rects, not
+  // stroked segments, for the same reason (a many-disconnected-segment
+  // stroked path has been observed to go invisible on iPadOS Safari).
+  ctx.fillStyle = TICK_COLOR;
   forEachSubTick(topMm, bottomMm, viewport.scalePxPerMm, unit, (mm, lengthPx) => {
-    const y = Math.round(worldToScreen(0, mm, viewport).yPx) + 0.5;
-    ctx.moveTo(cssWidth - lengthPx, y);
-    ctx.lineTo(cssWidth, y);
+    const y = Math.round(worldToScreen(0, mm, viewport).yPx);
+    ctx.fillRect(cssWidth - lengthPx, y, lengthPx, 1);
   });
-  ctx.stroke();
 
   const { intervalUnit, intervalMm } = chooseNiceTickIntervalMm(viewport.scalePxPerMm, unit);
   const firstIndex = Math.floor(topMm / intervalMm);
   const lastIndex = Math.ceil(bottomMm / intervalMm);
 
+  ctx.fillStyle = TICK_COLOR;
+  for (let i = firstIndex; i <= lastIndex; i++) {
+    const mm = i * intervalMm;
+    const { yPx } = worldToScreen(0, mm, viewport);
+    const y = Math.round(yPx);
+    ctx.fillRect(cssWidth - MAJOR_TICK_LENGTH_PX, y, MAJOR_TICK_LENGTH_PX, 1);
+  }
+
   ctx.fillStyle = LABEL_COLOR;
   ctx.font = TICK_FONT;
   ctx.textBaseline = 'bottom';
   ctx.textAlign = 'right';
-  ctx.beginPath();
   for (let i = firstIndex; i <= lastIndex; i++) {
     const mm = i * intervalMm;
     const { yPx } = worldToScreen(0, mm, viewport);
-    const y = Math.round(yPx) + 0.5;
-    ctx.moveTo(cssWidth - MAJOR_TICK_LENGTH_PX, y);
-    ctx.lineTo(cssWidth, y);
     ctx.fillText(String(roundForDisplay(i * intervalUnit)), cssWidth - MAJOR_TICK_LENGTH_PX - 2, yPx - 1);
   }
-  ctx.stroke();
 
   ctx.strokeStyle = BORDER_COLOR;
   ctx.beginPath();
