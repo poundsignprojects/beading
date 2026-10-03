@@ -24,6 +24,17 @@
 // called fresh every time (not cached), so a menu always reflects current
 // state (e.g. which item is currently disabled) with no separate "refresh"
 // call needed anywhere.
+//
+// A third variant, opted into via { showTooltip: true } (used by the color
+// swatches): shows BOTH at once — the element's own `title` as a plain-
+// tooltip bubble above it, and the action menu below — rather than either/
+// or. The tooltip's lifetime is then tied to the menu's own (hidden via the
+// menu's onClose, not on pointerup) so the two read as one paired popup —
+// see tooltipTiedToOpenMenu below. Every other registerLongPressMenu caller
+// (Mirror/Rotate/Select's own long-press menus) already explains the
+// long-press gesture itself in its `title` ("long-press or right-click for
+// more options"), so showing that as a tooltip at the moment the gesture
+// just resolved would be redundant — they're left at menu-only.
 
 import { openActionMenu } from './actionMenu.js';
 import { currentTopLayerContainer } from './topLayerContainer.js';
@@ -39,10 +50,11 @@ let pressTarget = null;
 let startX = 0;
 let startY = 0;
 let suppressClickOn = null;
-const menuRegistry = new WeakMap(); // Element -> () => menu items, see registerLongPressMenu below
+let tooltipTiedToOpenMenu = false; // see the showTooltip combo note above
+const menuRegistry = new WeakMap(); // Element -> {getItems, showTooltip}, see registerLongPressMenu below
 
-export function registerLongPressMenu(el, getItems) {
-  menuRegistry.set(el, getItems);
+export function registerLongPressMenu(el, getItems, { showTooltip = false } = {}) {
+  menuRegistry.set(el, { getItems, showTooltip });
 }
 
 function findLongPressTarget(el) {
@@ -63,11 +75,11 @@ function ensureTooltipEl() {
   return tooltipEl;
 }
 
-function showTooltip(target) {
+function showTooltip(target, text) {
   const el = ensureTooltipEl();
   const container = currentTopLayerContainer();
   if (el.parentElement !== container) container.appendChild(el);
-  el.textContent = target.title;
+  el.textContent = text;
   el.hidden = false;
 
   const targetRect = target.getBoundingClientRect();
@@ -88,6 +100,24 @@ function hideTooltip() {
   if (tooltipEl) tooltipEl.hidden = true;
 }
 
+// Shared by the long-press timer and the right-click handler below — resolves
+// one registered {getItems, showTooltip} entry into whatever should actually
+// happen (menu alone, or tooltip+menu paired together).
+function triggerRegisteredMenu(target, registered) {
+  if (registered.showTooltip) {
+    showTooltip(target, target.title);
+    tooltipTiedToOpenMenu = true;
+    openActionMenu(target, registered.getItems(), {
+      onClose: () => {
+        tooltipTiedToOpenMenu = false;
+        hideTooltip();
+      },
+    });
+  } else {
+    openActionMenu(target, registered.getItems());
+  }
+}
+
 function clearPressTimer() {
   if (pressTimer) {
     clearTimeout(pressTimer);
@@ -106,11 +136,11 @@ function handlePointerDown(e) {
   pressTimer = setTimeout(() => {
     pressTimer = null;
     if (!pressTarget) return;
-    const getItems = menuRegistry.get(pressTarget);
-    if (getItems) {
-      openActionMenu(pressTarget, getItems());
+    const registered = menuRegistry.get(pressTarget);
+    if (registered) {
+      triggerRegisteredMenu(pressTarget, registered);
     } else {
-      showTooltip(pressTarget);
+      showTooltip(pressTarget, pressTarget.title);
     }
     suppressClickOn = pressTarget;
   }, LONG_PRESS_MS);
@@ -127,7 +157,11 @@ function handlePointerMove(e) {
 function handlePointerEnd() {
   clearPressTimer();
   pressTarget = null;
-  hideTooltip();
+  // A tooltip paired with a still-open menu (see showTooltip's combo note
+  // above) outlives the finger lift — it hides via the menu's own onClose
+  // instead, so the two disappear together rather than the name vanishing
+  // while the link stays.
+  if (!tooltipTiedToOpenMenu) hideTooltip();
 }
 
 // Capturing so this runs before the target's own click listener; suppresses
@@ -150,10 +184,10 @@ function handleClickCapture(e) {
 // standard "more options" convention, no long-press needed.
 function handleContextMenu(e) {
   const menuTarget = e.target.closest?.('[data-has-menu]');
-  const getItems = menuTarget && menuRegistry.get(menuTarget);
-  if (!getItems) return;
+  const registered = menuTarget && menuRegistry.get(menuTarget);
+  if (!registered) return;
   e.preventDefault();
-  openActionMenu(menuTarget, getItems());
+  triggerRegisteredMenu(menuTarget, registered);
 }
 
 let initialized = false;

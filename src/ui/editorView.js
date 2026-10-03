@@ -55,16 +55,25 @@
 //   onCustomColorAdded({name, hex, alphaPercent, luster}) — fired from the
 //                            palette's "+" tile; main.js persists and pushes
 //                            onto appState.customColors.
-//   onCustomColorRenamed(id, name) — Manage Colors list rename.
+//   onCustomColorRenamed(id, name) — Manage Colors list rename. Also reachable
+//                            from the Working Colors manage list's own row
+//                            (buildColorManageRow is shared by both — see
+//                            renderWorkingColorManageList), same hook either
+//                            way since it's the same underlying catalog color.
 //   onCustomColorAppearanceChanged(id, {hex, alphaPercent, luster}) — Manage
-//                            Colors list color/opacity/luster edit.
-//   onCustomColorDeleted(id)       — Manage Colors list delete.
+//                            Colors list color/opacity/luster edit; same
+//                            shared-row caveat as onCustomColorRenamed above.
+//   onCustomColorDeleted(id)       — Manage Colors list delete (shared row).
 //   onCustomColorStashChanged(id, stashCount) — Manage Colors list stash-count
 //                            edit (beads on hand for that color); null clears
 //                            it back to "not tracked" — see stashCheck.js,
 //                            used by printView.js to warn when a design needs
 //                            more of a color than is on hand.
-//   onCustomColorReordered(id, newOrder) — Manage Colors list drag-reorder.
+//   onCustomColorReordered(id, newOrder) — Manage Colors list drag-reorder
+//                            ONLY — writes a customColor's own `order` field.
+//                            Working Colors has its own, separate ordering
+//                            (appState.workingColorIds' own array order) that
+//                            never touches this — see setWorkingColorIds.
 //   onCustomColorCopiedToBeadType(id, targetBeadTypeKey) — Manage Colors list
 //                            "Copy to…" action; main.js copies the color into
 //                            the target bead type's own independent palette,
@@ -180,6 +189,8 @@ export function mountEditorView(appState, hooks) {
   const colorManageList = document.getElementById('color-manage-list');
   const workingColorPalette = document.getElementById('working-color-palette');
   const workingColorsEmptyMessage = document.getElementById('working-colors-empty');
+  const workingColorManageToggleButton = document.getElementById('working-color-manage-toggle');
+  const workingColorManageList = document.getElementById('working-color-manage-list');
   // Collapsible side-panel sections (each a [key, toggle button, body div]
   // triple) — see setupCollapsibleSections below.
   const COLLAPSIBLE_SECTIONS = [
@@ -223,7 +234,9 @@ export function mountEditorView(appState, hooks) {
   let redrawScheduled = false;
   let lastCssSize = { cssWidth: 0, cssHeight: 0 };
   let manageMode = false; // Manage Colors list vs. swatch grid — ephemeral UI state, not persisted
+  let workingColorManageMode = false; // same, for the Working Colors section
   let colorDrag = null; // { pointerId, rowEl, colorId } or null, mirrors libraryView.js's drag shape
+  let workingColorDrag = null; // same shape as colorDrag, scoped to workingColorManageList
   let layerDrag = null; // { pointerId, rowEl, layerId } or null, same drag-reorder shape as colorDrag
   let calibrationFactor = 1; // working value while the Preferences dialog is open — not written to preferences until Save
   let viewModeBeforePreferencesOpen = 'fit'; // restored on Close-without-Save
@@ -461,10 +474,12 @@ export function mountEditorView(appState, hooks) {
           updateToolButtons();
           renderColorPalette();
         });
-        // Long-press/right-click offers adding this color to (or removing it
-        // from) Working Colors — getItems is called fresh every open (see
-        // registerLongPressMenu's own doc comment), so the label always
-        // reflects current membership with no separate refresh needed.
+        // Long-press/right-click shows this color's name above it (same
+        // tooltip a plain icon-only button would get) AND offers adding it
+        // to (or removing it from) Working Colors below it — see
+        // registerLongPressMenu's showTooltip option. getItems is called
+        // fresh every open, so the label always reflects current membership
+        // with no separate refresh needed.
         button.dataset.hasMenu = 'true';
         registerLongPressMenu(button, () => {
           const inWorking = appState.workingColorIds.includes(swatch.id);
@@ -473,13 +488,13 @@ export function mountEditorView(appState, hooks) {
               ? { label: 'Remove from Working Colors', icon: 'square-x', onSelect: () => handleWorkingColorRemove(swatch.id) }
               : { label: 'Add to Working Colors', icon: 'plus', onSelect: () => handleWorkingColorAdd(swatch.id) },
           ];
-        });
+        }, { showTooltip: true });
         return button;
       }),
       addTile
     );
     updatePaletteSectionVisibility();
-    renderWorkingColorPalette();
+    renderWorkingColorUI();
   }
 
   // Working Colors: a per-colorway quick-access subset of the catalog above
@@ -508,12 +523,12 @@ export function mountEditorView(appState, hooks) {
         appState.tool = 'draw';
       }
       updateToolButtons();
-      renderColorPalette(); // cascades to renderWorkingColorPalette() below
+      renderColorPalette(); // cascades to renderWorkingColorUI() below
     });
     button.dataset.hasMenu = 'true';
     registerLongPressMenu(button, () => [
       { label: 'Remove from Working Colors', icon: 'square-x', destructive: true, onSelect: () => handleWorkingColorRemove(color.id) },
-    ]);
+    ], { showTooltip: true });
 
     return button;
   }
@@ -521,7 +536,50 @@ export function mountEditorView(appState, hooks) {
   function renderWorkingColorPalette() {
     const swatches = appState.workingColorIds.map(buildWorkingColorSwatch).filter(Boolean);
     workingColorPalette.replaceChildren(...swatches);
-    workingColorsEmptyMessage.hidden = swatches.length > 0;
+    updateWorkingColorSectionVisibility();
+  }
+
+  // Manage mode for Working Colors, structurally identical to the main
+  // palette's own manageMode/updatePaletteSectionVisibility pair just above
+  // — only one of the swatch grid / manage list is visible at a time.
+  function updateWorkingColorSectionVisibility() {
+    const hasWorking = appState.workingColorIds.length > 0;
+    workingColorPalette.hidden = workingColorManageMode;
+    workingColorsEmptyMessage.hidden = workingColorManageMode || hasWorking;
+    workingColorManageList.hidden = !workingColorManageMode;
+  }
+
+  // Rows here are the exact same buildColorManageRow as the main Manage
+  // Colors list (same swatch/name/stash field, same Edit/Copy/Rename/Delete
+  // actions — editing here updates the underlying catalog color, which is
+  // exactly why it's shared rather than reimplemented) plus one extra
+  // action specific to this context. Order comes from appState.workingColorIds
+  // itself, not appState.customColors' own order — this is what keeps the two
+  // palettes' orderings independent of each other (see handleWorkingColorList-
+  // PointerUp below, and setWorkingColorIds, the only place that order is
+  // ever written).
+  function renderWorkingColorManageList() {
+    const colors = appState.workingColorIds
+      .map((id) => appState.customColors.find((c) => c.id === id))
+      .filter(Boolean);
+    workingColorManageList.replaceChildren(
+      ...colors.map((color) =>
+        buildColorManageRow(color, {
+          extraMenuItems: [
+            { label: 'Remove from Working Colors', icon: 'square-x', onSelect: () => handleWorkingColorRemove(color.id) },
+          ],
+        })
+      )
+    );
+  }
+
+  // Refreshes every bit of Working Colors UI at once (swatch grid + manage
+  // list) — called instead of renderWorkingColorPalette() alone everywhere
+  // membership, order, or an underlying color's own data might have changed,
+  // so the manage list (when open) never goes stale relative to the grid.
+  function renderWorkingColorUI() {
+    renderWorkingColorPalette();
+    renderWorkingColorManageList();
   }
 
   // The one place appState.workingColorIds/the active colorway's own
@@ -533,7 +591,7 @@ export function mountEditorView(appState, hooks) {
     appState.colorways = appState.colorways.map((cw) =>
       cw.id === appState.activeColorwayId ? { ...cw, workingColorIds: newIds } : cw
     );
-    renderWorkingColorPalette();
+    renderWorkingColorUI();
     hooks.onImmediateSave();
   }
 
@@ -548,7 +606,12 @@ export function mountEditorView(appState, hooks) {
     setWorkingColorIds(appState.workingColorIds.filter((wid) => wid !== id));
   }
 
-  function buildColorManageRow(color) {
+  // extraMenuItems lets a caller (the Working Colors manage list, below)
+  // splice in a context-specific action without duplicating this whole row —
+  // same row, same swatch/name/stash field, same underlying Edit/Copy/
+  // Rename/Delete actions (editing here always updates the real catalog
+  // color, so both views of it stay in sync for free).
+  function buildColorManageRow(color, { extraMenuItems = [] } = {}) {
     const row = document.createElement('li');
     row.className = 'color-manage-row';
     row.dataset.colorId = color.id;
@@ -597,6 +660,7 @@ export function mountEditorView(appState, hooks) {
       { label: 'Edit Color', icon: 'palette', onSelect: () => handleColorEditClick(color.id) },
       { label: 'Copy to Another Bead Type', icon: 'log-in', onSelect: () => handleColorCopyTo(color.id) },
       { label: 'Rename', icon: 'pencil', onSelect: () => handleColorRename(color.id) },
+      ...extraMenuItems,
       { label: 'Delete', icon: 'trash-2', destructive: true, onSelect: () => handleColorDelete(color.id) },
     ]));
 
@@ -627,6 +691,7 @@ export function mountEditorView(appState, hooks) {
     }
     await hooks.onCustomColorStashChanged(id, stashCount);
     renderColorManageList();
+    renderWorkingColorManageList();
   }
 
   // 'select' plus its three long-press-menu variants (magic wand's two modes,
@@ -1355,7 +1420,7 @@ export function mountEditorView(appState, hooks) {
     appState.workingColorIds = appState.colorways.find((cw) => cw.id === appState.activeColorwayId).workingColorIds ?? [];
     renderColorwayList();
     renderLayerList();
-    renderWorkingColorPalette();
+    renderWorkingColorUI();
     scheduleRedraw();
     hooks.onImmediateSave();
   }
@@ -1969,6 +2034,12 @@ export function mountEditorView(appState, hooks) {
     if (manageMode) renderColorManageList();
     updatePaletteSectionVisibility();
   }
+  function handleWorkingColorManageToggle() {
+    workingColorManageMode = !workingColorManageMode;
+    workingColorManageToggleButton.setAttribute('aria-pressed', String(workingColorManageMode));
+    if (workingColorManageMode) renderWorkingColorManageList();
+    updateWorkingColorSectionVisibility();
+  }
   // Both flows open the same custom picker dialog (colorPickerDialog.js) — it
   // replaces the native <input type="color"> that used to render as two
   // genuinely different OS pickers on Mac vs. iPad. Nothing is applied until
@@ -2107,6 +2178,43 @@ export function mountEditorView(appState, hooks) {
     hooks.onCustomColorReordered(colorId, newOrder).then(() => {
       renderColorPalette();
     });
+  }
+  // Working Colors has no persisted "order" field of its own to compute a
+  // fractional insert point against (unlike appState.customColors) — its
+  // order IS appState.workingColorIds' own array order, so a drop just reads
+  // the list's resulting DOM order straight back into a new array and saves
+  // that. This is also what keeps the two palettes' orderings independent:
+  // reordering here never touches a customColor's own `order` field (so the
+  // main palette is unaffected), and reordering the main palette never
+  // touches workingColorIds (so this list is unaffected) — see setWorkingColorIds.
+  function handleWorkingColorListPointerDown(e) {
+    const handle = e.target.closest('.color-manage-drag-handle');
+    if (!handle) return;
+    const rowEl = handle.closest('.color-manage-row');
+    if (!rowEl) return;
+    workingColorDrag = { pointerId: e.pointerId, rowEl, colorId: rowEl.dataset.colorId };
+    workingColorManageList.setPointerCapture(e.pointerId);
+    rowEl.classList.add('dragging');
+  }
+  function handleWorkingColorListPointerMove(e) {
+    if (!workingColorDrag || e.pointerId !== workingColorDrag.pointerId) return;
+    const siblings = [...workingColorManageList.querySelectorAll('.color-manage-row')].filter((r) => r !== workingColorDrag.rowEl);
+    const target = siblings.find((sibling) => {
+      const rect = sibling.getBoundingClientRect();
+      return e.clientY < rect.top + rect.height / 2;
+    });
+    if (target) workingColorManageList.insertBefore(workingColorDrag.rowEl, target);
+    else workingColorManageList.appendChild(workingColorDrag.rowEl);
+  }
+  function handleWorkingColorListPointerUp(e) {
+    if (!workingColorDrag || e.pointerId !== workingColorDrag.pointerId) return;
+    const { rowEl } = workingColorDrag;
+    rowEl.classList.remove('dragging');
+    if (workingColorManageList.hasPointerCapture?.(e.pointerId)) workingColorManageList.releasePointerCapture(e.pointerId);
+    workingColorDrag = null;
+
+    const newOrder = [...workingColorManageList.querySelectorAll('.color-manage-row')].map((r) => r.dataset.colorId);
+    setWorkingColorIds(newOrder);
   }
   function handleResetView() {
     appState.viewMode = appState.viewMode === 'fit' ? 'actual' : 'fit';
@@ -2795,6 +2903,11 @@ export function mountEditorView(appState, hooks) {
   colorManageList.addEventListener('pointermove', handleColorListPointerMove);
   colorManageList.addEventListener('pointerup', handleColorListPointerUp);
   colorManageList.addEventListener('pointercancel', handleColorListPointerUp);
+  workingColorManageToggleButton.addEventListener('click', handleWorkingColorManageToggle);
+  workingColorManageList.addEventListener('pointerdown', handleWorkingColorListPointerDown);
+  workingColorManageList.addEventListener('pointermove', handleWorkingColorListPointerMove);
+  workingColorManageList.addEventListener('pointerup', handleWorkingColorListPointerUp);
+  workingColorManageList.addEventListener('pointercancel', handleWorkingColorListPointerUp);
   layerNewButton.addEventListener('click', handleLayerNew);
   layerListEl.addEventListener('pointerdown', handleLayerListPointerDown);
   layerListEl.addEventListener('pointermove', handleLayerListPointerMove);
@@ -3000,6 +3113,11 @@ export function mountEditorView(appState, hooks) {
     colorManageList.removeEventListener('pointermove', handleColorListPointerMove);
     colorManageList.removeEventListener('pointerup', handleColorListPointerUp);
     colorManageList.removeEventListener('pointercancel', handleColorListPointerUp);
+    workingColorManageToggleButton.removeEventListener('click', handleWorkingColorManageToggle);
+    workingColorManageList.removeEventListener('pointerdown', handleWorkingColorListPointerDown);
+    workingColorManageList.removeEventListener('pointermove', handleWorkingColorListPointerMove);
+    workingColorManageList.removeEventListener('pointerup', handleWorkingColorListPointerUp);
+    workingColorManageList.removeEventListener('pointercancel', handleWorkingColorListPointerUp);
     layerNewButton.removeEventListener('click', handleLayerNew);
     layerListEl.removeEventListener('pointerdown', handleLayerListPointerDown);
     layerListEl.removeEventListener('pointermove', handleLayerListPointerMove);

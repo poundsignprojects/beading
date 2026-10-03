@@ -1012,26 +1012,33 @@ input[type="range"]::-moz-range-thumb {
   transform: rotate(-90deg);
 }
 
-/* Lives inside the Colors section's own body (not the always-visible title
-   bar above it) — so it only takes up space while the section is actually
-   expanded, same as the rest of the palette. Manage sits pinned to the
-   top-right corner, in the leftover space at the end of the swatch grid's
-   first row, rather than on its own row — #color-palette reserves that
-   corner (padding-right) so a full row of swatches can never render
-   underneath it. Manage stays outside #color-palette itself (a sibling, not
-   a child) so toggling Manage mode — which hides #color-palette and shows
-   #color-manage-list instead — never hides the very button that triggers it. */
-#color-palette-wrap {
+/* Shared by both palettes (main Colors and Working Colors) — each section's
+   body isn't rendered while collapsed, so this only takes up space while
+   actually expanded. Manage sits pinned to the top-right corner, in the
+   leftover space at the end of the swatch grid's first row, rather than on
+   its own row — .palette-swatch-grid reserves that corner (padding-right)
+   so a full row of swatches can never render underneath it. Manage stays
+   outside .palette-swatch-grid itself (a sibling, not a child) so toggling
+   Manage mode — which hides the swatch grid and shows the .color-manage-list
+   instead — never hides the very button that triggers it.
+   min-height matches .palette-manage-toggle's own 2.75rem: the toggle button
+   is absolutely positioned, so it doesn't contribute to this wrap's natural
+   height — without a floor here, hiding .palette-swatch-grid (Manage mode)
+   collapses the wrap to 0 height, and the still-full-size toggle button then
+   overflows downward on top of the manage list's first row, stealing its
+   action-button clicks (a real bug, caught via Playwright, not hypothetical). */
+.palette-wrap {
   position: relative;
+  min-height: 2.75rem;
 }
 
-#color-manage-toggle {
+.palette-manage-toggle {
   position: absolute;
   top: 0;
   right: 0;
 }
 
-#color-palette {
+.palette-swatch-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 0.4rem;
@@ -1101,20 +1108,18 @@ input[type="range"]::-moz-range-thumb {
 /* Working Colors (below the main palette) — a per-colorway quick-access
    subset the user builds from the main palette (long-press/right-click a
    swatch there to add it) and removes the same way (long-press/right-click
-   a swatch here, then confirm). */
-#working-color-palette {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.6rem;
-}
-
+   a swatch here, then confirm) — or manages (edit/rename/delete/reorder)
+   via its own Manage toggle, same as the main palette's. */
 #working-colors-empty {
   color: #777;
   font-size: 0.85rem;
   margin: 0.25rem 0;
 }
 
-#color-manage-list {
+/* Shared by both palettes' manage lists (#color-manage-list and
+   #working-color-manage-list) — same .color-manage-row markup, reused
+   verbatim (buildColorManageRow), in either list. */
+.color-manage-list {
   list-style: none;
   margin: 0.5rem 0 0;
   padding: 0;

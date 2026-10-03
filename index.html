@@ -100,12 +100,12 @@
             </button>
           </div>
           <div id="palette-section-body" class="section-body">
-            <div id="color-palette-wrap">
-              <button id="color-manage-toggle" type="button" class="icon-btn" data-icon="list" aria-pressed="false" title="Manage Colors" aria-label="Manage Colors"></button>
-              <div id="color-palette" role="group" aria-label="Color"></div>
+            <div id="color-palette-wrap" class="palette-wrap">
+              <button id="color-manage-toggle" type="button" class="icon-btn palette-manage-toggle" data-icon="list" aria-pressed="false" title="Manage Colors" aria-label="Manage Colors"></button>
+              <div id="color-palette" class="palette-swatch-grid" role="group" aria-label="Color"></div>
             </div>
             <p id="color-palette-empty" hidden>No colors yet — tap + to add one.</p>
-            <ul id="color-manage-list" hidden></ul>
+            <ul id="color-manage-list" class="color-manage-list" hidden></ul>
           </div>
         </section>
         <section id="working-colors-section" aria-label="Working colors" class="collapsible-section">
@@ -116,8 +116,12 @@
             </button>
           </div>
           <div id="working-colors-section-body" class="section-body">
-            <div id="working-color-palette" role="group" aria-label="Working colors"></div>
+            <div id="working-color-palette-wrap" class="palette-wrap">
+              <button id="working-color-manage-toggle" type="button" class="icon-btn palette-manage-toggle" data-icon="list" aria-pressed="false" title="Manage Working Colors" aria-label="Manage Working Colors"></button>
+              <div id="working-color-palette" class="palette-swatch-grid" role="group" aria-label="Working colors"></div>
+            </div>
             <p id="working-colors-empty" hidden>No working colors yet — long-press or right-click a color above to add it.</p>
+            <ul id="working-color-manage-list" class="color-manage-list" hidden></ul>
           </div>
         </section>
         <section id="layer-section" aria-label="Layers" class="collapsible-section">
