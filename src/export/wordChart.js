@@ -46,7 +46,7 @@ export const UNASSIGNED = Symbol('unassigned-color');
 // user across several rounds — a genuinely easy detail to get wrong, since
 // "row 0 is always Row 1 & 2" and "row 0 always combines" sound like the
 // same statement until you pick a different start row). The chosen row is
-// flagged (see isStartRow) so printView.js can bold it, independent of the
+// flagged (see isStartRow) so printView.js can mark it with a dot, independent of the
 // existing every-10th-row bold (a different, unrelated position-tracking
 // aid for a long printout).
 //
@@ -191,7 +191,7 @@ function buildRuns(cells, cellList, colorCounts, tallyUnassigned) {
 // it's specific to how a stitch type is actually worked, not its geometry.
 //
 // startRow (0-indexed, see clampStartRow) never changes numbering. For
-// stitchType 'square' it only flags a row for bolding (isStartRow) — square
+// stitchType 'square' it only flags a row for the start-row dot (isStartRow) — square
 // has no combining concept to begin with. For peyote, the row it names gets
 // the un-split, single-pass treatment (labeled with its own two numbers
 // joined, "Row {2r+1} & {2r+2}") and every OTHER row — including row 0 when

@@ -181,7 +181,12 @@ function buildChart(chart, codes, startsReversed) {
     const direction = isRowReversed(chartRow, startsReversed) ? '←' : '→';
     const runText = displayRuns(chartRow, startsReversed).map((run) => formatRun(run, codes)).join(' ');
     const line = document.createElement('div');
-    line.className = chartRow.isStartRow ? 'word-chart-row word-chart-row-start' : 'word-chart-row';
+    line.className = 'word-chart-row';
+    if (chartRow.isStartRow) line.classList.add('word-chart-row-start');
+    // Keyed off the row's own number(s), not its position in the list — a
+    // combined line shifts every later line's position by one.
+    const rowNumbers = chartRow.rowLabel.match(/\d+/g) ?? [];
+    if (rowNumbers.some((n) => Number(n) % 10 === 0)) line.classList.add('word-chart-row-tenth');
     line.textContent = `${chartRow.rowLabel} ${direction}: ${runText}`;
     section.append(line);
   }

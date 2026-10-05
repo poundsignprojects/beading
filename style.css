@@ -1468,17 +1468,24 @@ input[type="range"]::-moz-range-thumb {
   break-inside: avoid;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   padding: 0.1rem 0;
+  position: relative;
 }
 
-.word-chart-row:nth-child(10n) {
+/* Every line whose own row number is a multiple of 10 (set by printView.js
+   from the label, not :nth-child — line position stops matching row number
+   as soon as Start Row moves the combined line off row 0). */
+.word-chart-row-tenth {
   font-weight: 600;
 }
 
-/* The line(s) for whichever row is chosen as Start Row (#print-start-row) —
-   bold like the every-10th-row emphasis above, but independent of it and for
-   a different reason: this marks the crafter's own chosen starting point,
-   not just a position-tracking aid. */
-.word-chart-row-start {
+/* The line chosen as Start Row (#print-start-row) gets a dot hanging in the
+   left margin — absolutely positioned so the row's own text stays aligned
+   with every other row. */
+.word-chart-row-start::before {
+  content: "\2022";
+  position: absolute;
+  right: 100%;
+  margin-right: 0.35em;
   font-weight: 600;
 }
 
@@ -2333,7 +2340,9 @@ input[type="range"]::-moz-range-thumb {
 
   #print-content {
     max-width: none;
-    padding: 0;
+    /* Left room for the Start Row dot (.word-chart-row-start::before), which
+       hangs outside the row and could otherwise be clipped at the page edge. */
+    padding: 0 0 0 1rem;
   }
 
   #print-reference-image {
