@@ -6,7 +6,7 @@
 import { findBeadType } from '../palette/beadSpecs.js';
 import { stitchTypeDetailLabel } from '../grid/gridEngine.js';
 import { formatLength } from '../units/convert.js';
-import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED, firstOccupiedRow, clampStartRow, primaryLabelForRow, rowForLabel } from '../export/wordChart.js';
+import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED, firstOccupiedRow, clampStartRow, primaryLabelForRow, rowForLabel, startsOnSecondLine, maxStartLabel, clampStartLabel } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
 import { MISSING_COLOR_FALLBACK_HEX, resolveSwatchAppearance } from '../palette/colorLibrary.js';
 import { findStashShortfalls } from '../palette/stashCheck.js';
@@ -277,8 +277,11 @@ export function mountPrintView(appState, hooks) {
   // The field itself is read/shown against the chart's own fixed, unchanging
   // label numbers (primaryLabelForRow/rowForLabel), not a raw physical-row
   // count — a crafter looks at the default printout, spots the row they
-  // actually mean to start at by whichever number is already printed there
-  // (e.g. "13" or "14" for the same row), and types that in directly. Never
+  // actually mean to start at by whichever number is already printed there,
+  // and types that in directly. The typed number is always the first line of
+  // the combined start and joins the line after it ("13" gives "Row 13 & 14",
+  // "14" gives "Row 14 & 15") — which is why the field stops one short of
+  // the very last number, which has nothing after it to join. Never
   // changes the printed numbering itself (see buildWordChart's own comment —
   // direct user feedback was that renumbering relative to the chosen row
   // made the chart "weird") — it only switches that one row from split to
@@ -290,15 +293,22 @@ export function mountPrintView(appState, hooks) {
   // blank rows (see .work/feature-requests-and-bugs.md), this already lands
   // on the row that actually has beads, with no manual entry needed for the
   // common case.
-  let startRowIndex = clampStartRow(firstOccupiedRow(displayCells) ?? 0, appState.rows);
-  let chart = buildWordChart(displayCells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount, startRowIndex);
+  let startLabel = primaryLabelForRow(clampStartRow(firstOccupiedRow(displayCells) ?? 0, appState.rows), appState.stitchType);
+  function buildChartForStartLabel() {
+    return buildWordChart(
+      displayCells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount,
+      rowForLabel(startLabel, appState.stitchType),
+      startsOnSecondLine(startLabel, appState.stitchType)
+    );
+  }
+  let chart = buildChartForStartLabel();
   let codes = assignColorCodes(chart.colorCounts);
 
   startRowInput.min = '1';
-  startRowInput.max = String(primaryLabelForRow(Math.max(appState.rows - 1, 0), appState.stitchType));
+  startRowInput.max = String(maxStartLabel(appState.rows, appState.stitchType));
 
   function renderContent() {
-    startRowInput.value = String(primaryLabelForRow(startRowIndex, appState.stitchType));
+    startRowInput.value = String(startLabel);
 
     const startsReversed = appState.preferences.printStartDirection === 'left';
     directionToggleButton.textContent = directionToggleLabel(startsReversed);
@@ -327,13 +337,13 @@ export function mountPrintView(appState, hooks) {
   }
   function handleStartRowChange() {
     const raw = Number(startRowInput.value);
-    const nextIndex = Number.isFinite(raw) ? clampStartRow(rowForLabel(raw, appState.stitchType), appState.rows) : startRowIndex;
-    if (nextIndex === startRowIndex) {
+    const nextLabel = Number.isFinite(raw) ? clampStartLabel(raw, appState.rows, appState.stitchType) : startLabel;
+    if (nextLabel === startLabel) {
       renderContent(); // still re-syncs the input if the entry was out of range
       return;
     }
-    startRowIndex = nextIndex;
-    chart = buildWordChart(displayCells, appState.rows, appState.cols, appState.stitchType, appState.staggerFlipped, appState.dropCount, startRowIndex);
+    startLabel = nextLabel;
+    chart = buildChartForStartLabel();
     codes = assignColorCodes(chart.colorCounts);
     renderContent();
   }

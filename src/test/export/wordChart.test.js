@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { setCell } from '../../state/cellStore.js';
-import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED, clampStartRow, firstOccupiedRow, primaryLabelForRow, rowForLabel } from '../../export/wordChart.js';
+import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED, clampStartRow, firstOccupiedRow, primaryLabelForRow, rowForLabel, startsOnSecondLine, maxStartLabel, clampStartLabel } from '../../export/wordChart.js';
 
 // Below, `rows` is the physical row count (height-driving) and `cols` is
 // beads-per-row (width-driving) — row/col now mean what the UI's Rows/Cols
@@ -609,5 +609,108 @@ test('primaryLabelForRow/rowForLabel round-trip for every row in a realistic ran
     // The row's *other* label (the even one) must also resolve back to the
     // same row, matching how either half of a split pair names one row.
     if (row > 0) assert.equal(rowForLabel(label + 1), row);
+  }
+});
+
+// startOnSecondLine — an even Start Row label ("14") combines with the line
+// AFTER it ("Row 14 & 15"), spanning two grid rows, rather than with the line
+// before it (direct user request).
+
+test('startsOnSecondLine / maxStartLabel / clampStartLabel: peyote evens start on a second line; the last number is not a valid start', () => {
+  assert.equal(startsOnSecondLine(13), false);
+  assert.equal(startsOnSecondLine(14), true);
+  assert.equal(startsOnSecondLine(2, 'square'), false);
+  assert.equal(maxStartLabel(6), 11); // rows 1-12: last start is "Row 11 & 12"
+  assert.equal(maxStartLabel(6, 'square'), 6);
+  assert.equal(maxStartLabel(0), 1);
+  assert.equal(clampStartLabel(12, 6), 11);
+  assert.equal(clampStartLabel(999, 6), 11);
+  assert.equal(clampStartLabel(0, 6), 1);
+  assert.equal(clampStartLabel(10, 6), 10); // an even label is kept, not snapped to 9
+  assert.equal(clampStartLabel(9, 6, 'square'), 6);
+});
+
+test('buildWordChart: startOnSecondLine joins a row\'s second line with the next row\'s first line, column by column', () => {
+  const cells = new Map();
+  // cols=4: isRaised is true for cols 1,3. Row 1 splits into "Row 3" (cols
+  // 1,3) / "Row 4" (cols 0,2); row 2 into "Row 5" (cols 1,3) / "Row 6" (0,2).
+  for (let row = 0; row < 4; row++) {
+    for (let col = 0; col < 4; col++) setCell(cells, row, col, `R${row}C${col}`);
+  }
+  const classic = buildWordChart(cells, 4, 4, 'peyote', false, 1, 1);
+  const chart = buildWordChart(cells, 4, 4, 'peyote', false, 1, 1, true); // label 4
+
+  assert.deepEqual(chart.rows.map((r) => r.rowLabel), [
+    'Row 1', 'Row 2', 'Row 3', 'Row 4 & 5', 'Row 6', 'Row 7', 'Row 8',
+  ]);
+  assert.equal(chart.rows.length, classic.rows.length); // line count unchanged
+  const combined = chart.rows.filter((r) => r.isStartRow);
+  assert.equal(combined.length, 1);
+  assert.equal(combined[0].rowLabel, 'Row 4 & 5');
+  // Row 4's beads (row 1, cols 0,2) interleaved with Row 5's (row 2, cols 1,3).
+  assert.deepEqual(combined[0].runs.map((r) => r.colorId), ['R1C0', 'R2C1', 'R1C2', 'R2C3']);
+
+  // The lines on either side are the ordinary halves, untouched.
+  const byLabel = (c) => Object.fromEntries(c.rows.map((r) => [r.rowLabel, r.runs]));
+  const split = byLabel(buildWordChart(cells, 4, 4, 'peyote', false, 1, 3));
+  for (const label of ['Row 1', 'Row 2', 'Row 3', 'Row 6']) {
+    assert.deepEqual(byLabel(chart)[label], split[label], label);
+  }
+  assert.deepEqual(chart.colorCounts.length, classic.colorCounts.length);
+  assert.equal(chart.totalBeadCount, classic.totalBeadCount);
+});
+
+test('buildWordChart: startOnSecondLine on row 0 gives "Row 2 & 3" with "Row 1" alone above it', () => {
+  const cells = new Map();
+  for (let row = 0; row < 3; row++) setCell(cells, row, 0, `C${row}`);
+  const chart = buildWordChart(cells, 3, 2, 'peyote', false, 1, 0, true);
+  assert.deepEqual(chart.rows.map((r) => r.rowLabel), ['Row 1', 'Row 2 & 3', 'Row 4', 'Row 5', 'Row 6']);
+  assert.deepEqual(chart.rows.map((r) => r.isStartRow), [false, true, false, false, false]);
+});
+
+test('buildWordChart: startOnSecondLine respects dropCount grouping and staggerFlipped', () => {
+  const cells = new Map();
+  for (let row = 0; row < 3; row++) {
+    for (let col = 0; col < 4; col++) setCell(cells, row, col, `R${row}C${col}`);
+  }
+  for (const flipped of [false, true]) {
+    const split = buildWordChart(cells, 3, 4, 'peyote', flipped, 2, 2);
+    const chart = buildWordChart(cells, 3, 4, 'peyote', flipped, 2, 0, true);
+    const row2 = split.rows.find((r) => r.rowLabel === 'Row 2').runs.map((r) => r.colorId);
+    const row3 = split.rows.find((r) => r.rowLabel === 'Row 3').runs.map((r) => r.colorId);
+    const combined = chart.rows.find((r) => r.rowLabel === 'Row 2 & 3').runs.map((r) => r.colorId);
+    // Exactly the two lines' beads, one per column, in column order.
+    assert.deepEqual([...combined].sort(), [...row2, ...row3].sort(), `flipped: ${flipped}`);
+    assert.deepEqual(combined.map((id) => id.slice(-1)), ['0', '1', '2', '3'], `flipped: ${flipped}`);
+  }
+});
+
+test('buildWordChart: startOnSecondLine on the last row falls back to that row\'s own pair; square stitch ignores it', () => {
+  const cells = new Map();
+  setCell(cells, 2, 0, 'red');
+  assert.deepEqual(
+    buildWordChart(cells, 3, 2, 'peyote', false, 1, 2, true),
+    buildWordChart(cells, 3, 2, 'peyote', false, 1, 2, false)
+  );
+  assert.deepEqual(
+    buildWordChart(cells, 3, 2, 'square', false, 1, 1, true),
+    buildWordChart(cells, 3, 2, 'square', false, 1, 1, false)
+  );
+});
+
+test('buildWordChart: colorCounts order (and so letter codes) is identical for every Start Row choice', () => {
+  const cells = new Map();
+  // cols=9: raised cols (1,3,5,7) are E, non-raised (0,2,4,6,8) are F on row
+  // 2 — split, E is scanned first; combined in plain column order, F is.
+  setCell(cells, 0, 0, 'A');
+  for (let col = 0; col < 9; col++) setCell(cells, 2, col, col % 2 === 1 ? 'E' : 'F');
+  setCell(cells, 3, 0, 'G');
+  const classicOrder = buildWordChart(cells, 4, 9).colorCounts;
+  assert.deepEqual(classicOrder.map((c) => c.colorId), ['A', 'E', 'F', 'G']);
+  for (let startRow = 0; startRow < 4; startRow++) {
+    for (const second of [false, true]) {
+      const chart = buildWordChart(cells, 4, 9, 'peyote', false, 1, startRow, second);
+      assert.deepEqual(chart.colorCounts, classicOrder, `startRow ${startRow}, second ${second}`);
+    }
   }
 });

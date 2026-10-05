@@ -50,6 +50,18 @@ export const UNASSIGNED = Symbol('unassigned-color');
 // existing every-10th-row bold (a different, unrelated position-tracking
 // aid for a long printout).
 //
+// The start doesn't have to sit inside one grid row, either (startOnSecondLine
+// — direct user request: "if I choose 14, it will combine with 15"). A grid
+// row's second line (non-raised, "Row 2r+2") and the NEXT grid row's first
+// line (raised, "Row 2r+3") are consecutive half-bead-apart stitching levels
+// too — exactly the same zigzag relationship a single grid row's own two
+// lines have — so together they're just as valid a double row to start a
+// thread on. That combined line takes each column's bead from whichever of
+// the two grid rows that column belongs to on those levels (non-raised
+// columns from row r, raised columns from row r+1), read in plain column
+// order; row r's first line and row r+1's second line print as ordinary
+// single lines on either side of it.
+//
 // Deliberately NOT bucketed by raw position (col-index) parity — whether
 // even-numbered or odd-numbered positions are the "raised" ones flips depending on
 // whether `cols` itself is odd or even (see isRaised's own derivation), so a
@@ -80,9 +92,15 @@ export function clampStartRow(startRow, rows) {
 // indexed, what buildWordChart's startRow actually takes) and that row's own
 // fixed pair of printed numbers — for peyote, row r's pair is always
 // "2r+1"/"2r+2" (row 0 is "1"/"2", same formula, no special case — either
-// half names the same row: typing either 13 or 14 both mean "the row whose
-// pair is Row 13/Row 14"); for square stitch there's no doubling/combining
-// at all, so a row's label is simply its own 1-indexed row number.
+// number names that row); for square stitch there's no doubling/combining at all,
+// so a row's label is simply its own 1-indexed row number.
+//
+// WHICH of a peyote row's two numbers was typed matters, though (direct user
+// request) — the typed number is always the FIRST line of the combined
+// start, and it combines with the line right after it: "13" gives "Row 13 &
+// 14" (one whole grid row), "14" gives "Row 14 & 15" (the second line of one
+// grid row plus the first line of the next). See startsOnSecondLine and
+// buildWordChart's startOnSecondLine.
 export function primaryLabelForRow(row, stitchType = 'peyote') {
   if (stitchType === 'square') return row + 1;
   return row * 2 + 1;
@@ -91,6 +109,26 @@ export function primaryLabelForRow(row, stitchType = 'peyote') {
 export function rowForLabel(labelNumber, stitchType = 'peyote') {
   if (stitchType === 'square') return labelNumber - 1;
   return Math.floor((labelNumber - 1) / 2);
+}
+
+// True when a Start Row label names the SECOND of its grid row's two printed
+// lines (peyote's even numbers) — the start then spans two grid rows instead
+// of sitting inside one. Never true for square stitch (one line per row).
+export function startsOnSecondLine(labelNumber, stitchType = 'peyote') {
+  if (stitchType === 'square') return false;
+  return labelNumber % 2 === 0;
+}
+
+// The highest label the Start Row field accepts. Peyote's very last number
+// (2*rows, always even) has no line after it to combine with, so the field
+// stops one short of it — the last valid start is "Row {2*rows-1} & {2*rows}".
+export function maxStartLabel(rows, stitchType = 'peyote') {
+  if (!(rows > 0)) return 1;
+  return stitchType === 'square' ? rows : rows * 2 - 1;
+}
+
+export function clampStartLabel(labelNumber, rows, stitchType = 'peyote') {
+  return Math.min(Math.max(Math.trunc(labelNumber) || 1, 1), maxStartLabel(rows, stitchType));
 }
 
 // The lowest occupied row across every cell actually placed — a reasonable
@@ -161,16 +199,24 @@ function buildRuns(cells, cellList, colorCounts, tallyUnassigned) {
 // the full reasoning). startRow: 0 (the default) reproduces this chart's
 // original, startRow-unaware behavior exactly, since row 0 combining is just
 // the ordinary case of "the chosen row combines," not a special rule.
-export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped = false, dropCount = 1, startRow = 0) {
+//
+// startOnSecondLine (peyote only) moves the combined start half a row later:
+// instead of row startRow's own two lines, it joins row startRow's SECOND
+// line with row startRow+1's FIRST ("Row {2r+2} & {2r+3}" — see the
+// file-level comment). Ignored when startRow is the last row (nothing after
+// it to combine with), falling back to that row's own pair.
+export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped = false, dropCount = 1, startRow = 0, startOnSecondLine = false) {
   const chartRows = [];
   const colorCounts = new Map(); // colorId -> running total, insertion = first appearance
   let unassignedCount = 0;
   const tallyUnassigned = () => { unassignedCount++; };
   const highlightRow = clampStartRow(startRow, rows);
 
-  function pushEntry(cellList, rowLabel, physicalRow) {
+  const spansTwoRows = stitchType !== 'square' && startOnSecondLine && highlightRow < rows - 1;
+
+  function pushEntry(cellList, rowLabel, isStartRow) {
     const runs = buildRuns(cells, cellList, colorCounts, tallyUnassigned);
-    chartRows.push({ entryIndex: chartRows.length, runs, rowLabel, isStartRow: physicalRow === highlightRow });
+    chartRows.push({ entryIndex: chartRows.length, runs, rowLabel, isStartRow });
   }
 
   function rowCellsAt(row) {
@@ -179,11 +225,29 @@ export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped
     return cellList;
   }
 
+  // Letter codes (colorCodes.js) follow colorCounts' first-appearance order,
+  // so that order must NOT depend on which line is the combined start — a
+  // combined line scans its columns in a different order than the two split
+  // lines it replaces, which would otherwise swap two colors' letters (e.g.
+  // E and F trading places) just from changing Start Row. Seed the order
+  // once from the classic layout (row 0 as one plain pass, every later row
+  // raised-then-non-raised); the real passes below only add to the counts.
+  if (stitchType !== 'square') {
+    for (let row = 0; row < rows; row++) {
+      const rowCells = rowCellsAt(row);
+      const { raised, notRaised } = splitByPosition(rowCells, cols, flipped, dropCount);
+      for (const { col } of (row === 0 ? rowCells : [...raised, ...notRaised])) {
+        const colorId = getCell(cells, row, col)?.colorId;
+        if (colorId != null && !colorCounts.has(colorId)) colorCounts.set(colorId, 0);
+      }
+    }
+  }
+
   if (stitchType === 'square') {
     // Each physical row is worked as one straight pass — no foundation
     // combining, no raised/non-raised split, one printed line per row.
     for (let row = 0; row < rows; row++) {
-      pushEntry(rowCellsAt(row), `Row ${row + 1}`, row);
+      pushEntry(rowCellsAt(row), `Row ${row + 1}`, row === highlightRow);
     }
   } else {
     // Row 0 is NOT hard-wired to always combine — it follows the exact same
@@ -206,13 +270,27 @@ export function buildWordChart(cells, rows, cols, stitchType = 'peyote', flipped
     // divided by isRaised at all, mirroring exactly how row 0 has always
     // been built).
     for (let row = 0; row < rows; row++) {
-      if (row === highlightRow) {
-        pushEntry(rowCellsAt(row), `Row ${row * 2 + 1} & ${row * 2 + 2}`, row);
+      if (row === highlightRow && !spansTwoRows) {
+        pushEntry(rowCellsAt(row), `Row ${row * 2 + 1} & ${row * 2 + 2}`, true);
         continue;
       }
       const { raised, notRaised } = splitByPosition(rowCellsAt(row), cols, flipped, dropCount);
-      pushEntry(raised, `Row ${row * 2 + 1}`, row);
-      pushEntry(notRaised, `Row ${row * 2 + 2}`, row);
+      if (spansTwoRows && row === highlightRow) {
+        // This row's first line prints alone; its second line joins the next
+        // row's first line, column by column, as the combined start.
+        pushEntry(raised, `Row ${row * 2 + 1}`, false);
+        const nextRaised = splitByPosition(rowCellsAt(row + 1), cols, flipped, dropCount).raised;
+        const joined = [...notRaised, ...nextRaised].sort((a, b) => a.col - b.col);
+        pushEntry(joined, `Row ${row * 2 + 2} & ${row * 2 + 3}`, true);
+        continue;
+      }
+      if (spansTwoRows && row === highlightRow + 1) {
+        // First line already printed as part of the combined start above.
+        pushEntry(notRaised, `Row ${row * 2 + 2}`, false);
+        continue;
+      }
+      pushEntry(raised, `Row ${row * 2 + 1}`, false);
+      pushEntry(notRaised, `Row ${row * 2 + 2}`, false);
     }
   }
 
