@@ -1,12 +1,7 @@
-// Small dismissible banner, two variants sharing one implementation:
-//   - Reconnect banner: shown when this browser has connected to Google Drive
-//     before but isn't connected right now (token expired, browser cleared
-//     cookies, Safari ITP blocking silent session reuse, etc. — see main.js's
-//     attemptPreMigrationDriveBackup). A real Google sign-in popup can only
-//     ever be opened by a genuine user click — browsers block auto-triggered
-//     popups — so this is the closest thing to "pop up a login screen
-//     automatically": an automatic, visible *prompt* to click, not the OAuth
-//     flow itself, which still needs that one tap.
+// Small dismissible banner with several variants sharing one implementation.
+// (The original variant — "Google Drive backup isn't connected", which gave
+// this file its name — was removed at the user's request; only the
+// migration-review variants remain.)
 //   - Axis-migration-review banner: shown when a design close would otherwise
 //     silently push freshly row/col-axis-migrated data over the live Drive
 //     backup before anyone's looked (see .work/refactor-row-col-axis-naming-
@@ -43,15 +38,6 @@ function showBanner({ message, actionLabel, onActionClick, hideOnAction }) {
     if (hideOnAction) hideReconnectBanner();
   });
   bannerEl.querySelector('#drive-reconnect-banner-dismiss').addEventListener('click', () => hideReconnectBanner());
-}
-
-export function showReconnectBanner(onConnectClick) {
-  showBanner({
-    message: 'Google Drive backup isn’t connected.',
-    actionLabel: 'Reconnect',
-    onActionClick: onConnectClick,
-    hideOnAction: true, // a successful connect actually resolves this banner's reason for existing
-  });
 }
 
 // onOpenBackupDialog just opens the Backup & Sync dialog — it doesn't itself

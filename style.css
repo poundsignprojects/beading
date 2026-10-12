@@ -11,6 +11,13 @@ html, body {
      Without this, a double-tap anywhere outside the canvas zooms the whole app
      chrome in, which reads as broken on an installed, app-like iPad session. */
   touch-action: manipulation;
+  /* Matches the app chrome (#top-bar/#library-header/#print-toolbar) rather
+     than the browser default white. Newer iPadOS draws a blurred "scroll edge"
+     tint over whatever sits under the status bar and takes its color from the
+     page background — with a white page that showed as a white haze across
+     the top of the gray top bar. Same color as the bar makes the tint
+     invisible. manifest.json's background_color is kept in step. */
+  background-color: #f2f2f2;
 }
 
 /* Author-stylesheet `display` rules below (e.g. #library-view/#editor-view's
@@ -343,6 +350,8 @@ input[type="range"]::-moz-range-thumb {
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* Explicit now that the page background behind them is the chrome gray. */
+  background: #fff;
 }
 
 #library-header {
@@ -789,6 +798,21 @@ input[type="range"]::-moz-range-thumb {
   padding-left: calc(0.5rem + env(safe-area-inset-left));
   background: #f2f2f2;
   border-right: 1px solid #ccc;
+}
+
+/* Tool rail on the right (preferences.toolRailSide): reordered rather than
+   moved in the DOM, landing between the canvas and the side panel. Its
+   divider line flips to the canvas-facing edge, and the left safe-area
+   padding it no longer needs is dropped. */
+#editor-body.tool-rail-right #tool-rail {
+  order: 1;
+  padding-left: 0.5rem;
+  border-right: none;
+  border-left: 1px solid #ccc;
+}
+
+#editor-body.tool-rail-right #side-panel {
+  order: 2;
 }
 
 #tool-rail #tool-toggle,
@@ -1624,11 +1648,25 @@ input[type="range"]::-moz-range-thumb {
   margin-top: 0.5rem;
 }
 
-#canvas-background-controls {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
+/* The canvas-background button's face: a miniature of the background it
+   currently selects (see editorView.js's updateCanvasBackgroundButton). The
+   dark and checkerboard values mirror canvasRenderer.js / .finish-swatch's. */
+#canvas-background-indicator {
+  display: block;
+  width: 1.25rem;
+  height: 1.25rem;
+  border: 1px solid #888;
+  border-radius: 3px;
+  background-color: #fff;
+}
+
+#canvas-background-indicator[data-mode="dark"] {
+  background-color: #242424;
+}
+
+#canvas-background-indicator[data-mode="checkerboard"] {
+  background-image: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%);
+  background-size: 0.625rem 0.625rem;
 }
 
 #backup-device-row {
@@ -1655,7 +1693,16 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.75rem;
 }
 
-#preferences-preserve-stagger-toggle {
+/* Left/Right choice as a switch flanked by its two labels, the same shape as
+   the color picker's HSV/HSL switch (whose label classes it reuses). */
+#preferences-tool-rail-side-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+#preferences-preserve-stagger-toggle,
+#preferences-tool-rail-side-toggle {
   position: relative;
   width: 3.25rem;
   height: 1.85rem;
@@ -1669,7 +1716,8 @@ input[type="range"]::-moz-range-thumb {
   transition: background-color 0.15s ease;
 }
 
-#preferences-preserve-stagger-toggle::after {
+#preferences-preserve-stagger-toggle::after,
+#preferences-tool-rail-side-toggle::after {
   content: '';
   position: absolute;
   top: 0.175rem;
@@ -1682,11 +1730,13 @@ input[type="range"]::-moz-range-thumb {
   transition: transform 0.15s ease;
 }
 
-#preferences-preserve-stagger-toggle[aria-pressed="true"] {
+#preferences-preserve-stagger-toggle[aria-pressed="true"],
+#preferences-tool-rail-side-toggle[aria-pressed="true"] {
   background: #333;
 }
 
-#preferences-preserve-stagger-toggle[aria-pressed="true"]::after {
+#preferences-preserve-stagger-toggle[aria-pressed="true"]::after,
+#preferences-tool-rail-side-toggle[aria-pressed="true"]::after {
   transform: translateX(1.4rem);
 }
 
@@ -1740,13 +1790,46 @@ input[type="range"]::-moz-range-thumb {
 
 #settings-dimensions {
   display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+#settings-dimension-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* Shared size entry (sizeFields.js) — New Pattern and Pattern Settings. */
+.size-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.9rem;
+}
+
+.size-fields-values,
+.size-fields-presets {
+  display: flex;
   align-items: center;
   flex-wrap: wrap;
   gap: 0.5rem;
 }
 
-#settings-dimensions input[type="number"] {
-  width: 4.5rem;
+.size-fields-values input[type="number"] {
+  width: 5.5rem;
+}
+
+.size-fields-presets select {
+  flex: 1 1 10rem;
+  min-width: 0;
+}
+
+.size-fields-hint,
+.size-fields-note {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #666;
 }
 
 #bead-catalog-list {
@@ -1983,17 +2066,6 @@ input[type="range"]::-moz-range-thumb {
   gap: 0.25rem;
   font-size: 0.9rem;
   color: #444;
-}
-
-#new-pattern-dimensions {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 0.5rem;
-}
-
-#new-pattern-dimensions input[type="number"] {
-  width: 4.5rem;
 }
 
 #new-pattern-actions {

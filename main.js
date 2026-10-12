@@ -20,7 +20,7 @@ import { mountLibraryView } from './src/ui/libraryView.js';
 import { promptNewPattern } from './src/ui/newPatternDialog.js';
 import { mountBackupDialog, DRIVE_CONNECTED_BEFORE_KEY } from './src/ui/backupDialog.js';
 import {
-  showReconnectBanner, showAxisMigrationReviewBanner, showLayerMigrationReviewBanner,
+  showAxisMigrationReviewBanner, showLayerMigrationReviewBanner,
   showLayersPerColorwayMigrationReviewBanner, hideReconnectBanner,
 } from './src/ui/driveReconnectBanner.js';
 import { getStoredDeviceName } from './src/sync/deviceName.js';
@@ -596,30 +596,16 @@ async function backToLibrary() {
   pushBackupIfConnected();
 }
 
-// Shared by every place that wants to offer "reconnect with one tap" — the
-// boot-time silent-reconnect failure and a skipped design-close backup both
-// funnel here. A real Google sign-in popup can only open from a genuine user
-// click (see driveReconnectBanner.js), so this is what that click runs.
-async function reconnectDrive() {
-  try {
-    await driveClient.connect();
-  } catch (err) {
-    console.warn('Drive reconnect failed:', err);
-  }
-}
-
 // Phase A's "on design close" backup trigger. Fire-and-forget on purpose —
 // this is a background safety net, not something the user should have to
 // wait on every time they leave a design; a failure (or the tab getting
 // backgrounded mid-upload) is caught by pushBackupToDriveTracked's
 // pendingBackup flag and retried on next boot (see retryPendingBackupIfAny).
-// No-ops entirely (no banner, no warning) if this device has never named
-// itself yet (see deviceName.js) — naming only happens through an explicit
-// Back Up Now click, never silently mid-navigation, so a device that's never
-// opted in has nothing to warn about. But if it HAS opted in before and just
-// isn't connected right now (token expired mid-session, browser lost the
-// Google session, etc.), that's a real missed backup worth surfacing — shows
-// the same reconnect banner boot uses, rather than failing invisibly.
+// No-ops if this device has never named itself yet (see deviceName.js), and
+// also — silently, by explicit user request — if Drive just isn't connected
+// this session: the "Google Drive backup isn't connected" banner was removed
+// as unwanted noise. The Backup & Sync dialog's own status line is where
+// connection state is shown; backups resume once the user connects there.
 async function pushBackupIfConnected() {
   const deviceName = getStoredDeviceName();
   if (!deviceName) return;
@@ -642,10 +628,7 @@ async function pushBackupIfConnected() {
     showLayersPerColorwayMigrationReviewBanner(async () => backupController.open());
     return;
   }
-  if (!driveClient.isConnected()) {
-    showReconnectBanner(reconnectDrive);
-    return;
-  }
+  if (!driveClient.isConnected()) return;
   pushBackupToDriveTracked(appState.db, driveClient, deviceName).catch((err) => {
     console.warn('Drive backup failed:', err);
   });
@@ -703,6 +686,11 @@ async function handleRequestColorwayPreviews(designId) {
 
 async function handleCreate() {
   const prefs = appState.preferences;
+  // Something copied (the clipboard outlives the design it came from) most
+  // likely means "start a new pattern from this" — size the new pattern to fit
+  // it. Always offered as bead counts: a clipboard's size is exact in beads,
+  // and only approximately a measurement.
+  const clipboard = appState.clipboard;
   const result = await promptNewPattern({
     beadCatalog: appState.beadCatalog,
     defaults: {
@@ -714,8 +702,16 @@ async function handleCreate() {
       stitchType: prefs.defaultStitchType,
       beadTypeKey: prefs.defaultBeadTypeKey,
       dropCount: prefs.defaultDropCount ?? 1,
-      rows: prefs.defaultRows,
-      cols: prefs.defaultCols,
+      rows: clipboard ? clipboard.rows : prefs.defaultRows,
+      cols: clipboard ? clipboard.cols : prefs.defaultCols,
+      sizeUnit: clipboard ? 'beads' : prefs.sizeEntryUnit,
+      sizeNote: clipboard ? 'Sized to fit what you last copied.' : '',
+    },
+    size: {
+      getDisplayUnit: () => appState.preferences.units,
+      getPresets: () => appState.preferences.sizePresets ?? [],
+      onPresetsChanged: (sizePresets) => handlePreferencesChanged({ sizePresets }),
+      onUnitChanged: (sizeEntryUnit) => handlePreferencesChanged({ sizeEntryUnit }),
     },
   });
   if (!result) return; // Cancelled — nothing created, matching every other cancel-flow in this app
@@ -735,7 +731,7 @@ async function handleCreate() {
   // treatment defaultStitchType/defaultBeadTypeKey/defaultRows/defaultCols
   // already get from a Resize or a bead/stitch-type change.
   appState.preferences = {
-    ...prefs,
+    ...appState.preferences, // re-read: saved sizes may have changed while the dialog was open
     defaultStitchType: result.stitchType,
     defaultBeadTypeKey: result.beadTypeKey,
     defaultDropCount: result.dropCount,
@@ -860,25 +856,12 @@ async function showMigrationReviewBannerIfNeeded() {
   }
 }
 
-// Shows the reconnect banner immediately if this device has backed up before
-// but isn't connected right now — no silent reconnect attempt first (see
-// attemptPreMigrationDriveBackup's comment on why: a failed silent attempt
-// can break the interactive popup for the rest of the page's life, so the
-// only Google call this app ever makes automatically is none at all — every
-// connect is a direct response to a real click, starting with the banner's
-// own "Reconnect" button).
-function showReconnectBannerIfNeeded() {
-  if (driveClient.isConnected()) return;
-  if (localStorage.getItem(DRIVE_CONNECTED_BEFORE_KEY) !== '1') return;
-  if (!getStoredDeviceName()) return;
-  showReconnectBanner(reconnectDrive);
-}
-
 // If a previous design-close backup started but never confirmed complete
 // (e.g. the tab was backgrounded mid-upload — see pushBackupToDriveTracked),
-// retry it now. Only if already connected this session (see
-// showReconnectBannerIfNeeded's comment — no silent reconnect attempt here
-// either); otherwise the reconnect banner covers surfacing this instead.
+// retry it now. Only if already connected this session — every Google connect
+// is a direct response to a real click, never attempted automatically (a
+// failed silent attempt can break the interactive popup for the rest of the
+// page's life); otherwise it waits for the next connected session.
 async function retryPendingBackupIfAny() {
   const meta = await getDriveSyncMeta(appState.db);
   if (!meta.pendingBackup) return;
@@ -944,11 +927,7 @@ async function boot() {
   showLibraryView();
   libraryController.renderList(appState.designs);
 
-  // Axis-migration review takes priority — driveReconnectBanner.js only ever
-  // shows one banner at a time, so if this one shows, the reconnect banner
-  // below correctly no-ops instead of replacing it.
   await showMigrationReviewBannerIfNeeded();
-  showReconnectBannerIfNeeded();
   retryPendingBackupIfAny();
 }
 

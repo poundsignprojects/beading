@@ -73,6 +73,19 @@ const DEFAULT_PREFERENCES = {
   // sites, never trust the stored object already has it. A section absent
   // from the map is simply not collapsed (the common case needs no entry).
   collapsedSections: {},
+  // Which side of the canvas the tool rail sits on: 'left' | 'right'. On the
+  // right it sits between the canvas and the side panel. Read as
+  // `prefs.toolRailSide === 'right'` — undefined on a pre-existing row.
+  toolRailSide: 'left',
+  // How a pattern size was last typed in the New Pattern dialog / Pattern
+  // Settings (sizeFields.js): 'beads' (rows/cols), 'in' or 'mm'. Independent
+  // of `units` above, which only governs readouts. Read through
+  // normalizeSizeUnit — undefined on a row saved before this existed.
+  sizeEntryUnit: 'beads',
+  // User-built list of saved pattern sizes, offered wherever a size is
+  // entered: [{ id, name, unit, a, b }] (see sizeFields.js's sizePresetLabel).
+  // Read as `prefs.sizePresets ?? []`, same pre-existing-row caveat.
+  sizePresets: [],
 };
 
 // defaultRows/defaultCols ("last resize becomes the new default size") need the

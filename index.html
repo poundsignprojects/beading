@@ -38,6 +38,7 @@
         <span id="size-readout"></span>
         <span id="scale-readout"></span>
         <button id="outline-toggle" type="button" class="icon-btn" data-icon="square" aria-pressed="true" title="Toggle bead outlines" aria-label="Toggle bead outlines"></button>
+        <button id="canvas-background-cycle" type="button" class="icon-btn" data-has-menu title="Canvas Background" aria-label="Canvas Background"><span id="canvas-background-indicator" aria-hidden="true"></span></button>
         <button id="ruler-toggle" type="button" class="icon-btn" data-icon="ruler" aria-pressed="false" title="Toggle Ruler" aria-label="Toggle Ruler"></button>
         <button id="reset-view" type="button" class="icon-btn" data-icon="crosshair" aria-pressed="false" title="View Actual Size" aria-label="View Actual Size"></button>
         <button id="rotate-cw" type="button" class="icon-btn" data-icon="rotate-cw" title="Rotate 90° CW" aria-label="Rotate 90° clockwise"></button>
@@ -194,10 +195,11 @@
       </label>
       <p id="settings-drop-count-help">Changes how existing rows restagger for stitching — no beads are added or removed.</p>
       <div id="settings-dimensions">
-        <label>Rows <input id="rows" type="number" value="20" min="1"></label>
-        <label>Cols <input id="cols" type="number" value="20" min="1"></label>
-        <button id="generate">Resize</button>
-        <button id="crop-to-design" type="button" title="Shrink the grid to fit the placed beads, trimming empty border rows/cols">Crop to Design</button>
+        <div id="settings-size-fields"></div>
+        <div id="settings-dimension-actions">
+          <button id="generate">Resize</button>
+          <button id="crop-to-design" type="button" title="Shrink the grid to fit the placed beads, trimming empty border rows/cols">Crop to Design</button>
+        </div>
       </div>
     </div>
   </dialog>
@@ -225,17 +227,13 @@
           <button id="calibration-save" type="button">Save</button>
         </div>
       </section>
-      <section id="preferences-canvas-background-section" aria-label="Canvas background">
-        <h3>Canvas Background</h3>
-        <p>Preview beads against something other than white while working — a transparent color composites against whatever's chosen here. Color swatches elsewhere in the app always stay white, unaffected by this.</p>
-        <div id="canvas-background-controls">
-          <select id="canvas-background-mode" aria-label="Canvas background">
-            <option value="white">White</option>
-            <option value="dark">Dark</option>
-            <option value="checkerboard">Checkerboard</option>
-            <option value="custom">Custom Color</option>
-          </select>
-          <button id="canvas-background-custom-swatch" type="button" hidden>Choose Color</button>
+      <section id="preferences-tool-rail-section" aria-label="Toolbar side">
+        <h3>Toolbar Side</h3>
+        <p>Which side of the canvas the drawing tools sit on. On the right, they sit between the canvas and the color panel.</p>
+        <div id="preferences-tool-rail-side-row">
+          <span id="preferences-tool-rail-side-label-left" class="color-picker-mode-label">Left</span>
+          <button id="preferences-tool-rail-side-toggle" type="button" aria-pressed="false"></button>
+          <span id="preferences-tool-rail-side-label-right" class="color-picker-mode-label">Right</span>
         </div>
       </section>
       <section id="preferences-move-paste-section" aria-label="Move and paste">
@@ -429,10 +427,7 @@
       <label id="new-pattern-drop-count-label">Drops
         <input id="new-pattern-drop-count" type="number" value="1" min="1" max="10">
       </label>
-      <div id="new-pattern-dimensions">
-        <label>Rows <input id="new-pattern-rows" type="number" value="20" min="1"></label>
-        <label>Cols <input id="new-pattern-cols" type="number" value="20" min="1"></label>
-      </div>
+      <div id="new-pattern-dimensions"></div>
       <div id="new-pattern-actions">
         <button type="button" id="new-pattern-cancel">Cancel</button>
         <button type="submit" id="new-pattern-confirm">Create</button>

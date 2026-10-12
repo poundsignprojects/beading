@@ -113,6 +113,7 @@ import { applyMirror, canMirrorHorizontally } from '../tools/mirrorTool.js';
 import { cellKey } from '../state/cellStore.js';
 import { mountPrintView } from './printView.js';
 import { promptResizeOptions } from './resizeDialog.js';
+import { mountSizeFields } from './sizeFields.js';
 import { mountBeadCatalogDialog } from './beadCatalogDialog.js';
 import { promptCopyColorTarget } from './copyColorDialog.js';
 import { promptConvertBeadType } from './convertBeadTypeDialog.js';
@@ -155,16 +156,33 @@ export function mountEditorView(appState, hooks) {
   const calibrationValueLabel = document.getElementById('calibration-value');
   const calibrationSaveButton = document.getElementById('calibration-save');
   const calibrationResetButton = document.getElementById('calibration-reset');
-  const canvasBackgroundModeSelect = document.getElementById('canvas-background-mode');
-  const canvasBackgroundCustomSwatchButton = document.getElementById('canvas-background-custom-swatch');
+  const canvasBackgroundCycleButton = document.getElementById('canvas-background-cycle');
+  const canvasBackgroundIndicator = document.getElementById('canvas-background-indicator');
   const preferencesPreserveStaggerToggleButton = document.getElementById('preferences-preserve-stagger-toggle');
+  const preferencesToolRailSideToggle = document.getElementById('preferences-tool-rail-side-toggle');
+  const preferencesToolRailSideLabelLeft = document.getElementById('preferences-tool-rail-side-label-left');
+  const preferencesToolRailSideLabelRight = document.getElementById('preferences-tool-rail-side-label-right');
+  const editorBody = document.getElementById('editor-body');
   const beadTypeSelect = document.getElementById('bead-type');
   const beadCatalogManageButton = document.getElementById('bead-catalog-manage-button');
   const stitchTypeSelect = document.getElementById('stitch-type');
   const dropCountLabel = document.getElementById('settings-drop-count-label');
   const dropCountInput = document.getElementById('drop-count');
-  const rowsInput = document.getElementById('rows');
-  const colsInput = document.getElementById('cols');
+  // Pattern Settings' size entry (rows/cols or a measurement, plus saved
+  // sizes) — only ever an input for Resize; appState.rows/cols stay the truth.
+  const sizeFields = mountSizeFields(document.getElementById('settings-size-fields'), {
+    rows: appState.rows,
+    cols: appState.cols,
+    unit: appState.preferences.sizeEntryUnit,
+    getGeometry: () => ({
+      stitchType: appState.stitchType,
+      bead: findBeadType(appState.beadCatalog, appState.beadTypeKey),
+    }),
+    getDisplayUnit: () => appState.units,
+    getPresets: () => appState.preferences.sizePresets ?? [],
+    onPresetsChanged: (sizePresets) => hooks.onPreferencesChanged({ sizePresets }),
+    onUnitChanged: (sizeEntryUnit) => hooks.onPreferencesChanged({ sizeEntryUnit }),
+  });
   const generateButton = document.getElementById('generate');
   const cropToDesignButton = document.getElementById('crop-to-design');
   const rulerToggleButton = document.getElementById('ruler-toggle');
@@ -986,6 +1004,10 @@ export function mountEditorView(appState, hooks) {
     appState.gridParams.staggerFlipped = appState.staggerFlipped;
     appState.gridParams.stitchType = appState.stitchType;
     appState.gridParams.dropCount = appState.dropCount;
+    // Every geometry change (resize/crop/rotate, their undo/redo, a bead or
+    // stitch type change) funnels through here, so this is the one place the
+    // size fields need re-syncing to the design's real size.
+    sizeFields.setRowsCols(appState.rows, appState.cols);
   }
 
   // Draws the grid for the design as currently loaded into appState (rows/cols/
@@ -1010,8 +1032,6 @@ export function mountEditorView(appState, hooks) {
   function regenerateGrid() {
     if (!isDesignEmpty() && !window.confirm(confirmRegenerateMessage())) return;
 
-    appState.rows = Math.max(1, parseInt(rowsInput.value, 10) || 1);
-    appState.cols = Math.max(1, parseInt(colsInput.value, 10) || 1);
     rebuildGridParams();
     appState.cells.clear();
     // A geometry change invalidates every layer's shape/colors across every
@@ -1134,8 +1154,6 @@ export function mountEditorView(appState, hooks) {
     renderColorPalette();
     renderColorwayList();
     renderLayerList();
-    rowsInput.value = String(appState.rows);
-    colsInput.value = String(appState.cols);
     scheduleRedraw();
     // Covers applyResize/applyCrop/applyRotate's own "after" apply AND undo/redo
     // replaying any of them, since all funnel through this one function — a
@@ -1261,9 +1279,16 @@ export function mountEditorView(appState, hooks) {
   // change — and only requires confirmation — when there's a pattern to lose;
   // an empty design just resizes straight away.
   async function handleResizeClick() {
-    const newRows = Math.max(1, parseInt(rowsInput.value, 10) || 1);
-    const newCols = Math.max(1, parseInt(colsInput.value, 10) || 1);
-    if (newRows === appState.rows && newCols === appState.cols) return;
+    const { rows: newRows, cols: newCols } = sizeFields.getRowsCols();
+    // Clicking Resize is the end of what Pattern Settings was opened for —
+    // close it rather than leave it covering the result (and before the
+    // which-side prompt opens, so that isn't stacked on top of it either).
+    settingsDialog.close();
+    if (newRows === appState.rows && newCols === appState.cols) {
+      // Covers a typed measurement that rounds to the size it already is.
+      sizeFields.setRowsCols(appState.rows, appState.cols);
+      return;
+    }
 
     if (isDesignEmpty()) {
       applyResize(newRows, newCols, 'start', 'start');
@@ -1279,8 +1304,7 @@ export function mountEditorView(appState, hooks) {
     });
     if (!result) {
       // Cancelled — revert the inputs to the design's actual current size.
-      rowsInput.value = String(appState.rows);
-      colsInput.value = String(appState.cols);
+      sizeFields.setRowsCols(appState.rows, appState.cols);
       return;
     }
     applyResize(newRows, newCols, result.rowAnchor, result.colAnchor);
@@ -1298,6 +1322,9 @@ export function mountEditorView(appState, hooks) {
   // away (see .work/feature-layers-plan.md, .work/feature-per-colorway-layers-
   // plan.md).
   function applyCrop() {
+    // Closed first, same as Resize — and so the two "nothing to crop" toasts
+    // below land on the page rather than inside a dialog that's going away.
+    settingsDialog.close();
     const activeLayerLiveKeys = Array.from(appState.cells.keys());
     const unionKeys = new Set();
     for (const cw of appState.colorways) {
@@ -2229,13 +2256,62 @@ export function mountEditorView(appState, hooks) {
     calibrationValueLabel.textContent = `${calibrationRangeInput.value}%`;
   }
 
-  // Reflects appState.preferences.canvasBackgroundMode/Hex on the select and
-  // the Custom Color button's visibility — called once on open and again
-  // after the custom-color picker resolves, since that's the only other way
-  // the mode/hex could change while this dialog is open.
-  function updateCanvasBackgroundControls() {
-    canvasBackgroundModeSelect.value = appState.preferences.canvasBackgroundMode ?? 'white';
-    canvasBackgroundCustomSwatchButton.hidden = canvasBackgroundModeSelect.value !== 'custom';
+  // Canvas background lives on a top-bar button rather than in Preferences:
+  // a tap steps to the next background, the long-press/right-click menu jumps
+  // straight to one (and is the only way to pick the custom color itself).
+  // The button's own face is a miniature of the current background, so the
+  // mode is readable without opening anything.
+  const CANVAS_BACKGROUND_LABELS = { white: 'White', dark: 'Dark', checkerboard: 'Checkerboard', custom: 'Custom Color' };
+
+  function currentCanvasBackgroundMode() {
+    const mode = appState.preferences.canvasBackgroundMode;
+    return CANVAS_BACKGROUND_LABELS[mode] ? mode : 'white';
+  }
+
+  // Custom only joins the cycle once a color has been picked for it —
+  // otherwise it would be a step that looks identical to White.
+  function canvasBackgroundCycleModes() {
+    const modes = ['white', 'dark', 'checkerboard'];
+    if (appState.preferences.canvasBackgroundHex) modes.push('custom');
+    return modes;
+  }
+
+  function updateCanvasBackgroundButton() {
+    const mode = currentCanvasBackgroundMode();
+    canvasBackgroundIndicator.dataset.mode = mode;
+    canvasBackgroundIndicator.style.backgroundColor =
+      mode === 'custom' ? (appState.preferences.canvasBackgroundHex ?? '') : '';
+    const title = `Canvas Background: ${CANVAS_BACKGROUND_LABELS[mode]} (tap to cycle, long-press or right-click for options)`;
+    canvasBackgroundCycleButton.title = title;
+    canvasBackgroundCycleButton.setAttribute('aria-label', title);
+  }
+
+  // Applies and persists immediately, like every other top-bar toggle.
+  // onPreferencesChanged mutates appState.preferences synchronously (before
+  // its own first await), which updateCanvasBackgroundButton relies on.
+  function setCanvasBackground(patch) {
+    hooks.onPreferencesChanged(patch);
+    updateCanvasBackgroundButton();
+    scheduleRedraw();
+  }
+
+  function handleCanvasBackgroundCycle() {
+    const modes = canvasBackgroundCycleModes();
+    const next = modes[(modes.indexOf(currentCanvasBackgroundMode()) + 1) % modes.length];
+    setCanvasBackground({ canvasBackgroundMode: next });
+  }
+
+  async function handleCanvasBackgroundChooseCustom() {
+    const result = await promptColorPicker({
+      title: 'Canvas Background Color',
+      confirmLabel: 'Done',
+      showNameField: false,
+      showAppearanceControls: false,
+      initialHex: appState.preferences.canvasBackgroundHex ?? '#ffffff',
+      initialMode: currentColorPickerMode(), onModeChanged: handleColorPickerModeChanged,
+    });
+    if (!result) return;
+    setCanvasBackground({ canvasBackgroundMode: 'custom', canvasBackgroundHex: result.hex });
   }
 
   // Preferences is app-level, not per-design (CLAUDE.md pain point #1 — global
@@ -2250,43 +2326,12 @@ export function mountEditorView(appState, hooks) {
     calibrationFactor = appState.preferences.actualSizeCalibration ?? 1;
     calibrationRangeInput.value = String(calibrationFactor * 100);
     updateCalibrationValueLabel();
-    updateCanvasBackgroundControls();
     updatePreserveStaggerToggleButton();
     appState.viewMode = 'actual';
     setViewportToActualSize(calibrationFactor);
     updateResetViewButton();
     scheduleRedraw();
     preferencesDialog.showModal();
-  }
-
-  // Canvas background applies and persists immediately on every change — no
-  // Save/Cancel step, unlike calibration's live-preview-then-commit flow.
-  // Picking a mode or a color *is* the final action; there's no "abort
-  // mid-drag" scenario here worth a separate commit step.
-  function handleCanvasBackgroundModeChange() {
-    const mode = canvasBackgroundModeSelect.value;
-    // onPreferencesChanged mutates appState.preferences synchronously (before
-    // its own first await) — must run before updateCanvasBackgroundControls,
-    // which reads appState.preferences.canvasBackgroundMode to decide the
-    // Custom Color button's visibility. Calling it first would read the
-    // *old* mode and immediately reset the select back to it.
-    hooks.onPreferencesChanged({ canvasBackgroundMode: mode });
-    updateCanvasBackgroundControls();
-    scheduleRedraw();
-  }
-
-  async function handleCanvasBackgroundCustomSwatchClick() {
-    const result = await promptColorPicker({
-      title: 'Canvas Background Color',
-      confirmLabel: 'Done',
-      showNameField: false,
-      showAppearanceControls: false,
-      initialHex: appState.preferences.canvasBackgroundHex ?? '#ffffff',
-      initialMode: currentColorPickerMode(), onModeChanged: handleColorPickerModeChanged,
-    });
-    if (!result) return;
-    hooks.onPreferencesChanged({ canvasBackgroundHex: result.hex });
-    scheduleRedraw();
   }
 
   // Live-adjusts as the user drags, so the canvas visibly resizes in real time
@@ -2346,6 +2391,7 @@ export function mountEditorView(appState, hooks) {
     appState.units = appState.units === 'mm' ? 'in' : 'mm';
     updateSizeReadout();
     updateUnitToggleButton();
+    sizeFields.refresh(); // its bead-count mode shows the size in this unit
     scheduleRedraw(); // the ruler's tick spacing/labels depend on the unit too
     hooks.onPreferencesChanged({ units: appState.units });
   }
@@ -2359,6 +2405,23 @@ export function mountEditorView(appState, hooks) {
   // hot-path treatment showBeadOutlines gets. `!== false` treats a
   // preferences row saved before this preference existed as "on" (its
   // default) rather than "off" — see preferencesStore.js.
+  // Pure CSS reorder (see style.css's .tool-rail-right) — the canvas keeps the
+  // same width either way, it just shifts sideways.
+  function applyToolRailSide() {
+    const right = appState.preferences.toolRailSide === 'right';
+    editorBody.classList.toggle('tool-rail-right', right);
+    // A switch has no text of its own to say what "on" means, so the active
+    // side's label is emphasized (same treatment as the HSV/HSL switch).
+    preferencesToolRailSideToggle.setAttribute('aria-pressed', String(right));
+    preferencesToolRailSideToggle.setAttribute('aria-label', `Toolbar side: ${right ? 'right' : 'left'}`);
+    preferencesToolRailSideLabelLeft.classList.toggle('color-picker-mode-label-active', !right);
+    preferencesToolRailSideLabelRight.classList.toggle('color-picker-mode-label-active', right);
+  }
+  function handleToolRailSideChange() {
+    hooks.onPreferencesChanged({ toolRailSide: appState.preferences.toolRailSide === 'right' ? 'left' : 'right' });
+    applyToolRailSide();
+    scheduleRedraw();
+  }
   function updatePreserveStaggerToggleButton() {
     const on = appState.preferences.preserveStaggerOnShift !== false;
     preferencesPreserveStaggerToggleButton.setAttribute('aria-pressed', String(on));
@@ -2873,9 +2936,17 @@ export function mountEditorView(appState, hooks) {
   calibrationRangeInput.addEventListener('input', handleCalibrationInput);
   calibrationSaveButton.addEventListener('click', handleCalibrationSave);
   calibrationResetButton.addEventListener('click', handleCalibrationResetDefault);
-  canvasBackgroundModeSelect.addEventListener('change', handleCanvasBackgroundModeChange);
-  canvasBackgroundCustomSwatchButton.addEventListener('click', handleCanvasBackgroundCustomSwatchClick);
+  canvasBackgroundCycleButton.addEventListener('click', handleCanvasBackgroundCycle);
+  registerLongPressMenu(canvasBackgroundCycleButton, () => [
+    ...canvasBackgroundCycleModes().map((mode) => ({
+      label: CANVAS_BACKGROUND_LABELS[mode],
+      icon: mode === currentCanvasBackgroundMode() ? 'check' : undefined,
+      onSelect: () => setCanvasBackground({ canvasBackgroundMode: mode }),
+    })),
+    { label: 'Choose Custom Color…', icon: 'palette', onSelect: handleCanvasBackgroundChooseCustom },
+  ]);
   preferencesPreserveStaggerToggleButton.addEventListener('click', handlePreserveStaggerToggle);
+  preferencesToolRailSideToggle.addEventListener('click', handleToolRailSideChange);
   beadTypeSelect.addEventListener('change', handleBeadTypeChange);
   beadCatalogManageButton.addEventListener('click', handleBeadCatalogManageClick);
   stitchTypeSelect.addEventListener('change', handleStitchTypeChange);
@@ -3049,8 +3120,8 @@ export function mountEditorView(appState, hooks) {
   stitchTypeSelect.value = appState.stitchType;
   dropCountInput.value = String(appState.dropCount);
   updateDropCountVisibility();
-  rowsInput.value = String(appState.rows);
-  colsInput.value = String(appState.cols);
+  updateCanvasBackgroundButton();
+  applyToolRailSide();
 
   // Set the panel's collapsed state before measuring the canvas below — it
   // changes the canvas's available width, so it must apply first.
@@ -3084,9 +3155,10 @@ export function mountEditorView(appState, hooks) {
     calibrationRangeInput.removeEventListener('input', handleCalibrationInput);
     calibrationSaveButton.removeEventListener('click', handleCalibrationSave);
     calibrationResetButton.removeEventListener('click', handleCalibrationResetDefault);
-    canvasBackgroundModeSelect.removeEventListener('change', handleCanvasBackgroundModeChange);
-    canvasBackgroundCustomSwatchButton.removeEventListener('click', handleCanvasBackgroundCustomSwatchClick);
+    canvasBackgroundCycleButton.removeEventListener('click', handleCanvasBackgroundCycle);
+    sizeFields.unmount();
     preferencesPreserveStaggerToggleButton.removeEventListener('click', handlePreserveStaggerToggle);
+    preferencesToolRailSideToggle.removeEventListener('click', handleToolRailSideChange);
     beadTypeSelect.removeEventListener('change', handleBeadTypeChange);
     beadCatalogManageButton.removeEventListener('click', handleBeadCatalogManageClick);
     stitchTypeSelect.removeEventListener('change', handleStitchTypeChange);

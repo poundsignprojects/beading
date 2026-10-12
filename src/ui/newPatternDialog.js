@@ -6,14 +6,19 @@
 // caller (main.js's handleCreate) does the actual creation after this resolves.
 // Resize remains available afterward for changing size on an already-created
 // design — this dialog just also lets the user pick a starting size instead of
-// always inheriting whatever the last design used.
+// always inheriting whatever the last design used. The size itself is entered
+// through the shared sizeFields.js (bead counts or a measurement, plus saved
+// sizes), the same control Pattern Settings uses for a resize.
 
-import { beadTypeSelectOptions } from '../palette/beadSpecs.js';
+import { beadTypeSelectOptions, findBeadType } from '../palette/beadSpecs.js';
+import { mountSizeFields } from './sizeFields.js';
 
 // Resolves with { name, stitchType, beadTypeKey, dropCount, rows, cols } on
 // Create, or null on Cancel/Esc. defaults: { name, stitchType, beadTypeKey,
-// dropCount, rows, cols } — seeded from preferences by the caller.
-export function promptNewPattern({ beadCatalog, defaults }) {
+// dropCount, rows, cols, sizeUnit, sizeNote } — seeded from preferences by the
+// caller. size: { getDisplayUnit, getPresets, onPresetsChanged, onUnitChanged }
+// — sizeFields.js's own callbacks, passed straight through.
+export function promptNewPattern({ beadCatalog, defaults, size }) {
   return new Promise((resolve) => {
     const dialog = document.getElementById('new-pattern-dialog');
     const form = document.getElementById('new-pattern-form');
@@ -22,8 +27,7 @@ export function promptNewPattern({ beadCatalog, defaults }) {
     const beadTypeSelect = document.getElementById('new-pattern-bead-type');
     const dropCountLabel = document.getElementById('new-pattern-drop-count-label');
     const dropCountInput = document.getElementById('new-pattern-drop-count');
-    const rowsInput = document.getElementById('new-pattern-rows');
-    const colsInput = document.getElementById('new-pattern-cols');
+    const dimensionsEl = document.getElementById('new-pattern-dimensions');
     const cancelButton = document.getElementById('new-pattern-cancel');
 
     nameInput.value = defaults.name ?? '';
@@ -38,16 +42,32 @@ export function promptNewPattern({ beadCatalog, defaults }) {
     );
     beadTypeSelect.value = defaults.beadTypeKey;
     dropCountInput.value = String(defaults.dropCount ?? 1);
-    rowsInput.value = String(defaults.rows);
-    colsInput.value = String(defaults.cols);
+    const sizeFields = mountSizeFields(dimensionsEl, {
+      rows: defaults.rows,
+      cols: defaults.cols,
+      unit: defaults.sizeUnit,
+      note: defaults.sizeNote,
+      getGeometry: () => ({
+        stitchType: stitchTypeSelect.value,
+        bead: findBeadType(beadCatalog, beadTypeSelect.value),
+      }),
+      ...size,
+    });
 
     function updateDropCountVisibility() {
       dropCountLabel.hidden = stitchTypeSelect.value !== 'peyote';
     }
     updateDropCountVisibility();
 
+    function onGeometryChange() {
+      updateDropCountVisibility();
+      sizeFields.refresh();
+    }
+
     function cleanup() {
-      stitchTypeSelect.removeEventListener('change', updateDropCountVisibility);
+      stitchTypeSelect.removeEventListener('change', onGeometryChange);
+      beadTypeSelect.removeEventListener('change', onGeometryChange);
+      sizeFields.unmount();
       cancelButton.removeEventListener('click', onCancel);
       form.removeEventListener('submit', onSubmit);
       dialog.removeEventListener('cancel', onCancel);
@@ -61,6 +81,8 @@ export function promptNewPattern({ beadCatalog, defaults }) {
     }
     function onSubmit(e) {
       e.preventDefault();
+      // Read before cleanup() empties the bead-type select the conversion needs.
+      const { rows, cols } = sizeFields.getRowsCols();
       const result = {
         name: nameInput.value.trim(),
         stitchType: stitchTypeSelect.value,
@@ -68,15 +90,16 @@ export function promptNewPattern({ beadCatalog, defaults }) {
         dropCount: stitchTypeSelect.value === 'peyote'
           ? Math.max(1, Math.round(Number(dropCountInput.value)) || 1)
           : 1,
-        rows: Math.max(1, parseInt(rowsInput.value, 10) || 1),
-        cols: Math.max(1, parseInt(colsInput.value, 10) || 1),
+        rows,
+        cols,
       };
       cleanup();
       dialog.close();
       resolve(result);
     }
 
-    stitchTypeSelect.addEventListener('change', updateDropCountVisibility);
+    stitchTypeSelect.addEventListener('change', onGeometryChange);
+    beadTypeSelect.addEventListener('change', onGeometryChange);
     cancelButton.addEventListener('click', onCancel);
     form.addEventListener('submit', onSubmit);
     dialog.addEventListener('cancel', onCancel);
