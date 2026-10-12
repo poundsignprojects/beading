@@ -6,14 +6,14 @@
 // caller (editorView.js's handleBeadTypeChange) does the actual conversion after
 // this resolves.
 //
-// usedColors: [{id, name, hex, alphaPercent, luster, overlay, overlayHex}] —
+// usedColors: [{id, name, hex, alphaPercent, matte, metallic, overlay, overlayHex}] —
 // every color actually used across every colorway of the current design.
 // targetColors: [{id, name, hex}] — the target bead type's own existing palette.
 //
 // Resolves with:
 //   { mappings: [
 //       {sourceColorId, action: 'map', targetColorId} |
-//       {sourceColorId, action: 'copy', name, hex, alphaPercent, luster, overlay, overlayHex}
+//       {sourceColorId, action: 'copy', name, hex, alphaPercent, matte, metallic, overlay, overlayHex}
 //     ] }
 //   on confirm, null on cancel/Esc. A 'copy' mapping carries the source color's
 // own name/hex/appearance along — the caller needs them to actually create the
@@ -91,7 +91,8 @@ export function promptConvertBeadType({ usedColors, targetColors, targetBeadType
             name: color.name,
             hex: color.hex,
             alphaPercent: color.alphaPercent,
-            luster: color.luster,
+            matte: color.matte,
+            metallic: color.metallic,
             overlay: color.overlay,
             overlayHex: color.overlayHex,
           };

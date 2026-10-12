@@ -52,7 +52,7 @@
 //                            into a brand-new design under the target stitch
 //                            type and switches the editor into it. Same
 //                            teardown as onBeadTypeConvertConfirmed above.
-//   onCustomColorAdded({name, hex, alphaPercent, luster}) — fired from the
+//   onCustomColorAdded({name, hex, alphaPercent, matte, metallic}) — fired from the
 //                            palette's "+" tile; main.js persists and pushes
 //                            onto appState.customColors.
 //   onCustomColorRenamed(id, name) — Manage Colors list rename. Also reachable
@@ -60,8 +60,8 @@
 //                            (buildColorManageRow is shared by both — see
 //                            renderWorkingColorManageList), same hook either
 //                            way since it's the same underlying catalog color.
-//   onCustomColorAppearanceChanged(id, {hex, alphaPercent, luster}) — Manage
-//                            Colors list color/opacity/luster edit; same
+//   onCustomColorAppearanceChanged(id, {hex, alphaPercent, matte, metallic}) — Manage
+//                            Colors list color/opacity/finish edit; same
 //                            shared-row caveat as onCustomColorRenamed above.
 //   onCustomColorDeleted(id)       — Manage Colors list delete (shared row).
 //   onCustomColorStashChanged(id, stashCount) — Manage Colors list stash-count
@@ -84,7 +84,7 @@
 import { createIcon } from './icons.js';
 import { findBeadType, beadTypeSelectOptions } from '../palette/beadSpecs.js';
 import { resolveSwatchAppearance } from '../palette/colorLibrary.js';
-import { alphaOverWhite } from '../palette/colorConversion.js';
+import { applySwatchAppearance } from './swatchAppearance.js';
 import { findPatternsUsingColor } from '../palette/colorUsage.js';
 import { resolveGridEngine, stitchTypeLabel } from '../grid/gridEngine.js';
 import { colShiftRowDelta, resolveColShift } from '../grid/peyote.js';
@@ -455,11 +455,10 @@ export function mountEditorView(appState, hooks) {
         button.className = 'color-swatch';
         button.type = 'button';
         button.title = swatch.name;
-        // Pinned to a white backing regardless of the canvas background
-        // toggle (see colorConversion.js's alphaOverWhite) — swatches always
-        // preview the same way, only the live canvas itself is configurable.
-        button.style.backgroundColor = alphaOverWhite(swatch.hex, swatch.alphaPercent);
-        button.classList.toggle('swatch-shiny', swatch.luster === 'shiny');
+        // Always over the swatch's own checkerboard, regardless of the
+        // canvas background toggle — swatches preview the same way
+        // everywhere, only the live canvas itself is configurable.
+        applySwatchAppearance(button, swatch);
         button.setAttribute('aria-pressed', String(swatch.id === appState.selectedColorId));
         button.addEventListener('click', () => {
           appState.selectedColorId = swatch.id;
@@ -514,8 +513,7 @@ export function mountEditorView(appState, hooks) {
     button.className = 'color-swatch working-color-swatch';
     button.type = 'button';
     button.title = color.name;
-    button.style.backgroundColor = alphaOverWhite(color.hex, color.alphaPercent);
-    button.classList.toggle('swatch-shiny', color.luster === 'shiny');
+    applySwatchAppearance(button, color);
     button.setAttribute('aria-pressed', String(color.id === appState.selectedColorId));
     button.addEventListener('click', () => {
       appState.selectedColorId = color.id;
@@ -625,8 +623,7 @@ export function mountEditorView(appState, hooks) {
 
     const swatch = document.createElement('span');
     swatch.className = 'color-manage-swatch';
-    swatch.style.backgroundColor = alphaOverWhite(color.hex, color.alphaPercent);
-    swatch.classList.toggle('swatch-shiny', color.luster === 'shiny');
+    applySwatchAppearance(swatch, color);
 
     const name = document.createElement('span');
     name.className = 'color-manage-name';
@@ -2063,7 +2060,7 @@ export function mountEditorView(appState, hooks) {
       initialMode: currentColorPickerMode(), onModeChanged: handleColorPickerModeChanged,
     });
     if (!result) return;
-    await hooks.onCustomColorAdded({ name: result.name, hex: result.hex, alphaPercent: result.alphaPercent, luster: result.luster });
+    await hooks.onCustomColorAdded({ name: result.name, hex: result.hex, alphaPercent: result.alphaPercent, matte: result.matte, metallic: result.metallic });
     renderColorPalette();
     if (manageMode) renderColorManageList();
   }
@@ -2075,11 +2072,12 @@ export function mountEditorView(appState, hooks) {
       initialHex: color.hex,
       showNameField: false,
       initialAlphaPercent: color.alphaPercent,
-      initialLuster: color.luster,
+      initialMatte: color.matte,
+      initialMetallic: color.metallic,
       initialMode: currentColorPickerMode(), onModeChanged: handleColorPickerModeChanged,
     });
     if (!result) return;
-    await hooks.onCustomColorAppearanceChanged(id, { hex: result.hex, alphaPercent: result.alphaPercent, luster: result.luster });
+    await hooks.onCustomColorAppearanceChanged(id, { hex: result.hex, alphaPercent: result.alphaPercent, matte: result.matte, metallic: result.metallic });
     renderColorPalette();
     renderColorManageList();
     renderColorwayList(); // this color may be used in more than just the active colorway

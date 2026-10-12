@@ -1068,13 +1068,45 @@ input[type="range"]::-moz-range-thumb {
   outline-offset: 2px;
 }
 
-/* Shiny luster preview (.work/feature-bead-finish-effects-mvp-plan.md) — a
-   direct CSS analog of beadFill.js's own paintShineCap gradient (same
-   position/extent/peak-alpha constants), not an independently-invented look.
-   Applies to any swatch-shaped element: the palette swatch, the Manage
-   Colors row swatch, and the color picker's own live preview. */
-.swatch-shiny {
-  background-image: linear-gradient(to bottom, transparent 12%, rgba(255, 255, 255, 0.82) 29%, transparent 46%);
+/* Every color swatch in the app — palette, Working Colors, the Manage lists'
+   row swatch, the color picker's live preview — is one background-image
+   stack, set up by swatchAppearance.js's applySwatchAppearance:
+     1. --swatch-shine: the Metallic highlight, or none.
+     2. --swatch-fill: the color at its real opacity (a flat linear-gradient of
+        the color to itself — the standard trick for putting a plain color
+        into a background-image stack, since a real background-color always
+        paints BELOW every background-image layer and would end up hidden
+        behind the checkerboard instead of over it).
+     3. --swatch-backdrop: a checkerboard, so the fill's own transparency is
+        visible against something.
+   The checkerboard is the swatch's own, so it reads the same wherever the
+   swatch sits, whatever is behind it. */
+.finish-swatch {
+  --swatch-fill: transparent;
+  --swatch-shine: none;
+  --swatch-backdrop: repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%);
+  background-image:
+    var(--swatch-shine),
+    linear-gradient(var(--swatch-fill), var(--swatch-fill)),
+    var(--swatch-backdrop);
+  background-size: auto, auto, 12px 12px;
+  background-position: 0 0;
+}
+
+/* Matte: a frosted haze across the whole face — the checkerboard behind the
+   color is swapped for a pre-blurred copy of the same tile (generated once at
+   boot, see swatchAppearance.js), while the swatch's own edge stays crisp.
+   Falls back to the crisp checkerboard if that image isn't there. Only
+   visible through a color with some transparency, same as on the canvas. */
+.finish-swatch.swatch-matte {
+  --swatch-backdrop: var(--swatch-checker-blurred, repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%));
+}
+
+/* Metallic: a direct CSS analog of beadFill.js's own paintShineCap gradient
+   (same position/extent/peak-alpha constants), not an independently-invented
+   look. */
+.finish-swatch.swatch-metallic {
+  --swatch-shine: linear-gradient(to bottom, transparent 12%, rgba(255, 255, 255, 0.82) 29%, transparent 46%);
 }
 
 .color-swatch-add {
@@ -2012,18 +2044,7 @@ input[type="range"]::-moz-range-thumb {
   height: 2.5rem;
   border-radius: 6px;
   border: 1px solid rgba(0, 0, 0, 0.2);
-  /* Two background-image layers: the live translucent fill on top (a flat
-     linear-gradient of --swatch-fill to itself — the standard trick for
-     putting a plain color into a background-image stack, since a real
-     background-color always paints BELOW every background-image layer,
-     which would hide it behind the checkerboard instead of over it), a
-     checkerboard underneath so the fill's own alpha is actually visible
-     against something other than a flat, always-opaque surface. */
-  --swatch-fill: transparent;
-  background-image:
-    linear-gradient(var(--swatch-fill), var(--swatch-fill)),
-    repeating-conic-gradient(#ccc 0% 25%, #fff 0% 50%);
-  background-size: auto, 16px 16px;
+  /* Fill, finish and checkerboard all come from .finish-swatch. */
 }
 
 #color-picker-sv {
@@ -2240,7 +2261,7 @@ input[type="range"]::-moz-range-thumb {
   padding: 0.3rem 0.4rem;
 }
 
-/* Opacity/luster controls (.work/feature-bead-finish-effects-mvp-plan.md) —
+/* Opacity/finish controls (.work/feature-bead-finish-effects-mvp-plan.md) —
    hidden entirely via showAppearanceControls for the "just pick a hex"
    callers (canvas background custom color, later the full-feature plan's
    overlayHex picker). */
@@ -2267,8 +2288,8 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
 }
 
-/* Shared pressed-state look for any .chip-btn used as a toggle (e.g. Luster's
-   Matte/Shiny below) — .chip-btn itself carries no pressed state of its own
+/* Shared pressed-state look for any .chip-btn used as a toggle (e.g. Finish's
+   Matte/Metallic below) — .chip-btn itself carries no pressed state of its own
    since it's also used for plain one-shot preset shortcuts elsewhere. */
 .chip-btn[aria-pressed="true"] {
   background: #333;
@@ -2293,18 +2314,18 @@ input[type="range"]::-moz-range-thumb {
   color: #444;
 }
 
-#color-picker-luster-section {
+#color-picker-finish-section {
   display: flex;
   align-items: center;
   gap: 0.6rem;
 }
 
-#color-picker-luster-label {
+#color-picker-finish-label {
   font-size: 0.85rem;
   color: #444;
 }
 
-#color-picker-luster-toggle {
+#color-picker-finish-toggle {
   display: flex;
   gap: 0.4rem;
 }

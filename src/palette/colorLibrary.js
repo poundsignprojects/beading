@@ -11,9 +11,22 @@
 // staying visually distinct from every real swatch (Phase 6 plan). `id: null`
 // matches the actual colorId stored for an unassigned cell, so `resolveColor(null)`
 // finding this via a lookup table works the same way a real swatch lookup does.
-// Fully opaque/matte — an unassigned placeholder cell shouldn't itself look
-// transparent or shiny (.work/feature-bead-finish-effects-mvp-plan.md).
-export const UNASSIGNED_SWATCH = { id: null, name: 'Unassigned', hex: '#d9cdf0', alphaPercent: 100, luster: 'matte' };
+// Fully opaque, no finish — an unassigned placeholder cell shouldn't itself
+// look transparent, frosted or metallic.
+export const UNASSIGNED_SWATCH = { id: null, name: 'Unassigned', hex: '#d9cdf0', alphaPercent: 100, matte: false, metallic: false };
+
+// A color's finish is two independent flags: `matte` (a frosted haze, see
+// beadFill.js) and `metallic` (the highlight). Colors saved before the two
+// were separated carry a single `luster` field instead, where 'matte' was
+// simply the name for "plain, no effect" and 'shiny' was today's Metallic —
+// so an old 'matte' must come back as neither flag set, not as the new Matte.
+// Either flag being present marks a record as already on the new shape.
+export function normalizeFinish(color) {
+  if (typeof color.matte === 'boolean' || typeof color.metallic === 'boolean') {
+    return { matte: color.matte === true, metallic: color.metallic === true };
+  }
+  return { matte: false, metallic: color.luster === 'shiny' };
+}
 
 // Shared fallback for a colorId that no longer resolves to a real swatch (a
 // deleted color still referenced by an old cell, or data predating this app's
@@ -26,11 +39,11 @@ export const MISSING_COLOR_FALLBACK_HEX = '#c0392b';
 // unchanged); colorId set but not found in customColors means a dangling reference
 // (the color it pointed to was deleted, or predates this app's data model) — returns
 // null so callers can render that state distinctly instead of guessing a color.
-// Returns the finish info alongside the hex ({hex, alphaPercent, luster}) rather
-// than a bare string, so paintBeadFill (beadFill.js) can render transparency/
-// luster without a second lookup.
+// Returns the finish info alongside the hex ({hex, alphaPercent, matte,
+// metallic}) rather than a bare string, so paintBeadFill (beadFill.js) can
+// render transparency/finish without a second lookup.
 export function resolveSwatchAppearance(customColors, colorId) {
   if (colorId === null) return UNASSIGNED_SWATCH;
   const swatch = customColors.find((c) => c.id === colorId);
-  return swatch ? { hex: swatch.hex, alphaPercent: swatch.alphaPercent, luster: swatch.luster } : null;
+  return swatch ? { hex: swatch.hex, alphaPercent: swatch.alphaPercent, matte: swatch.matte, metallic: swatch.metallic } : null;
 }

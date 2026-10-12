@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   clamp01, isValidHex, normalizeHex, hexToRgb, rgbToHex, rgbToHsv, hsvToRgb, hexToHsv, hsvToHex,
-  hexToRgba, alphaOverWhite, hsvToHsl, hslToHsv, hexToHsl, hslToHex,
+  hexToRgba, hsvToHsl, hslToHsv, hexToHsl, hslToHex,
 } from '../../palette/colorConversion.js';
 
 test('clamp01 clamps into [0, 1]', () => {
@@ -66,20 +66,6 @@ test('hexToRgba builds an rgba() string at the given alphaPercent', () => {
 test('hexToRgba clamps alphaPercent outside 0-100', () => {
   assert.equal(hexToRgba('#ff0000', 150), 'rgba(255, 0, 0, 1)');
   assert.equal(hexToRgba('#ff0000', -20), 'rgba(255, 0, 0, 0)');
-});
-
-test('alphaOverWhite returns the input hex unchanged at alphaPercent 100', () => {
-  assert.equal(alphaOverWhite('#3498db', 100), '#3498db');
-});
-
-test('alphaOverWhite returns pure white at alphaPercent 0, regardless of input hex', () => {
-  assert.equal(alphaOverWhite('#ff0000', 0), '#ffffff');
-  assert.equal(alphaOverWhite('#123456', 0), '#ffffff');
-});
-
-test('alphaOverWhite blends toward white proportionally at intermediate alpha', () => {
-  // #ff0000 at 50% over white -> r stays 255, g/b blend halfway to 255 (128, rounded)
-  assert.equal(alphaOverWhite('#ff0000', 50), '#ff8080');
 });
 
 test('hsvToHsl on known colors', () => {

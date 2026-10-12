@@ -38,7 +38,7 @@ export function renderThumbnailDataUrl(gridParams, cells, resolveColor, maxSizeP
     const y = origin.yMm * scale;
     const w = beadHeightMm * scale;
     const h = beadWidthMm * scale;
-    const appearance = resolveColor(cell.colorId) ?? { hex: MISSING_COLOR_FALLBACK_HEX, alphaPercent: 100, luster: 'matte' };
+    const appearance = resolveColor(cell.colorId) ?? { hex: MISSING_COLOR_FALLBACK_HEX, alphaPercent: 100, matte: false, metallic: false };
     paintBeadFill(ctx, x, y, w, h, Math.min(w, h) * cornerRadiusFraction, appearance);
   }
 

@@ -26,6 +26,7 @@ import {
 import { getStoredDeviceName } from './src/sync/deviceName.js';
 import { preloadIcons, mountIcons } from './src/ui/icons.js';
 import { initLongPressTooltips } from './src/ui/longPressTooltip.js';
+import { installSwatchBackdrop } from './src/ui/swatchAppearance.js';
 import { renderThumbnailDataUrl } from './src/render/thumbnailRenderer.js';
 import { resolveSwatchAppearance } from './src/palette/colorLibrary.js';
 import { findBeadType } from './src/palette/beadSpecs.js';
@@ -208,7 +209,8 @@ async function handleCustomColorCopiedToBeadType(id, targetBeadTypeKey) {
     name: color.name,
     hex: color.hex,
     alphaPercent: color.alphaPercent,
-    luster: color.luster,
+    matte: color.matte,
+    metallic: color.metallic,
     overlay: color.overlay,
     overlayHex: color.overlayHex,
   });
@@ -236,7 +238,7 @@ async function handleRequestBeadTypeConversionData(targetBeadTypeKey) {
   const usedColors = [...usedColorIds]
     .map((id) => appState.customColors.find((c) => c.id === id))
     .filter(Boolean)
-    .map(({ id, name, hex, alphaPercent, luster, overlay, overlayHex }) => ({ id, name, hex, alphaPercent, luster, overlay, overlayHex }));
+    .map(({ id, name, hex, alphaPercent, matte, metallic, overlay, overlayHex }) => ({ id, name, hex, alphaPercent, matte, metallic, overlay, overlayHex }));
 
   const targetColors = (await listCustomColorsSorted(appState.db, targetBeadTypeKey))
     .map(({ id, name, hex }) => ({ id, name, hex }));
@@ -262,7 +264,8 @@ async function handleBeadTypeConvertConfirmed(targetBeadTypeKey, mappings) {
         name: mapping.name,
         hex: mapping.hex,
         alphaPercent: mapping.alphaPercent,
-        luster: mapping.luster,
+        matte: mapping.matte,
+        metallic: mapping.metallic,
         overlay: mapping.overlay,
         overlayHex: mapping.overlayHex,
       });
@@ -411,8 +414,8 @@ async function handleStitchTypeConvertConfirmed(targetStitchType) {
   await openDesign(newDesign);
 }
 
-async function handleCustomColorAdded({ name, hex, alphaPercent, luster }) {
-  const created = await createCustomColor(appState.db, { beadTypeKey: appState.beadTypeKey, name, hex, alphaPercent, luster });
+async function handleCustomColorAdded({ name, hex, alphaPercent, matte, metallic }) {
+  const created = await createCustomColor(appState.db, { beadTypeKey: appState.beadTypeKey, name, hex, alphaPercent, matte, metallic });
   appState.customColors.push(created);
 }
 
@@ -425,11 +428,11 @@ async function handleCustomColorRenamed(id, name) {
 }
 
 // Renamed from handleCustomColorHexChanged (.work/feature-bead-finish-effects-
-// mvp-plan.md) — Edit Color now covers alpha/luster too, not just hex.
-async function handleCustomColorAppearanceChanged(id, { hex, alphaPercent, luster }) {
+// mvp-plan.md) — Edit Color now covers alpha/finish too, not just hex.
+async function handleCustomColorAppearanceChanged(id, { hex, alphaPercent, matte, metallic }) {
   const color = appState.customColors.find((c) => c.id === id);
   if (!color) return;
-  const saved = await saveCustomColor(appState.db, { ...color, hex, alphaPercent, luster });
+  const saved = await saveCustomColor(appState.db, { ...color, hex, alphaPercent, matte, metallic });
   const idx = appState.customColors.findIndex((c) => c.id === id);
   appState.customColors[idx] = saved;
 }
@@ -898,6 +901,7 @@ async function boot() {
   await preloadIcons();
   mountIcons(); // static [data-icon] markup (top bar, tool rail, dialogs) — JS-built rows call createIcon() directly
   initLongPressTooltips();
+  installSwatchBackdrop();
 
   await attemptPreMigrationDriveBackup();
 

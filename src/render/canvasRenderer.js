@@ -1,6 +1,7 @@
 import { resolveGridEngine } from '../grid/gridEngine.js';
 import { worldToScreen, screenToWorld } from './viewport.js';
 import { paintBeadFill } from './beadFill.js';
+import { createCheckerTile, createBlurredCheckerTile } from './checkerboard.js';
 
 const CELL_STROKE_STYLE = '#000';
 const BACKGROUND_STYLE = '#fff';
@@ -34,14 +35,11 @@ const MISSING_COLOR_X_INSET_FRACTION = 0.22; // keeps the X inside the bead outl
 // Canvas background modes (.work/feature-bead-finish-effects-mvp-plan.md) — lets
 // a transparent bead be previewed against something other than white while
 // working. DOM swatches (palette, Manage Colors, picker preview) are
-// deliberately unaffected by this and always stay pinned to white (see
-// alphaOverWhite in colorConversion.js) — only the live pattern canvas itself
-// is configurable.
+// deliberately unaffected by this and always sit on their own checkerboard (see
+// swatchAppearance.js) — only the live pattern canvas itself is configurable.
 const DARK_BACKGROUND_STYLE = '#242424'; // a fixed dark neutral, not pure black —
 // pure black tends to make alpha-blended colors read as muddier/harder to judge
 // than a dark gray does.
-const CHECKERBOARD_LIGHT = '#ffffff';
-const CHECKERBOARD_DARK = '#cccccc';
 const CHECKERBOARD_TILE_PX = 12; // fixed screen-pixel size, not scaled by zoom —
 // this is an abstract "this is transparent" indicator (the standard
 // image-editor convention), not a to-scale rendering of anything physical, so
@@ -64,26 +62,28 @@ export function resolveCanvasBackgroundFillStyle({ mode, hex } = {}) {
 // practice today, but keying by ctx rather than assuming a singleton keeps
 // this correct if that ever changes.
 const checkerPatternCache = new WeakMap();
-function getCheckerPattern(ctx) {
-  let pattern = checkerPatternCache.get(ctx);
-  if (pattern) return pattern;
-  const tile = document.createElement('canvas');
-  tile.width = tile.height = CHECKERBOARD_TILE_PX * 2;
-  const tileCtx = tile.getContext('2d');
-  tileCtx.fillStyle = CHECKERBOARD_LIGHT;
-  tileCtx.fillRect(0, 0, tile.width, tile.height);
-  tileCtx.fillStyle = CHECKERBOARD_DARK;
-  tileCtx.fillRect(0, 0, CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX);
-  tileCtx.fillRect(CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX, CHECKERBOARD_TILE_PX);
-  pattern = ctx.createPattern(tile, 'repeat');
-  checkerPatternCache.set(ctx, pattern);
-  return pattern;
+function getCheckerPatterns(ctx) {
+  let patterns = checkerPatternCache.get(ctx);
+  if (patterns) return patterns;
+  patterns = {
+    crisp: ctx.createPattern(createCheckerTile(CHECKERBOARD_TILE_PX), 'repeat'),
+    // Same tile size and origin as the crisp one, so a Matte bead's blurred
+    // backdrop stays registered with the checkerboard around it.
+    blurred: ctx.createPattern(createBlurredCheckerTile(CHECKERBOARD_TILE_PX), 'repeat'),
+  };
+  checkerPatternCache.set(ctx, patterns);
+  return patterns;
 }
 
+// Returns what a Matte bead should show through its own color (see
+// paintBeadFill's matteBackdrop) — the blurred checkerboard, or null for a
+// flat background, where there is nothing for a blur to change.
 function paintCanvasBackground(ctx, cssWidth, cssHeight, canvasBackground) {
   const fillStyle = resolveCanvasBackgroundFillStyle(canvasBackground);
-  ctx.fillStyle = fillStyle === 'checkerboard' ? getCheckerPattern(ctx) : fillStyle;
+  const patterns = fillStyle === 'checkerboard' ? getCheckerPatterns(ctx) : null;
+  ctx.fillStyle = patterns ? patterns.crisp : fillStyle;
   ctx.fillRect(0, 0, cssWidth, cssHeight);
+  return patterns ? patterns.blurred : null;
 }
 
 // Syncs the canvas's backing-store resolution to its CSS size * devicePixelRatio
@@ -131,7 +131,7 @@ export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, 
   const { rows, cols, beadWidthMm, beadHeightMm } = gridParams;
   const engine = resolveGridEngine(gridParams.stitchType);
 
-  paintCanvasBackground(ctx, cssWidth, cssHeight, canvasBackground);
+  const matteBackdrop = paintCanvasBackground(ctx, cssWidth, cssHeight, canvasBackground);
 
   const topLeftMm = screenToWorld(0, 0, viewport);
   const bottomRightMm = screenToWorld(cssWidth, cssHeight, viewport);
@@ -171,7 +171,7 @@ export function drawGrid(ctx, cssWidth, cssHeight, gridParams, viewport, cells, 
         ctx.lineWidth = lineWidthPx;
 
         if (appearance) {
-          paintBeadFill(ctx, beadX, beadY, beadWidthPx, beadHeightPx, radiusPx, appearance);
+          paintBeadFill(ctx, beadX, beadY, beadWidthPx, beadHeightPx, radiusPx, appearance, matteBackdrop);
           if (showBeadOutlines) {
             ctx.beginPath();
             ctx.roundRect(beadX, beadY, beadWidthPx, beadHeightPx, radiusPx);

@@ -14,8 +14,9 @@
 // signal to hang a commit on.
 
 import {
-  hexToHsv, hsvToHex, isValidHex, normalizeHex, clamp01, hexToRgba, hsvToHsl, hslToHsv, hslToHex,
+  hexToHsv, hsvToHex, isValidHex, normalizeHex, clamp01, hsvToHsl, hslToHsv, hslToHex,
 } from '../palette/colorConversion.js';
+import { applySwatchAppearance } from './swatchAppearance.js';
 
 // Wires pointer-driven dragging on `el` (mouse, touch, and pen all go through
 // the same Pointer Events path — consistent with the rest of this app's
@@ -54,15 +55,15 @@ function clampHueDeg(value) {
   return Math.min(360, Math.max(0, value));
 }
 
-// Resolves with { hex, name, alphaPercent, luster } on confirm when
-// showAppearanceControls is true (alphaPercent/luster included; name omitted
+// Resolves with { hex, name, alphaPercent, matte, metallic } on confirm when
+// showAppearanceControls is true (alphaPercent/matte/metallic included; name omitted
 // when showNameField is false), or plain { hex, name? } when
 // showAppearanceControls is false — the original, pre-finish-effects shape,
 // unchanged for any caller that just wants a hex (e.g. the canvas-background
 // custom-color picker). Resolves null on cancel/Esc.
 export function promptColorPicker({
   initialHex = '#ff0000', title, confirmLabel, showNameField = false, initialName = '',
-  showAppearanceControls = true, initialAlphaPercent = 100, initialLuster = 'matte',
+  showAppearanceControls = true, initialAlphaPercent = 100, initialMatte = false, initialMetallic = false,
   initialMode = 'hsv', onModeChanged,
 } = {}) {
   return new Promise((resolve) => {
@@ -89,15 +90,17 @@ export function promptColorPicker({
     const appearanceEl = document.getElementById('color-picker-appearance');
     const opacityRange = document.getElementById('color-picker-opacity-range');
     const opacityValueLabel = document.getElementById('color-picker-opacity-value');
-    const lusterMatteButton = document.getElementById('color-picker-luster-matte');
-    const lusterShinyButton = document.getElementById('color-picker-luster-shiny');
+    const finishMatteButton = document.getElementById('color-picker-finish-matte');
+    const finishMetallicButton = document.getElementById('color-picker-finish-metallic');
     const nameInput = document.getElementById('color-picker-name-input');
     const cancelButton = document.getElementById('color-picker-cancel');
     const confirmButton = document.getElementById('color-picker-confirm');
 
     let hsv = hexToHsv(isValidHex(initialHex) ? normalizeHex(initialHex) : '#ff0000');
     let alphaPercent = clamp01(initialAlphaPercent / 100) * 100;
-    let luster = initialLuster === 'shiny' ? 'shiny' : 'matte';
+    // Independent of each other — neither, either, or both.
+    let matte = initialMatte === true;
+    let metallic = initialMetallic === true;
     let mode = initialMode === 'hsl' ? 'hsl' : 'hsv';
     // HSL's own saturation is mathematically meaningless at l=0 (black) or
     // l=1 (white) — hslToHsv collapses ANY s to hsv.s=0 there, since no s
@@ -124,10 +127,9 @@ export function promptColorPicker({
       opacityValueLabel.textContent = `${Math.round(alphaPercent)}%`;
     }
 
-    function updateLusterButtons() {
-      lusterMatteButton.setAttribute('aria-pressed', String(luster === 'matte'));
-      lusterShinyButton.setAttribute('aria-pressed', String(luster === 'shiny'));
-      swatchEl.classList.toggle('swatch-shiny', luster === 'shiny');
+    function updateFinishButtons() {
+      finishMatteButton.setAttribute('aria-pressed', String(matte));
+      finishMetallicButton.setAttribute('aria-pressed', String(metallic));
     }
 
     // Re-derives every control (SV square, hue bar, HSL sliders, hex field,
@@ -141,14 +143,9 @@ export function promptColorPicker({
       svThumb.style.left = `${hsv.s * 100}%`;
       svThumb.style.top = `${(1 - hsv.v) * 100}%`;
       hueThumb.style.left = `${(hsv.h / 360) * 100}%`;
-      // A real translucent fill (not alphaOverWhite's precomposited-against-
-      // white opaque hex, used everywhere else a swatch appears) — this is
-      // the one DOM swatch in the app that owns its own fixed backdrop (the
-      // checkerboard set in CSS, layered underneath via --swatch-fill), so
-      // unlike a palette/Manage-Colors swatch sitting on an unpredictable
-      // ambient background, true alpha compositing here is safe and is the
-      // whole point (it's what actually shows the checkerboard through).
-      swatchEl.style.setProperty('--swatch-fill', hexToRgba(hex, alphaPercent));
+      // The same live preview every palette swatch gets — real translucent
+      // fill over the swatch's own checkerboard, plus the finish.
+      applySwatchAppearance(swatchEl, { hex, alphaPercent, matte, metallic });
 
       const hsl = hsvToHsl(hsv);
       const atSaturationExtreme = hsl.l <= 0 || hsl.l >= 1;
@@ -294,13 +291,15 @@ export function promptColorPicker({
       updateOpacityLabel();
       render();
     }
-    function handleLusterMatte() {
-      luster = 'matte';
-      updateLusterButtons();
+    function handleFinishMatte() {
+      matte = !matte;
+      updateFinishButtons();
+      render();
     }
-    function handleLusterShiny() {
-      luster = 'shiny';
-      updateLusterButtons();
+    function handleFinishMetallic() {
+      metallic = !metallic;
+      updateFinishButtons();
+      render();
     }
 
     function cleanup() {
@@ -319,8 +318,8 @@ export function promptColorPicker({
       hexInput.removeEventListener('input', handleHexInput);
       hexInput.removeEventListener('blur', handleHexBlur);
       opacityRange.removeEventListener('input', handleOpacityRangeInput);
-      lusterMatteButton.removeEventListener('click', handleLusterMatte);
-      lusterShinyButton.removeEventListener('click', handleLusterShiny);
+      finishMatteButton.removeEventListener('click', handleFinishMatte);
+      finishMetallicButton.removeEventListener('click', handleFinishMetallic);
       cancelButton.removeEventListener('click', onCancel);
       closeButton.removeEventListener('click', onCancel);
       confirmButton.removeEventListener('click', onConfirm);
@@ -344,12 +343,12 @@ export function promptColorPicker({
         }
         cleanup();
         dialog.close();
-        resolve(showAppearanceControls ? { hex: currentHex(), name, alphaPercent, luster } : { hex: currentHex(), name });
+        resolve(showAppearanceControls ? { hex: currentHex(), name, alphaPercent, matte, metallic } : { hex: currentHex(), name });
         return;
       }
       cleanup();
       dialog.close();
-      resolve(showAppearanceControls ? { hex: currentHex(), alphaPercent, luster } : { hex: currentHex() });
+      resolve(showAppearanceControls ? { hex: currentHex(), alphaPercent, matte, metallic } : { hex: currentHex() });
     }
 
     function onNameKeydown(e) {
@@ -374,8 +373,8 @@ export function promptColorPicker({
     hexInput.addEventListener('input', handleHexInput);
     hexInput.addEventListener('blur', handleHexBlur);
     opacityRange.addEventListener('input', handleOpacityRangeInput);
-    lusterMatteButton.addEventListener('click', handleLusterMatte);
-    lusterShinyButton.addEventListener('click', handleLusterShiny);
+    finishMatteButton.addEventListener('click', handleFinishMatte);
+    finishMetallicButton.addEventListener('click', handleFinishMetallic);
     cancelButton.addEventListener('click', onCancel);
     closeButton.addEventListener('click', onCancel);
     confirmButton.addEventListener('click', onConfirm);
@@ -383,7 +382,7 @@ export function promptColorPicker({
     dialog.addEventListener('cancel', onCancel);
 
     updateOpacityLabel();
-    updateLusterButtons();
+    updateFinishButtons();
     updateModeButtons();
     render();
     dialog.showModal();

@@ -1,8 +1,9 @@
 // Shared bead-fill painter for canvasRenderer.js's drawGrid and
 // thumbnailRenderer.js's renderThumbnailDataUrl — both used to duplicate a flat
-// `ctx.fillStyle = hex; ctx.fill()`. This is where transparency (alphaPercent)
-// and a shiny luster's highlight are actually painted (.work/feature-bead-
-// finish-effects-mvp-plan.md). Outline stroking and the missing-color X marker
+// `ctx.fillStyle = hex; ctx.fill()`. This is where transparency (alphaPercent),
+// a Matte finish's frosted backdrop, and a Metallic finish's highlight are
+// actually painted (.work/feature-bead-finish-effects-mvp-plan.md). Matte and
+// Metallic are independent — a bead can have neither, either, or both. Outline stroking and the missing-color X marker
 // stay in each caller, since neither depends on finish.
 //
 // The shine design below is the final result of several rejected approaches
@@ -42,14 +43,25 @@ const PEAK_FADE_STEPS = 8; // resolution of the manually-added stops approximati
 
 // Paints only the fill — outline stroking and the missing-color X marker stay
 // in each caller (canvasRenderer.js), since neither depends on finish.
-export function paintBeadFill(ctx, x, y, w, h, radiusPx, appearance) {
-  const { hex, alphaPercent, luster } = appearance;
+//
+// matteBackdrop is what a Matte bead shows through its own color in place of
+// whatever is really behind it: a pre-blurred copy of the canvas background
+// (see checkerboard.js), filled into the bead's own crisp path. The caller
+// passes it only when the background has texture to blur — against a flat
+// background a blur changes nothing, so null (the default) skips the step and
+// Matte is simply invisible there, as it is on a fully opaque bead.
+export function paintBeadFill(ctx, x, y, w, h, radiusPx, appearance, matteBackdrop = null) {
+  const { hex, alphaPercent, matte, metallic } = appearance;
   ctx.beginPath();
   ctx.roundRect(x, y, w, h, radiusPx);
+  if (matte && matteBackdrop && alphaPercent < 100) {
+    ctx.fillStyle = matteBackdrop;
+    ctx.fill();
+  }
   ctx.fillStyle = hexToRgba(hex, alphaPercent);
   ctx.fill();
 
-  if (luster === 'shiny') {
+  if (metallic) {
     paintShineCap(ctx, x, y, w, h, radiusPx);
   }
 }
