@@ -20,6 +20,23 @@ html, body {
   background-color: #f2f2f2;
 }
 
+/* iPadOS 26+ draws a blurred "scroll pocket" over whatever web content sits
+   under the status bar; matching the page background (above) only recolored
+   it. WebKit skips that blur on an edge where a viewport-fixed, opaque element
+   is pinned — it extends that element's color instead — so this strip exists
+   purely to be that element. Zero-height wherever there is no top inset.
+   Deliberately no `pointer-events: none`: WebKit finds the edge element by
+   hit-testing, and nothing tappable lives under the status bar anyway. */
+#status-bar-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: env(safe-area-inset-top);
+  background-color: #f2f2f2;
+  z-index: 5;
+}
+
 /* Author-stylesheet `display` rules below (e.g. #library-view/#editor-view's
    `display: flex`) otherwise silently defeat the `hidden` attribute — the UA
    stylesheet's `[hidden] { display: none }` loses to *any* author rule setting
@@ -2418,6 +2435,7 @@ input[type="range"]::-moz-range-thumb {
 @media print {
   #library-view,
   #editor-view,
+  #status-bar-backdrop,
   #print-toolbar,
   #toast,
   .print-warning-screen-only {
