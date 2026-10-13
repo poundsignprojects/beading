@@ -26,13 +26,17 @@ html, body {
    is pinned — it extends that element's color instead — so this strip exists
    purely to be that element. Zero-height wherever there is no top inset.
    Deliberately no `pointer-events: none`: WebKit finds the edge element by
-   hit-testing, and nothing tappable lives under the status bar anyway. */
+   hit-testing, and nothing tappable lives under the status bar anyway.
+   The extra 6px below the inset is in case WebKit samples just BELOW the
+   status bar rather than at the screen's own top edge — a strip ending
+   exactly at the inset would miss that. It only ever covers the bars' own
+   same-colored top padding (8px minimum). */
 #status-bar-backdrop {
   position: fixed;
   top: 0;
   left: 0;
   right: 0;
-  height: env(safe-area-inset-top);
+  height: calc(env(safe-area-inset-top) + 6px);
   background-color: #f2f2f2;
   z-index: 5;
 }
