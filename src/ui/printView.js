@@ -8,6 +8,8 @@ import { stitchTypeDetailLabel } from '../grid/gridEngine.js';
 import { formatLength } from '../units/convert.js';
 import { buildWordChart, displayRuns, isRowReversed, UNASSIGNED, firstOccupiedRow, clampStartRow, primaryLabelForRow, rowForLabel, startsOnSecondLine, maxStartLabel, clampStartLabel } from '../export/wordChart.js';
 import { assignColorCodes } from '../export/colorCodes.js';
+import { buildPrintPdf } from '../export/printPdf.js';
+import { deflateBytes } from '../export/pdfWriter.js';
 import { MISSING_COLOR_FALLBACK_HEX, resolveSwatchAppearance } from '../palette/colorLibrary.js';
 import { findStashShortfalls } from '../palette/stashCheck.js';
 import { renderThumbnailDataUrl } from '../render/thumbnailRenderer.js';
@@ -43,13 +45,49 @@ function referenceImageTargetSizePx(boundingBoxMm) {
   return Math.min(actualSizePx, PRINT_REFERENCE_IMAGE_MAX_SIZE_PX);
 }
 
+// The PDF version of the printout (see handlePrint) places the reference image
+// by physical size, so its pixels only set how sharp it prints.
+const PDF_REFERENCE_IMAGE_DPI = 300;
+const PT_PER_MM = 72 / 25.4;
+const PT_PER_CSS_PX = 72 / 96;
+
+// window.print() silently does nothing in an iOS/iPadOS 27 home-screen web app
+// (no print sheet, no error) while the same page prints fine in a Safari tab.
+// navigator.standalone is Safari's own flag for exactly that mode and is
+// undefined everywhere else, so nothing changes for Safari tabs or the Mac.
+function isIosHomeScreenApp() {
+  return typeof navigator !== 'undefined' && navigator.standalone === true;
+}
+
+function pdfFileName(designName) {
+  const safeName = designName.replace(/[\\/:*?"<>|]/g, '-').trim();
+  return `${safeName || 'Bead pattern'}.pdf`;
+}
+
 function resolveSwatch(customColors, colorId) {
   return customColors.find((swatch) => swatch.id === colorId);
 }
 
-function buildHeader(appState, designName) {
+// The two lines under the title. Shared with the PDF version of the printout
+// (buildPrintPdf), like the other *Text helpers below.
+function headerInfoLines(appState) {
   const bead = findBeadType(appState.beadCatalog, appState.beadTypeKey);
   const { widthMm, heightMm } = appState.gridParams.boundingBoxMm;
+  return [
+    `${bead.name}, ${stitchTypeDetailLabel(appState.stitchType, appState.dropCount)} — ${appState.rows} rows × ${appState.cols} cols`,
+    `Finished size: ${formatLength(widthMm, 'mm')} × ${formatLength(heightMm, 'mm')} (${formatLength(widthMm, 'in')} × ${formatLength(heightMm, 'in')})`,
+  ];
+}
+
+const NOTHING_PLACED_TEXT = 'No beads placed yet — nothing to print.';
+const ONLY_HIDDEN_BEADS_TEXT = 'No visible beads to print — the only placed beads are on the hidden layer(s) above.';
+
+function unassignedWarningText(chart) {
+  return `${chart.unassignedCount} bead${chart.unassignedCount === 1 ? '' : 's'} in this colorway have no color assigned yet.`;
+}
+
+function buildHeader(appState, designName) {
+  const [specText, sizeText] = headerInfoLines(appState);
 
   const header = document.createElement('header');
   header.id = 'print-header';
@@ -60,10 +98,10 @@ function buildHeader(appState, designName) {
   if (title) title.textContent = designName;
 
   const specLine = document.createElement('p');
-  specLine.textContent = `${bead.name}, ${stitchTypeDetailLabel(appState.stitchType, appState.dropCount)} — ${appState.rows} rows × ${appState.cols} cols`;
+  specLine.textContent = specText;
 
   const sizeLine = document.createElement('p');
-  sizeLine.textContent = `Finished size: ${formatLength(widthMm, 'mm')} × ${formatLength(heightMm, 'mm')} (${formatLength(widthMm, 'in')} × ${formatLength(heightMm, 'in')})`;
+  sizeLine.textContent = sizeText;
 
   // .append(null) would stringify to a literal "null" text node, so filter
   // out the title when there isn't one instead of passing it through.
@@ -85,7 +123,7 @@ function buildMaterials(chart, codes, customColors, hiddenLayerNames) {
   if (chart.totalBeadCount === 0 && hiddenLayerNames.length === 0) {
     const empty = document.createElement('p');
     empty.className = 'print-empty-message';
-    empty.textContent = 'No beads placed yet — nothing to print.';
+    empty.textContent = NOTHING_PLACED_TEXT;
     section.append(empty);
     return section;
   }
@@ -109,7 +147,7 @@ function buildMaterials(chart, codes, customColors, hiddenLayerNames) {
   if (chart.totalBeadCount === 0) {
     const empty = document.createElement('p');
     empty.className = 'print-empty-message';
-    empty.textContent = 'No visible beads to print — the only placed beads are on the hidden layer(s) above.';
+    empty.textContent = ONLY_HIDDEN_BEADS_TEXT;
     section.append(empty);
     return section;
   }
@@ -117,7 +155,7 @@ function buildMaterials(chart, codes, customColors, hiddenLayerNames) {
   if (chart.unassignedCount > 0) {
     const warning = document.createElement('p');
     warning.className = 'print-warning';
-    warning.textContent = `⚠ ${chart.unassignedCount} bead${chart.unassignedCount === 1 ? '' : 's'} in this colorway have no color assigned yet.`;
+    warning.textContent = `⚠ ${unassignedWarningText(chart)}`;
     section.append(warning);
   }
 
@@ -167,6 +205,13 @@ function formatRun(run, codes) {
   return `${run.count}${codes.get(run.colorId)}`;
 }
 
+// Keyed off the row's own number(s), not its position in the list — a
+// combined line shifts every later line's position by one.
+function isTenthRow(chartRow) {
+  const rowNumbers = chartRow.rowLabel.match(/\d+/g) ?? [];
+  return rowNumbers.some((n) => Number(n) % 10 === 0);
+}
+
 function buildChart(chart, codes, startsReversed) {
   const section = document.createElement('section');
   section.id = 'print-chart';
@@ -183,10 +228,7 @@ function buildChart(chart, codes, startsReversed) {
     const line = document.createElement('div');
     line.className = 'word-chart-row';
     if (chartRow.isStartRow) line.classList.add('word-chart-row-start');
-    // Keyed off the row's own number(s), not its position in the list — a
-    // combined line shifts every later line's position by one.
-    const rowNumbers = chartRow.rowLabel.match(/\d+/g) ?? [];
-    if (rowNumbers.some((n) => Number(n) % 10 === 0)) line.classList.add('word-chart-row-tenth');
+    if (isTenthRow(chartRow)) line.classList.add('word-chart-row-tenth');
     line.textContent = `${chartRow.rowLabel} ${direction}: ${runText}`;
     section.append(line);
   }
@@ -233,6 +275,66 @@ function buildReferenceImageSection(dataUrl) {
   return section;
 }
 
+// The same content renderContent() puts on screen, as the plain model
+// buildPrintPdf lays out. hiddenLayerNames only matters here for telling the
+// two empty states apart — the hidden-layer warning itself is screen-only.
+function buildPdfModel({ appState, designName, chart, codes, startsReversed, hiddenLayerNames, referenceImage }) {
+  const isEmpty = chart.totalBeadCount === 0;
+  return {
+    title: designName,
+    infoLines: headerInfoLines(appState),
+    emptyMessage: isEmpty ? (hiddenLayerNames.length > 0 ? ONLY_HIDDEN_BEADS_TEXT : NOTHING_PLACED_TEXT) : null,
+    warning: chart.unassignedCount > 0 ? unassignedWarningText(chart) : null,
+    materials: chart.colorCounts.map(({ colorId, count }) => {
+      const swatch = resolveSwatch(appState.customColors, colorId);
+      return { code: codes.get(colorId), hex: swatch?.hex ?? MISSING_COLOR_FALLBACK_HEX, name: swatch?.name ?? String(colorId), count };
+    }),
+    totalBeadCount: chart.totalBeadCount,
+    chartLines: isEmpty ? [] : chart.rows.map((chartRow) => ({
+      label: chartRow.rowLabel,
+      reversed: isRowReversed(chartRow, startsReversed),
+      runs: displayRuns(chartRow, startsReversed).map((run) => formatRun(run, codes)),
+      bold: isTenthRow(chartRow),
+      isStart: chartRow.isStartRow,
+    })),
+    referenceImage,
+  };
+}
+
+// The pattern snapshot as buildPrintPdf wants it: deflated RGB pixels plus the
+// size to print it at — true physical size, capped like the on-screen version.
+async function prepareReferenceImageForPdf(gridParams, cells, resolveColor, cornerRadiusFraction) {
+  const { widthMm, heightMm } = gridParams.boundingBoxMm;
+  const longerSidePt = Math.min(Math.max(widthMm, heightMm) * PT_PER_MM, PRINT_REFERENCE_IMAGE_MAX_SIZE_PX * PT_PER_CSS_PX);
+  // renderThumbnailDataUrl multiplies its size by devicePixelRatio itself.
+  const targetPx = (longerSidePt / 72) * PDF_REFERENCE_IMAGE_DPI / (window.devicePixelRatio || 1);
+  const image = new Image();
+  image.src = renderThumbnailDataUrl(gridParams, cells, resolveColor, targetPx, cornerRadiusFraction);
+  await image.decode();
+
+  const canvas = document.createElement('canvas');
+  canvas.width = image.naturalWidth;
+  canvas.height = image.naturalHeight;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(image, 0, 0);
+  const rgba = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  const rgb = new Uint8Array((rgba.length / 4) * 3);
+  for (let i = 0, j = 0; i < rgba.length; i += 4, j += 3) {
+    rgb[j] = rgba[i];
+    rgb[j + 1] = rgba[i + 1];
+    rgb[j + 2] = rgba[i + 2];
+  }
+
+  const ptPerPx = longerSidePt / Math.max(canvas.width, canvas.height);
+  return {
+    widthPx: canvas.width,
+    heightPx: canvas.height,
+    data: await deflateBytes(rgb),
+    widthPt: canvas.width * ptPerPx,
+    heightPt: canvas.height * ptPerPx,
+  };
+}
+
 export function mountPrintView(appState, hooks) {
   const printViewEl = document.getElementById('print-view');
   const contentEl = document.getElementById('print-content');
@@ -269,15 +371,31 @@ export function mountPrintView(appState, hooks) {
   // Independent of startRow below — the reference image is a full-pattern
   // snapshot, not scoped to whichever rows the printed instructions start at.
   const designHasContent = displayCells.size > 0;
+  const resolveReferenceColor = (colorId) => resolveSwatchAppearance(appState.customColors, colorId);
+  const referenceCornerRadiusFraction = findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0;
   const referenceImageDataUrl = designHasContent
     ? renderThumbnailDataUrl(
         appState.gridParams,
         displayCells,
-        (colorId) => resolveSwatchAppearance(appState.customColors, colorId),
+        resolveReferenceColor,
         referenceImageTargetSizePx(appState.gridParams.boundingBoxMm),
-        findBeadType(appState.beadCatalog, appState.beadTypeKey)?.cornerRadiusFraction ?? 0
+        referenceCornerRadiusFraction
       )
     : null;
+
+  // Prepared now rather than when Print is tapped: navigator.share only works
+  // while the tap still counts as a user gesture, and waiting on this inside
+  // the tap handler can use that up. A failure just leaves the image out.
+  let pdfReferenceImage = null;
+  let pdfReferenceImageSettled = true;
+  let pdfReferenceImagePromise = null;
+  if (isIosHomeScreenApp() && designHasContent) {
+    pdfReferenceImageSettled = false;
+    pdfReferenceImagePromise = prepareReferenceImageForPdf(appState.gridParams, displayCells, resolveReferenceColor, referenceCornerRadiusFraction)
+      .then((image) => { pdfReferenceImage = image; })
+      .catch(() => {})
+      .finally(() => { pdfReferenceImageSettled = true; });
+  }
 
   // The field itself is read/shown against the chart's own fixed, unchanging
   // label numbers (primaryLabelForRow/rowForLabel), not a raw physical-row
@@ -335,7 +453,56 @@ export function mountPrintView(appState, hooks) {
   }
 
   function handlePrint() {
-    window.print();
+    if (isIosHomeScreenApp()) {
+      sharePrintoutAsPdf();
+    } else {
+      window.print();
+    }
+  }
+  // The home-screen app's route to a printer: the printout as a PDF, handed
+  // to the iOS share sheet, which has Print in it. The file exists only in
+  // memory — nothing is saved unless a share-sheet action saves it.
+  async function sharePrintoutAsPdf() {
+    const includeReferenceImage = designHasContent && appState.preferences.printIncludeReferenceImage !== false;
+    // Only awaits in the rare case Print is tapped before the image is ready;
+    // otherwise everything up to navigator.share runs inside the tap itself.
+    if (includeReferenceImage && !pdfReferenceImageSettled) await pdfReferenceImagePromise;
+
+    let file;
+    try {
+      const bytes = buildPrintPdf(buildPdfModel({
+        appState,
+        designName,
+        chart,
+        codes,
+        startsReversed: appState.preferences.printStartDirection === 'left',
+        hiddenLayerNames,
+        referenceImage: includeReferenceImage ? pdfReferenceImage : null,
+      }));
+      file = new File([bytes], pdfFileName(designName), { type: 'application/pdf' });
+    } catch (err) {
+      showToast(`Couldn't build the printout: ${err.message}`);
+      return;
+    }
+
+    try {
+      if (!navigator.canShare?.({ files: [file] })) throw new Error('File sharing is not available');
+      await navigator.share({ files: [file] });
+    } catch (err) {
+      if (err.name === 'AbortError') return; // share sheet dismissed
+      if (err.name === 'NotAllowedError') {
+        showToast('The share sheet did not open. Tap Print again.');
+        return;
+      }
+      // No share sheet at all: hand the PDF over as a download instead, so it
+      // can still be opened and printed from there.
+      const url = URL.createObjectURL(file);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = file.name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }
   }
   function handleClose() {
     unmount();
