@@ -83,7 +83,29 @@ test('tenth rows use the bold chart font and the start row gets a bullet', () =>
   ];
   const text = latin1(buildPrintPdf(model({ chartLines })));
   const hex = (s) => Buffer.from(s, 'latin1').toString('hex');
-  assert.match(text, new RegExp(`/F3 10 Tf [^\\n]*<${hex('Row 9  : 4A')}>`));
-  assert.match(text, new RegExp(`/F4 10 Tf [^\\n]*<${hex('Row 10  : 4A')}>`));
+  assert.match(text, new RegExp(`/F3 9 Tf [^\\n]*<${hex('Row 9  : 4A')}>`));
+  assert.match(text, new RegExp(`/F4 9 Tf [^\\n]*<${hex('Row 10  : 4A')}>`));
   assert.equal((text.match(/<95> Tj/g) ?? []).length, 1);
+});
+
+const mediaBox = (bytes) => latin1(bytes).match(/\/MediaBox \[0 0 (\S+) (\S+)\]/).slice(1).map(Number);
+const longChart = (n) => Array.from({ length: n }, (_, i) => ({ label: `Row ${i + 1}`, reversed: i % 2 === 1, runs: ['4A'], bold: false, isStart: i === 0 }));
+// x of every Courier text draw, in PDF coordinates.
+const chartTextXs = (bytes) => [...latin1(bytes).matchAll(/\/F[34] 9 Tf [^\n]*? rg (\S+) \S+ Td/g)].map((m) => Number(m[1]));
+
+test('the landscape layout is a landscape page', () => {
+  assert.deepEqual(mediaBox(buildPrintPdf(model(), { layout: 'landscape' })), [792, 612]);
+  assert.deepEqual(mediaBox(buildPrintPdf(model())), [612, 792]);
+});
+
+test('the landscape layout fills a second column before starting a new page', () => {
+  const bytes = buildPrintPdf(model({ chartLines: longChart(60) }), { layout: 'landscape' });
+  assert.equal(pageCount(bytes), 1);
+  const xs = new Set(chartTextXs(bytes));
+  assert.equal(xs.size, 2);
+});
+
+test('the landscape layout fits more chart rows per sheet than portrait does per page', () => {
+  const lines = longChart(300);
+  assert.ok(pageCount(buildPrintPdf(model({ chartLines: lines }), { layout: 'landscape' })) < pageCount(buildPrintPdf(model({ chartLines: lines }))));
 });

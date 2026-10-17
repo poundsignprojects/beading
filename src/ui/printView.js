@@ -251,6 +251,10 @@ function directionToggleLabel(startsReversed) {
   return startsReversed ? 'Start: Left' : 'Start: Right';
 }
 
+function layoutToggleLabel(layout) {
+  return layout === 'landscape' ? 'Layout: Landscape, 2 Columns' : 'Layout: Portrait';
+}
+
 function referenceImageToggleLabel(included) {
   return included ? 'Reference Image: On' : 'Reference Image: Off';
 }
@@ -343,6 +347,7 @@ export function mountPrintView(appState, hooks) {
   const startRowInput = document.getElementById('print-start-row');
   const directionToggleButton = document.getElementById('print-start-direction-toggle');
   const referenceImageToggleButton = document.getElementById('print-reference-image-toggle');
+  const layoutToggleButton = document.getElementById('print-layout-toggle');
 
   const designName = appState.designs.find((d) => d.id === appState.currentDesignId)?.name ?? '';
 
@@ -436,6 +441,11 @@ export function mountPrintView(appState, hooks) {
     const startsReversed = appState.preferences.printStartDirection === 'left';
     directionToggleButton.textContent = directionToggleLabel(startsReversed);
 
+    // Only the PDF has a layout choice, and only the home-screen app prints
+    // through the PDF — anywhere else the toggle would do nothing.
+    layoutToggleButton.hidden = !isIosHomeScreenApp();
+    layoutToggleButton.textContent = layoutToggleLabel(appState.preferences.printPdfLayout);
+
     referenceImageToggleButton.hidden = !designHasContent;
     const includeReferenceImage = designHasContent && appState.preferences.printIncludeReferenceImage !== false;
     referenceImageToggleButton.textContent = referenceImageToggleLabel(includeReferenceImage);
@@ -478,7 +488,7 @@ export function mountPrintView(appState, hooks) {
         startsReversed: appState.preferences.printStartDirection === 'left',
         hiddenLayerNames,
         referenceImage: includeReferenceImage ? pdfReferenceImage : null,
-      }));
+      }), { layout: appState.preferences.printPdfLayout === 'landscape' ? 'landscape' : 'portrait' });
       file = new File([bytes], pdfFileName(designName), { type: 'application/pdf' });
     } catch (err) {
       showToast(`Couldn't build the printout: ${err.message}`);
@@ -524,6 +534,11 @@ export function mountPrintView(appState, hooks) {
     await hooks.onPreferencesChanged({ printStartDirection: next });
     renderContent();
   }
+  async function handleLayoutToggle() {
+    const next = appState.preferences.printPdfLayout === 'landscape' ? 'portrait' : 'landscape';
+    await hooks.onPreferencesChanged({ printPdfLayout: next });
+    renderContent();
+  }
   async function handleReferenceImageToggle() {
     const next = !(appState.preferences.printIncludeReferenceImage !== false);
     await hooks.onPreferencesChanged({ printIncludeReferenceImage: next });
@@ -535,6 +550,7 @@ export function mountPrintView(appState, hooks) {
   startRowInput.addEventListener('change', handleStartRowChange);
   directionToggleButton.addEventListener('click', handleDirectionToggle);
   referenceImageToggleButton.addEventListener('click', handleReferenceImageToggle);
+  layoutToggleButton.addEventListener('click', handleLayoutToggle);
 
   renderContent();
   printViewEl.hidden = false;
@@ -552,6 +568,7 @@ export function mountPrintView(appState, hooks) {
     startRowInput.removeEventListener('change', handleStartRowChange);
     directionToggleButton.removeEventListener('click', handleDirectionToggle);
     referenceImageToggleButton.removeEventListener('click', handleReferenceImageToggle);
+    layoutToggleButton.removeEventListener('click', handleLayoutToggle);
   }
 
   return { unmount };
